@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  forge:
+    name: Forge tests (111/111)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Cache forge
+        uses: actions/cache@v4
+        with:
+          path: |
+            contracts/cache
+            contracts/out
+          key: forge-${{ runner.os }}-${{ hashFiles('contracts/foundry.toml', 'contracts/src/**', 'contracts/test/**') }}
+
+      - name: forge build
+        run: forge build --sizes
+
+      - name: forge test
+        run: forge test -vv --no-match-test invariant
+
+  validate-pixels:
+    name: Pixel byte-equality (Python <-> chain ciphertext)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools
+    needs: forge
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nargo + bb (for helper-circuit ECIES keystream gen)
+        run: |
+          curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+          export PATH="$HOME/.nargo/bin:$PATH"
+          noirup --version 1.0.0-beta.19
+          curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/master/barretenberg/bbup/install | bash
+          export PATH="$HOME/.bb:$PATH"
+          bbup --version 1.4.0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: validate_pixels.py
+        run: |
+          export PATH="$HOME/.nargo/bin:$HOME/.bb:$PATH"
+          python3 validate_pixels.py

@@ -1,0 +1,6 @@
+[package]
+name = "shadow_t10"
+type = "bin"
+authors = [""]
+
+[dependencies]

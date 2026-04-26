@@ -1,0 +1,7 @@
+# Cryptography
+pycryptodome>=3.20
+
+# Image processing (mint pipeline + renderer)
+opencv-python>=4.10
+numpy>=1.26
+Pillow>=10.4

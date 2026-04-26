@@ -1,0 +1,3 @@
+[package]
+name = "landmark_regions"
+type = "bin"

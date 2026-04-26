@@ -1,0 +1,419 @@
+{
+  "grid": [
+    {
+      "file": "s100_smile_+3.png",
+      "seed": 100,
+      "trait": "smile",
+      "level": 3
+    },
+    {
+      "file": "s101_neutral.png",
+      "seed": 101,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s102_neutral.png",
+      "seed": 102,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s103_neutral.png",
+      "seed": 103,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s104_neutral.png",
+      "seed": 104,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s105_neutral.png",
+      "seed": 105,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s106_neutral.png",
+      "seed": 106,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s107_neutral.png",
+      "seed": 107,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s108_neutral.png",
+      "seed": 108,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s109_neutral.png",
+      "seed": 109,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s110_neutral.png",
+      "seed": 110,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s111_neutral.png",
+      "seed": 111,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s112_neutral.png",
+      "seed": 112,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s113_neutral.png",
+      "seed": 113,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s114_neutral.png",
+      "seed": 114,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s115_neutral.png",
+      "seed": 115,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s116_neutral.png",
+      "seed": 116,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s117_neutral.png",
+      "seed": 117,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s118_neutral.png",
+      "seed": 118,
+      "trait": "neutral",
+      "level": 0
+    },
+    {
+      "file": "s119_neutral.png",
+      "seed": 119,
+      "trait": "neutral",
+      "level": 0
+    }
+  ],
+  "random": [
+    {
+      "file": "rand_0000.png",
+      "seed": 1000,
+      "traits": {
+        "age": -0.75,
+        "gender": 2.7,
+        "smile": 1.39,
+        "pose": 0.59
+      }
+    },
+    {
+      "file": "rand_0001.png",
+      "seed": 1001,
+      "traits": {
+        "age": -2.06,
+        "gender": -2.06,
+        "smile": -2.65,
+        "pose": 2.2
+      }
+    },
+    {
+      "file": "rand_0002.png",
+      "seed": 1002,
+      "traits": {
+        "age": 0.61,
+        "gender": 1.25,
+        "smile": -2.88,
+        "pose": 2.82
+      }
+    },
+    {
+      "file": "rand_0003.png",
+      "seed": 1003,
+      "traits": {
+        "age": 1.99,
+        "gender": -1.73,
+        "smile": -1.91,
+        "pose": -1.9
+      }
+    },
+    {
+      "file": "rand_0004.png",
+      "seed": 1004,
+      "traits": {
+        "age": -1.17,
+        "gender": 0.15,
+        "smile": -0.41,
+        "pose": -1.25
+      }
+    },
+    {
+      "file": "rand_0005.png",
+      "seed": 1005,
+      "traits": {
+        "age": 0.67,
+        "gender": -2.16,
+        "smile": -1.25,
+        "pose": -0.8
+      }
+    },
+    {
+      "file": "rand_0006.png",
+      "seed": 1006,
+      "traits": {
+        "age": -0.26,
+        "gender": 1.71,
+        "smile": -1.8,
+        "pose": 0.09
+      }
+    },
+    {
+      "file": "rand_0007.png",
+      "seed": 1007,
+      "traits": {
+        "age": 0.55,
+        "gender": -2.72,
+        "smile": 0.65,
+        "pose": -1.98
+      }
+    },
+    {
+      "file": "rand_0008.png",
+      "seed": 1008,
+      "traits": {
+        "age": -2.61,
+        "gender": 2.69,
+        "smile": 2.79,
+        "pose": 1.85
+      }
+    },
+    {
+      "file": "rand_0009.png",
+      "seed": 1009,
+      "traits": {
+        "age": -1.17,
+        "gender": -2.41,
+        "smile": 1.11,
+        "pose": -0.36
+      }
+    },
+    {
+      "file": "rand_0010.png",
+      "seed": 1010,
+      "traits": {
+        "age": -2.27,
+        "gender": -0.03,
+        "smile": -2.79,
+        "pose": 2.46
+      }
+    },
+    {
+      "file": "rand_0011.png",
+      "seed": 1011,
+      "traits": {
+        "age": -1.45,
+        "gender": 0.98,
+        "smile": -1.13,
+        "pose": 0.12
+      }
+    },
+    {
+      "file": "rand_0012.png",
+      "seed": 1012,
+      "traits": {
+        "age": 0.28,
+        "gender": -1.89,
+        "smile": 2.82,
+        "pose": 1.65
+      }
+    },
+    {
+      "file": "rand_0013.png",
+      "seed": 1013,
+      "traits": {
+        "age": 2.64,
+        "gender": 2.37,
+        "smile": 0.59,
+        "pose": 2.53
+      }
+    },
+    {
+      "file": "rand_0014.png",
+      "seed": 1014,
+      "traits": {
+        "age": -2.47,
+        "gender": -1.82,
+        "smile": -2.73,
+        "pose": -1.05
+      }
+    },
+    {
+      "file": "rand_0015.png",
+      "seed": 1015,
+      "traits": {
+        "age": -0.67,
+        "gender": -1.37,
+        "smile": 1.97,
+        "pose": -0.86
+      }
+    },
+    {
+      "file": "rand_0016.png",
+      "seed": 1016,
+      "traits": {
+        "age": -1.31,
+        "gender": 0.26,
+        "smile": -2.15,
+        "pose": 1.81
+      }
+    },
+    {
+      "file": "rand_0017.png",
+      "seed": 1017,
+      "traits": {
+        "age": -2.55,
+        "gender": 2.92,
+        "smile": 1.63,
+        "pose": -1.81
+      }
+    },
+    {
+      "file": "rand_0018.png",
+      "seed": 1018,
+      "traits": {
+        "age": -2.97,
+        "gender": 1.89,
+        "smile": 1.24,
+        "pose": 1.37
+      }
+    },
+    {
+      "file": "rand_0019.png",
+      "seed": 1019,
+      "traits": {
+        "age": 1.63,
+        "gender": -2.56,
+        "smile": -0.85,
+        "pose": -2.3
+      }
+    },
+    {
+      "file": "rand_0020.png",
+      "seed": 1020,
+      "traits": {
+        "age": 2.18,
+        "gender": 0.74,
+        "smile": -1.01,
+        "pose": -2.62
+      }
+    },
+    {
+      "file": "rand_0021.png",
+      "seed": 1021,
+      "traits": {
+        "age": -1.13,
+        "gender": -1.05,
+        "smile": 1.38,
+        "pose": 0.83
+      }
+    },
+    {
+      "file": "rand_0022.png",
+      "seed": 1022,
+      "traits": {
+        "age": 2.32,
+        "gender": -0.17,
+        "smile": -2.28,
+        "pose": 1.28
+      }
+    },
+    {
+      "file": "rand_0023.png",
+      "seed": 1023,
+      "traits": {
+        "age": 1.56,
+        "gender": 0.37,
+        "smile": 1.63,
+        "pose": -0.04
+      }
+    },
+    {
+      "file": "rand_0024.png",
+      "seed": 1024,
+      "traits": {
+        "age": 0.14,
+        "gender": -0.43,
+        "smile": -2.85,
+        "pose": -2.35
+      }
+    }
+  ],
+  "directions_available": [
+    "age",
+    "gender",
+    "smile",
+    "pose"
+  ],
+  "grid_seeds": [
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108,
+    109,
+    110,
+    111,
+    112,
+    113,
+    114,
+    115,
+    116,
+    117,
+    118,
+    119
+  ],
+  "grid_trait_levels": [
+    -3,
+    -2,
+    -1,
+    0,
+    1,
+    2,
+    3
+  ],
+  "generator": {
+    "model": "StyleGAN2-ADA-PyTorch",
+    "weights": "ffhq.pkl (NVIDIA pretrained FFHQ 1024x1024)",
+    "trait_steering": "InterFaceGAN (age, gender, smile, pose directions in W space)",
+    "output_resolution": "1024x1024, downsampled to 48x48 and 256x256"
+  },
+  "note": "Curated subset of an originally larger corpus. Seed 100 trait-axis sweeps and the RealVisXL diffusion subsets were removed by the maintainer; the generator scripts that produced them have also been removed. The corpus shipped here is the canonical, frozen test set."
+}

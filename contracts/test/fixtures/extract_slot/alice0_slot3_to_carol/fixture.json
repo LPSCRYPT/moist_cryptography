@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "seed": "alice0_slot3_to_carol",
+  "slot": 3,
+  "feature_type": 3,
+  "shadow_id": "0xe0544f512c2829e1611d7075a56de489f3d23088a2ca6c5a41633c817d4d2b0",
+  "shadow_id_field": "0xe0544f512c2829e1611d7075a56de489f3d23088a2ca6c5a41633c817d4d2b0",
+  "carol_sk": "0x19ce6767ffe289cfe7b7b577299f7fff1582522cdd47ae75c0a6bbd4dd4bc640",
+  "carol_pk_x": "0x2f79000bfb7666e124a1d74cc0b1c3af605e0332c085376877699d681a1b26bd",
+  "carol_pk_y": "0x1e8135c454bb4b5047f1d9f88904df1b859156e37ceae32d79da30895144216f",
+  "feature_ct_commit": "0x2dfd0237a18a45d1d41e5bb41690a5303b6a928cf8eeed83002ed9f21c5f53ed",
+  "c1_new_x": "0x2d55b19d870ba942edbef48803650be71e56145332b652d4a4095e2d6b319ea9",
+  "c1_new_y": "0x29a43c308cfd18e560318463d2e229030d82078fcb6c18cb784a15193b8fea97",
+  "c2_scalar": "0x1b19f8a5bd165f45bc257f8bcbc60e884ec70abd316db83ec0cd180dc9eb8abb",
+  "feature_new_r": "0x17c1ea1077bb95c1ad65814a3bbcd5b710ae18163086485c9ea10f6477490ad",
+  "feature_new_k": "0x245d90f38828fce3f7209ae4efdad6295b285b4239704537bb2029fbf3027544",
+  "n_pi": 10,
+  "feature_c2_bytes": 1344,
+  "timings_seconds": {
+    "nargo_execute": 0.12169814109802246,
+    "bb_write_vk": 0.18015575408935547,
+    "bb_prove": 0.561992883682251,
+    "bb_verify": 0.009971141815185547
+  }
+}
