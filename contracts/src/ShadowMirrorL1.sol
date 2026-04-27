@@ -5,49 +5,53 @@ import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {IShadowToken} from "./IShadowToken.sol";
 import {ICrossDomainMessenger} from "./ICrossDomainMessenger.sol";
 
-/// @title ShadowMirrorL1
-/// @notice Receives bridged solved-shadow snapshots from `ShadowBridgeL2` on
-///         Base Sepolia (via the OP-Stack `L1CrossDomainMessenger` after the
-///         standard withdrawal challenge period) and mints a mirror ERC721
-///         on Ethereum Sepolia. Token id == L2 shadowId so off-chain
-///         indexers can join L1 mirror records to L2 solve events.
+/// @title  ShadowMirrorL1 (v2)
+/// @notice Receives bridged solved-shadow snapshots from `ShadowBridgeL2`
+///         on Base Sepolia and mints a mirror ERC721 on Ethereum Sepolia.
 ///
-/// Symmetric round-trip:
-///     - mintFromBridge: L2 lock + relay -> L1 mint
-///     - burnAndUnbridge: L1 burn + relay -> L2 unlock
+///         v2 payload carries (a) the shadow's public T10 hash, (b) the
+///         16-slot manifest, (c) per-slot lineage anchors (typeIdx,
+///         originFaceId, paletteCommit) for OCCUPIED slots, (d) the
+///         revealed z-index permutation, and (e) the solve PI as raw
+///         bytes so off-chain renderers can reconstruct the visuals
+///         without contacting L2.
 contract ShadowMirrorL1 is ERC721 {
-    /// Default gas limit for the L2 unbridge relay (~80k actual cost).
     uint32 public constant DEFAULT_L2_GAS_LIMIT = 200_000;
 
     address public immutable l1Messenger;
     address public l2Bridge;
-
     address public immutable deployer;
 
-    /// Mirror state stored in struct form so external callers can read with one call.
+    /// On-chain mirror state. Per-slot arrays parallel `manifest`; entries
+    /// are zeroed when `manifest[i].kind == EMPTY`.
     struct MirrorState {
-        bytes32 faceOriginId;
-        uint8   color;
-        bytes32 c2Commit;
-        bytes32 stateCommitsHash;
         bytes32 ecdhPubX;
-        uint64[8] origPoses;
+        bytes32 ecdhPubY;
+        bytes32 t10Hi;
+        bytes32 t10Lo;
+        bytes32 zIndexCommit;
+        uint64  zIndexRevealed;
         IShadowToken.ManifestEntry[16] manifest;
+        uint8[16]   typeIdxs;
+        bytes32[16] originFaceIds;
+        bytes32[16] paletteCommits;
     }
 
     /// Payload struct sent across the L2->L1 messenger from ShadowBridgeL2.
-    /// Defined here so the test can reference it as ShadowMirrorL1.BridgePayload.
     struct BridgePayload {
         uint256 shadowId;
         address recipient;
-        bytes32 faceOriginId;
-        uint8   color;
-        bytes32 c2Commit;
-        bytes32 stateCommitsHash;
         bytes32 ecdhPubX;
-        uint64[8] origPoses;
+        bytes32 ecdhPubY;
+        bytes32 t10Hi;
+        bytes32 t10Lo;
+        bytes32 zIndexCommit;
+        uint64  zIndexRevealed;
         IShadowToken.ManifestEntry[16] manifest;
-        bytes   revealedPi;
+        uint8[16]   typeIdxs;
+        bytes32[16] originFaceIds;
+        bytes32[16] paletteCommits;
+        bytes       revealedPi;
     }
 
     mapping(uint256 => MirrorState) private _mirrors;
@@ -64,7 +68,7 @@ contract ShadowMirrorL1 is ERC721 {
     error NotMirrorOwner();
 
     event L2BridgeSet(address indexed l2Bridge);
-    event ShadowMirrored(uint256 indexed shadowId, address indexed recipient, bytes32 c2Commit);
+    event ShadowMirrored(uint256 indexed shadowId, address indexed recipient, bytes32 t10Hi, bytes32 t10Lo);
     event ShadowUnmirrored(uint256 indexed shadowId, address indexed l2Recipient);
 
     modifier onlyDeployer() {
@@ -101,21 +105,22 @@ contract ShadowMirrorL1 is ERC721 {
         mintedFromBridge[p.shadowId] = true;
 
         MirrorState storage st = _mirrors[p.shadowId];
-        st.faceOriginId = p.faceOriginId;
-        st.color = p.color;
-        st.c2Commit = p.c2Commit;
-        st.stateCommitsHash = p.stateCommitsHash;
         st.ecdhPubX = p.ecdhPubX;
-        for (uint256 i = 0; i < 8; i++) {
-            st.origPoses[i] = p.origPoses[i];
-        }
+        st.ecdhPubY = p.ecdhPubY;
+        st.t10Hi = p.t10Hi;
+        st.t10Lo = p.t10Lo;
+        st.zIndexCommit = p.zIndexCommit;
+        st.zIndexRevealed = p.zIndexRevealed;
         for (uint256 i = 0; i < 16; i++) {
             st.manifest[i] = p.manifest[i];
+            st.typeIdxs[i] = p.typeIdxs[i];
+            st.originFaceIds[i] = p.originFaceIds[i];
+            st.paletteCommits[i] = p.paletteCommits[i];
         }
         _revealedPi[p.shadowId] = p.revealedPi;
 
         _mint(p.recipient, p.shadowId);
-        emit ShadowMirrored(p.shadowId, p.recipient, p.c2Commit);
+        emit ShadowMirrored(p.shadowId, p.recipient, p.t10Hi, p.t10Lo);
     }
 
     /// Round-trip: burn L1 mirror, send unbridge message back to L2.
@@ -124,8 +129,6 @@ contract ShadowMirrorL1 is ERC721 {
         if (l2Bridge == address(0)) revert L2BridgeNotSet();
         if (ownerOf(shadowId) != msg.sender) revert NotMirrorOwner();
 
-        // Burn the mirror; mintedFromBridge stays true (history of having
-        // been bridged) but ownerOf(shadowId) reverts after this point.
         _burn(shadowId);
         delete _mirrors[shadowId];
         delete _revealedPi[shadowId];

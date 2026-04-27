@@ -9,15 +9,27 @@ import {KeyRegistry} from "../src/KeyRegistry.sol";
 import {ShadowToken} from "../src/ShadowToken.sol";
 import {FeatureNFT} from "../src/FeatureNFT.sol";
 import {MintShadowVerifier} from "../src/MintShadowVerifier.sol";
-import {TransferShadowVerifier} from "../src/TransferShadowVerifier.sol";
-import {ExtractSlotVerifier} from "../src/ExtractSlotVerifier.sol";
-import {TransferFeatureVerifier} from "../src/TransferFeatureVerifier.sol";
-import {SolveShadowVerifier} from "../src/SolveShadowVerifier.sol";
-import {T10ShadowVerifier} from "../src/T10ShadowVerifier.sol";
 import {FaceDiscVerifier} from "../src/FaceDiscVerifier.sol";
 
-/// @notice Deploys the full phase-2 stack: Yul sponge + KeyRegistry +
-///         ShadowToken + FeatureNFT + 6 verifiers. Wires all back-references.
+/// @notice Deploys the v2 phase-2 stack: Yul sponge + KeyRegistry +
+///         ShadowToken + FeatureNFT + the verifiers that already exist
+///         in v2 form.
+///
+///         Verifiers wired here:
+///           - MintShadowVerifier  (will be regenerated for v2 PI shape)
+///           - FaceDiscVerifier    (unchanged from v1; the disc circuit
+///                                  is explicitly out of scope per refactor non-goal)
+///
+///         Verifiers NOT wired here (introduced as their circuits land):
+///           - MutateSlotVerifier        (Phase 4)
+///           - T10ShadowVerifier         (Phase 4)
+///           - ZIndexCommitVerifier      (Phase 8)
+///           - TransferShadowVerifier    (Phase 7)
+///           - SolveShadowVerifier       (Phase 9)
+///           - TransferFeatureVerifier   (Phase 7-ish, on FeatureNFT)
+///
+///         The bare contracts will revert any privileged call until the
+///         corresponding verifier is set, by design.
 contract DeployShadowPipeline is Script {
     function run() external {
         vm.startBroadcast();
@@ -31,7 +43,7 @@ contract DeployShadowPipeline is Script {
         ShadowToken st = new ShadowToken(address(sponge));
         console.log("ShadowToken:", address(st));
 
-        FeatureNFT fn = new FeatureNFT(address(st), address(sponge));
+        FeatureNFT fn = new FeatureNFT(address(st));
         console.log("FeatureNFT:", address(fn));
 
         st.setFeatureNFT(fn);
@@ -40,34 +52,12 @@ contract DeployShadowPipeline is Script {
         console.log("MintShadowVerifier:", address(mintShadowV));
         st.setMintShadowVerifier(mintShadowV);
 
-        IVerifier transferShadowV = IVerifier(address(new TransferShadowVerifier()));
-        console.log("TransferShadowVerifier:", address(transferShadowV));
-        st.setTransferShadowVerifier(transferShadowV);
-
-        IVerifier extractSlotV = IVerifier(address(new ExtractSlotVerifier()));
-        console.log("ExtractSlotVerifier:", address(extractSlotV));
-        st.setExtractSlotVerifier(extractSlotV);
-
-        IVerifier transferFeatureV = IVerifier(address(new TransferFeatureVerifier()));
-        console.log("TransferFeatureVerifier:", address(transferFeatureV));
-        fn.setTransferFeatureVerifier(transferFeatureV);
-
-        IVerifier solveShadowV = IVerifier(address(new SolveShadowVerifier()));
-        console.log("SolveShadowVerifier:", address(solveShadowV));
-        st.setSolveShadowVerifier(solveShadowV);
-
-        IVerifier t10ShadowV = IVerifier(address(new T10ShadowVerifier()));
-        console.log("T10ShadowVerifier:", address(t10ShadowV));
-        st.setT10ShadowVerifier(t10ShadowV);
-
         IVerifier faceDiscV = IVerifier(address(new FaceDiscVerifier()));
         console.log("FaceDiscVerifier:", address(faceDiscV));
         st.setFaceDiscVerifier(faceDiscV);
 
-        // KeyRegistry left unwired (permissive mode for dev). For production:
-        //   st.setKeyRegistry(kr);
-        //   fn.setKeyRegistry(kr);
-        kr;  // suppress unused warning
+        // KeyRegistry left unwired (permissive mode for dev).
+        kr;
 
         vm.stopBroadcast();
     }

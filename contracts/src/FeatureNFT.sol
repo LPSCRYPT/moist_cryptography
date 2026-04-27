@@ -8,43 +8,72 @@ import {KeyRegistry} from "./KeyRegistry.sol";
 import {PausableMixin} from "./PausableMixin.sol";
 
 /**
- * @title  FeatureNFT
- * @notice ERC-721 for features extracted from a `ShadowToken`. Created
- *         exclusively by `ShadowToken.extractSlot`. Carries:
- *           - immutable: originShadowId, originSlotIdx, featureType, color
- *           - mutable on transferFeature: ecdhPubX/Y, c2Commit
- *           - mutable on transferFeature: pose (the new owner can re-pose)
- *           - frozen flag set by ShadowToken.solve when origin shadow solved
+ * @title  FeatureNFT (v2 carrier)
+ * @notice ERC-721 carrier for an atom of pixels in the moist_cryptography
+ *         system. Created exclusively by `ShadowToken.mintShadow` (which
+ *         atomically mints 1 shadow + 8 carriers).
  *
- *         c2 is a 42-Field ECIES envelope (sponge_42-bound). Smaller than
- *         shadow's 249-Field c2: stores ONE feature's pixel data only.
+ *         Carrier state:
+ *           Immutable from mint:
+ *             - typeIdx        landmark type 0..7
+ *             - originFaceId   lineage anchor (the face this atom's
+ *                              pixels first originated from)
+ *             - paletteCommit  poseidon2 of the 16 palette colors
+ *             - mintedAt       block.number at mint, audit trail
+ *           Mutable:
+ *             - liveStateHashCheckpoint  authoritative when held;
+ *                                        stale while inserted
+ *             - isInserted               true while a host shadow's slot
+ *                                        binds this carrier
+ *             - hostShadowId, hostSlotIdx  meaningful iff isInserted
  *
- *         transferFeature: re-encrypts c2 to new owner. Ownership rotation
- *         only -- pose travels with the token (no automatic re-pose). The
- *         new owner can call ShadowToken.insertFeature with their own pose.
+ *         Three invariants the contract enforces:
+ *           1. Custody lock — ERC-721 transferFrom and `transferFeature`
+ *              revert while `isInserted == true`. Only `extractSlot` on
+ *              the host shadow can exit custody.
+ *           2. Single-host invariant — a carrier is bound into at most
+ *              one slot at any time.
+ *           3. Live-state-on-host — while inserted, the slot's
+ *              `liveStateHash` is authoritative; the carrier's
+ *              `liveStateHashCheckpoint` is treated as stale and is only
+ *              re-synced on `extractFromShadow`.
+ *
+ *         `transferFeature` rotates encryption to a new owner *while held*
+ *         (i.e. with `isInserted == false`). The proof PI binds the
+ *         carrier's `liveStateHashCheckpoint`; the new owner inherits
+ *         the same checkpoint.
  */
 contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     // ============== types ==============
 
     struct Feature {
-        uint256 originShadowId;
-        uint8 originSlotIdx;
-        uint8 featureType;
-        uint8 color;
-        bytes32 ecdhPubX;
-        bytes32 ecdhPubY;
-        bytes32 c2Commit;
-        uint64 pose;          // current pose at last extract/transfer
-        uint64 mintedAt;      // block.number
+        // Immutable from mint:
+        uint8   typeIdx;
+        bytes32 originFaceId;
+        bytes32 paletteCommit;
+        uint64  mintedAt;
+        // Mutable:
+        bytes32 liveStateHashCheckpoint;
+        bool    isInserted;
+        uint256 hostShadowId;
+        uint8   hostSlotIdx;
     }
 
     // ============== constants ==============
 
     bytes32 public constant DOMAIN_FEATURE = keccak256("OMP_FEATURE_NFT_v2");
-    uint256 public constant TRANSFER_FEATURE_PI_LEN = 8;
-    uint256 public constant FEATURE_C2_BYTES = 42 * 32; // 1,344
 
-    /// bn254 Fr field modulus. featureNftId is reduced mod FR_MOD so PI[0]
+    /// transfer_feature proof PI layout: see `transferFeature` below.
+    /// PI[0]    featureId
+    /// PI[1,2]  next_pk_x, next_pk_y
+    /// PI[3]    old_liveStateHashCheckpoint   (asserted unchanged on chain)
+    /// PI[4]    new_liveStateHashCheckpoint   (post-rotation; written on success)
+    /// PI[5]    paletteCommit                 (asserted unchanged)
+    /// PI[6]    typeIdx                       (asserted unchanged)
+    /// PI[7]    originFaceId                  (asserted unchanged)
+    uint256 public constant TRANSFER_FEATURE_PI_LEN = 8;
+
+    /// bn254 Fr field modulus. featureId is reduced mod FR_MOD so PI[0]
     /// equality (Field == Field) holds across circuit/contract boundary.
     uint256 public constant FR_MOD =
         21888242871839275222246405745257275088548364400416034343698204186575808495617;
@@ -52,8 +81,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     // ============== storage ==============
 
     address public immutable deployer;
-    address public immutable yulSponge;
-    address public immutable shadowToken;   // back-reference; only this address may extract / freeze
+    address public immutable shadowToken; // back-reference; only this address may mint/extract/insert
 
     KeyRegistry public keyRegistry;
     bool private _keyRegistryLocked;
@@ -62,31 +90,41 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     bool private _transferFeatureVerifierLocked;
 
     mapping(uint256 => Feature) private _features;
-    mapping(uint256 => bool) private _frozen;
     uint64 public mintCounter;
 
     // ============== events ==============
 
     event FeatureMinted(
-        uint256 indexed featureNftId,
-        uint256 indexed originShadowId,
-        uint8 indexed originSlotIdx,
+        uint256 indexed featureId,
+        uint256 indexed hostShadowId,
+        uint8   indexed hostSlotIdx,
         address to,
-        uint8 featureType,
-        uint8 color
+        uint8   typeIdx,
+        bytes32 originFaceId,
+        bytes32 paletteCommit,
+        bytes32 initialLiveStateHash
     );
-    event FeatureCiphertext(
-        uint256 indexed featureNftId,
-        bytes32 indexed ctCommit,
-        bytes c2
+    event FeaturePaletteRevealed(
+        uint256 indexed featureId,
+        bytes32 paletteCommit,
+        bytes paletteRGB // 16 colors x 3 bytes = 48 bytes
+    );
+    event FeatureExtracted(
+        uint256 indexed featureId,
+        uint256 indexed prevHostShadowId,
+        uint8   indexed prevHostSlotIdx,
+        bytes32 liveStateHashCheckpoint
+    );
+    event FeatureInserted(
+        uint256 indexed featureId,
+        uint256 indexed newHostShadowId,
+        uint8   indexed newHostSlotIdx
     );
     event FeatureTransferred(
-        uint256 indexed featureNftId,
+        uint256 indexed featureId,
         address indexed to,
-        bytes32 newEcdhPubX,
-        bytes32 newEcdhPubY
+        bytes32 newLiveStateHashCheckpoint
     );
-    event FeatureFrozen(uint256 indexed featureNftId);
     event TransferFeatureVerifierSet(IVerifier v);
     event KeyRegistrySet(KeyRegistry r);
 
@@ -95,26 +133,23 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     error NotShadowToken();
     error NotDeployer();
     error NotFeatureOwner();
-    error AlreadyFrozen();
     error VerifierAlreadySet();
     error VerifierNotSet();
     error KeyRegistryAlreadySet();
     error InvalidProof();
     error BadPILen(uint256 got, uint256 want);
-    error BadC2Length(uint256 got);
-    error CtCommitMismatch(bytes32 fromChain, bytes32 fromProof);
     error PkMismatch(bytes32 want, bytes32 got);
-    error TransferGatedFrozen();
-    error FrozenError(uint256 featureNftId);
+    error AlreadyInserted(uint256 featureId);
+    error NotInserted(uint256 featureId);
+    error WrongHost(uint256 featureId);
+    error CustodyLocked(uint256 featureId);
+    error TransferGated(uint256 featureId);
 
     // ============== ctor ==============
 
-    constructor(address shadowTokenAddr, address yulSpongeAddr)
-        ERC721("OMP Feature NFT", "OMPFN")
-    {
+    constructor(address shadowTokenAddr) ERC721("OMP Feature NFT", "OMPFN") {
         deployer = msg.sender;
         shadowToken = shadowTokenAddr;
-        yulSponge = yulSpongeAddr;
         _initPausable(msg.sender);
     }
 
@@ -136,70 +171,108 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         emit TransferFeatureVerifierSet(v);
     }
 
-    // ============== mint (only via ShadowToken.extractSlot) ==============
+    // ============== privileged: ShadowToken-only ==============
 
-    function mintFromExtraction(
-        uint256 originShadowId,
-        uint8 originSlotIdx,
-        uint8 featureType,
-        uint8 color,
-        bytes32 ecdhPubX,
-        bytes32 ecdhPubY,
-        bytes32 c2Commit,
-        uint64 pose,
+    function mintAtShadowMint(
+        uint256 hostShadowId,
+        uint8 hostSlotIdx,
+        uint8 typeIdx,
+        bytes32 originFaceId,
+        bytes32 paletteCommit,
+        bytes32 initialLiveStateHash,
         address to
-    ) external override returns (uint256 featureNftId) {
+    ) external override returns (uint256 featureId) {
         if (msg.sender != shadowToken) revert NotShadowToken();
 
         mintCounter += 1;
-        // chainId binding: same as ShadowToken.shadowIdOf -- prevents cross-chain
-        // proof replay by tying the feature's id to this chain.
-        featureNftId = uint256(keccak256(abi.encode(
-            DOMAIN_FEATURE, block.chainid, originShadowId, originSlotIdx, mintCounter
+        // chainId binding mirrors ShadowToken.shadowIdOf — same-chain
+        // prevention of cross-chain proof replay.
+        featureId = uint256(keccak256(abi.encode(
+            DOMAIN_FEATURE, block.chainid, hostShadowId, hostSlotIdx, mintCounter
         ))) % FR_MOD;
 
-        Feature storage f = _features[featureNftId];
-        f.originShadowId = originShadowId;
-        f.originSlotIdx = originSlotIdx;
-        f.featureType = featureType;
-        f.color = color;
-        f.ecdhPubX = ecdhPubX;
-        f.ecdhPubY = ecdhPubY;
-        f.c2Commit = c2Commit;
-        f.pose = pose;
+        Feature storage f = _features[featureId];
+        f.typeIdx = typeIdx;
+        f.originFaceId = originFaceId;
+        f.paletteCommit = paletteCommit;
         f.mintedAt = uint64(block.number);
+        f.liveStateHashCheckpoint = initialLiveStateHash; // also the slot's value at mint
+        f.isInserted = true;
+        f.hostShadowId = hostShadowId;
+        f.hostSlotIdx = hostSlotIdx;
 
-        _mint(to, featureNftId);
-        emit FeatureMinted(featureNftId, originShadowId, originSlotIdx, to, featureType, color);
+        _mint(to, featureId);
+        emit FeatureMinted(
+            featureId, hostShadowId, hostSlotIdx, to,
+            typeIdx, originFaceId, paletteCommit, initialLiveStateHash
+        );
     }
 
-    // ============== transferFeature ==============
+    function extractFromShadow(
+        uint256 featureId,
+        uint256 hostShadowId,
+        uint8 hostSlotIdx,
+        bytes32 finalLiveStateHash
+    ) external override {
+        if (msg.sender != shadowToken) revert NotShadowToken();
+        Feature storage f = _features[featureId];
+        if (!f.isInserted) revert NotInserted(featureId);
+        if (f.hostShadowId != hostShadowId || f.hostSlotIdx != hostSlotIdx) {
+            revert WrongHost(featureId);
+        }
+        f.liveStateHashCheckpoint = finalLiveStateHash;
+        f.isInserted = false;
+        f.hostShadowId = 0;
+        f.hostSlotIdx = 0;
+        emit FeatureExtracted(featureId, hostShadowId, hostSlotIdx, finalLiveStateHash);
+    }
+
+    function insertIntoShadow(
+        uint256 featureId,
+        uint256 newHostShadowId,
+        uint8 newHostSlotIdx
+    ) external override {
+        if (msg.sender != shadowToken) revert NotShadowToken();
+        Feature storage f = _features[featureId];
+        if (f.isInserted) revert AlreadyInserted(featureId);
+        f.isInserted = true;
+        f.hostShadowId = newHostShadowId;
+        f.hostSlotIdx = newHostSlotIdx;
+        // checkpoint stays as it was at last extract; v2 lets the slot's
+        // liveStateHash be the authoritative value while inserted.
+        emit FeatureInserted(featureId, newHostShadowId, newHostSlotIdx);
+    }
+
+    // ============== transferFeature (held carriers only) ==============
 
     /// PI layout (8 fields):
-    ///   PI[0]    featureNftId
+    ///   PI[0]    featureId
     ///   PI[1,2]  next_pk_x, next_pk_y
-    ///   PI[3,4]  c1_x, c1_y
-    ///   PI[5]    c2_scalar
-    ///   PI[6]    new_ct_commit  (= sponge_42 of new c2)
-    ///   PI[7]    prev_ct_commit (must match chain)
+    ///   PI[3]    old_liveStateHashCheckpoint  (must match storage)
+    ///   PI[4]    new_liveStateHashCheckpoint  (written on success)
+    ///   PI[5]    paletteCommit                (must match storage)
+    ///   PI[6]    typeIdx                      (must match storage)
+    ///   PI[7]    originFaceId                 (must match storage)
     function transferFeature(
-        uint256 featureNftId,
+        uint256 featureId,
         address to,
         bytes calldata proof,
-        bytes32[] calldata pi,
-        bytes calldata c2New
+        bytes32[] calldata pi
     ) external whenNotPaused {
-        if (_ownerOf(featureNftId) != msg.sender) revert NotFeatureOwner();
-        if (_frozen[featureNftId]) revert FrozenError(featureNftId);
+        if (_ownerOf(featureId) != msg.sender) revert NotFeatureOwner();
+        Feature storage f = _features[featureId];
+        if (f.isInserted) revert CustodyLocked(featureId);
         if (pi.length != TRANSFER_FEATURE_PI_LEN) revert BadPILen(pi.length, TRANSFER_FEATURE_PI_LEN);
-        if (c2New.length != FEATURE_C2_BYTES) revert BadC2Length(c2New.length);
 
         IVerifier v = transferFeatureVerifier;
         if (address(v) == address(0)) revert VerifierNotSet();
 
-        Feature storage f = _features[featureNftId];
-        if (pi[0] != bytes32(featureNftId)) revert InvalidProof();
-        if (pi[7] != f.c2Commit) revert InvalidProof();
+        // Bind every immutable + the prior checkpoint.
+        if (pi[0] != bytes32(featureId)) revert InvalidProof();
+        if (pi[3] != f.liveStateHashCheckpoint) revert InvalidProof();
+        if (pi[5] != f.paletteCommit) revert InvalidProof();
+        if (pi[6] != bytes32(uint256(f.typeIdx))) revert InvalidProof();
+        if (pi[7] != f.originFaceId) revert InvalidProof();
         _requirePkMatches(to, pi[1], pi[2]);
 
         try v.verify(proof, pi) returns (bool ok) {
@@ -208,82 +281,77 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
             revert InvalidProof();
         }
 
-        // On-chain c2New binding via Yul Poseidon2 sponge_42.
-        uint256 digest = _sponge(c2New);
-        if (bytes32(digest) != pi[6]) revert CtCommitMismatch(bytes32(digest), pi[6]);
+        f.liveStateHashCheckpoint = pi[4];
+        emit FeatureTransferred(featureId, to, pi[4]);
 
-        f.ecdhPubX = pi[1];
-        f.ecdhPubY = pi[2];
-        f.c2Commit = pi[6];
-
-        emit FeatureTransferred(featureNftId, to, pi[1], pi[2]);
-        emit FeatureCiphertext(featureNftId, pi[6], c2New);
-
-        // _update directly instead of _safeTransfer (avoid receiver callback;
-        // recipient pk is bound by the proof + sponge check).
-        _update(to, featureNftId, address(0));
-    }
-
-    // ============== freeze (only via ShadowToken.solve) ==============
-
-    function freezeFeature(uint256 featureNftId) external override {
-        if (msg.sender != shadowToken) revert NotShadowToken();
-        if (_frozen[featureNftId]) revert AlreadyFrozen();
-        _frozen[featureNftId] = true;
-        emit FeatureFrozen(featureNftId);
+        _update(to, featureId, address(0));
     }
 
     // ============== view accessors (IFeatureNFT) ==============
 
-    function ownerOfFeature(uint256 featureNftId) external view override returns (address) {
-        return _ownerOf(featureNftId);
+    function ownerOfFeature(uint256 featureId) external view override returns (address) {
+        return _ownerOf(featureId);
     }
 
-    function isFrozen(uint256 featureNftId) external view override returns (bool) {
-        return _frozen[featureNftId];
+    function typeIdxOf(uint256 featureId) external view override returns (uint8) {
+        return _features[featureId].typeIdx;
     }
 
-    function colorOf(uint256 featureNftId) external view override returns (uint8) {
-        return _features[featureNftId].color;
+    function originFaceIdOf(uint256 featureId) external view override returns (bytes32) {
+        return _features[featureId].originFaceId;
     }
 
-    function featureTypeOf(uint256 featureNftId) external view override returns (uint8) {
-        return _features[featureNftId].featureType;
+    function paletteCommitOf(uint256 featureId) external view override returns (bytes32) {
+        return _features[featureId].paletteCommit;
     }
 
-    function featureOf(uint256 featureNftId) external view returns (Feature memory) {
-        return _features[featureNftId];
+    function liveStateHashCheckpointOf(uint256 featureId) external view override returns (bytes32) {
+        return _features[featureId].liveStateHashCheckpoint;
+    }
+
+    function isInserted(uint256 featureId) external view override returns (bool) {
+        return _features[featureId].isInserted;
+    }
+
+    function hostShadowIdOf(uint256 featureId) external view override returns (uint256) {
+        return _features[featureId].hostShadowId;
+    }
+
+    function hostSlotIdxOf(uint256 featureId) external view override returns (uint8) {
+        return _features[featureId].hostSlotIdx;
+    }
+
+    function featureOf(uint256 featureId) external view returns (Feature memory) {
+        return _features[featureId];
     }
 
     // ============== ERC-721 transfer lockdown ==============
     //
-    // Plain transferFrom is gated to prevent moves that bypass the proof-
-    // bound pk rotation. Frozen features are unrestricted (the puzzle is
-    // solved; behaves like an ordinary collectible).
+    // Plain ERC-721 transferFrom is fully disabled. Two cases:
+    //   - inserted: only `extractSlot` on the host shadow can release
+    //     custody. Reverts `CustodyLocked`.
+    //   - held:     ownership rotation requires the proof-bound
+    //     `transferFeature` path so the new owner inherits ciphertext
+    //     they can decrypt. Reverts `TransferGated`.
     function transferFrom(address from, address to, uint256 tokenId)
         public
         override
     {
-        if (!_frozen[tokenId]) revert TransferGatedFrozen();
-        super.transferFrom(from, to, tokenId);
+        from; to; // silence unused-variable warnings
+        if (_features[tokenId].isInserted) revert CustodyLocked(tokenId);
+        revert TransferGated(tokenId);
+    }
+
+    function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data)
+        public
+        override
+    {
+        from; to; data; // silence unused-variable warnings
+        if (_features[tokenId].isInserted) revert CustodyLocked(tokenId);
+        revert TransferGated(tokenId);
     }
 
     // ============== internals ==============
-
-    function _sponge(bytes calldata data) internal view returns (uint256 digest) {
-        address y = yulSponge;
-        uint256 len = data.length;
-        assembly ("memory-safe") {
-            let mptr := mload(0x40)
-            calldatacopy(mptr, data.offset, len)
-            let ok := staticcall(gas(), y, mptr, len, 0, 32)
-            if iszero(ok) {
-                returndatacopy(0, 0, returndatasize())
-                revert(0, returndatasize())
-            }
-            digest := mload(0)
-        }
-    }
 
     function _requirePkMatches(address who, bytes32 px, bytes32 py) internal view {
         KeyRegistry r = keyRegistry;
