@@ -132,6 +132,84 @@ set.**
 
 ---
 
+## Full on-chain lifecycle (live deployment)
+
+Beyond mint, every state-changing op in the v2 protocol has been
+exercised on the live Base Sepolia ShadowToken at
+`0x8439c6796508930863599cd9cB49db741C6ea21f`, against the same
+shadow A (`shadowId = 0x011c687ec30b886164f6506b5ad3972fbe295f2e1da1047bd782d686c645d52a`).
+Each downstream op uses a CHAINED fixture whose witness is bound to
+the live state produced by the prior op (not synthetic state):
+
+| Step | Op | Tx | Block | Gas used | Headroom under 16M cap |
+|---|---|---|---|---:|---:|
+| 1 | `registerImage` | `0x775b2918...` | 40,761,804 | 4,661,236 | 11.34M |
+| 2 | `mintShadow`    | `0xe273562a...` | 40,761,922 | 11,038,478 | 4.96M |
+| 3 | `mutateSlot`    | `0xa713ae31...` | 40,764,607 | 7,118,065 | 8.88M |
+| 4 | `setZIndexCommit` | `0x3333e5de...` | 40,764,748 | 6,953,315 | 9.05M |
+| 5 | `extractSlot`   | `0x07e7e044...` | 40,764,834 | 3,437,387 | 12.56M |
+| 6 | `solve`         | `0x94ee6403...` | 40,765,120 | 4,794,531 | 11.21M |
+
+All 6 entry points cleared the 16M sequencer cap with healthy
+headroom. The smallest margin is mint at 4.96M.
+
+### Chained-fixture builders (`tools/build_*_onchain.py`)
+
+These produce per-op fixtures whose ZK witnesses are bound to the
+live chain state, not to synthetic local state. They reconstruct the
+necessary per-slot crypto material deterministically from the
+atomic_mint seed (`atomic_mint_demo`) plus chain-derived featureIds
+(via `keccak256(DOMAIN_FEATURE, chainId, shadowId, slotIdx, mintCounter)
+% FR_MOD`). No JSON-RPC reads are required for fixture building —
+all live state matches the seed-derived reconstruction byte-for-byte
+(asserted at builder start).
+
+  - `tools/build_mutate_slot_onchain.py` — mutateSlot + T10 against
+    the post-mutate manifest where the OTHER 7 slots' lsh values come
+    from chain (not zeroed as in the standalone synthetic builder).
+  - `tools/build_zindex_onchain.py` — setZIndexCommit + T10 against
+    the FULL live LSH array, with z_commit = sponge_16(perm).
+  - `tools/build_extract_onchain.py` — T10 only (extractSlot is
+    proofless at the per-slot level), bound to the post-extract
+    manifest with the target slot zeroed.
+  - `tools/build_solve_onchain.py` — solve_shadow_v2 proof for the
+    full 16-slot reveal, with state_commits and lsh_root computed
+    over the post-extract manifest (slot 0 EMPTY since it was
+    extracted, slots 1–7 OCCUPIED at mint state, slots 8–15 EMPTY).
+    z_perm must match what was used at setZIndexCommit time so PI[3]
+    z_index_commit equals the chain.
+
+### Broadcast scripts (`contracts/script/*OnSepolia.s.sol`)
+
+Each entry point has a dedicated broadcast script with idempotency
+guards (skip-if-already-applied):
+
+  - `MintOnSepolia.s.sol` — register + mint
+  - `MutateOnSepolia.s.sol` — skip if slot's lsh != fixture old_lsh
+  - `SetZIndexOnSepolia.s.sol` — skip if zIndexCommit already equals fixture's
+  - `ExtractOnSepolia.s.sol` — skip if slot already EMPTY
+  - `SolveOnSepolia.s.sol` — skip if shadow already solved
+
+All scripts use `--gas-estimate-multiplier 150`.
+
+### Final state of shadow A (post-solve)
+
+  - `shadow.solved = true`
+  - `shadow.zIndexCommit = 0x1a0bc94892a6fb54e515b07d1be241001d294a2ffb3f5c0a6c81b9494dd67dc3`
+  - `shadow.zIndexRevealed = 0xbc8a6ed342f09715` (lower 64 bits of z_perm_packed)
+  - `shadow.zIndexRevealedSet = true`
+  - All 16 slots: EMPTY (slot 0 explicit-extracted, slots 1–7 auto-extracted
+    by solve, slots 8–15 always were)
+  - All 8 FeatureNFT carriers: `isInserted = false`, owner = deployer
+    (deployer can now transfer them as plain ERC-721s)
+
+The z-permutation `[5, 1, 7, 9, 0, 15, 2, 4, 3, 13, 14, 6, 10, 8, 12, 11]`
+is now publicly revealed on chain via `s.zIndexRevealed`. This is the
+irreversible "reveal everything" final state — no further mutations,
+transfers, or extracts on shadow A are possible.
+
+---
+
 ## Comprehensive on-chain verification (live deployment)
 
 Two purpose-built tools confirm the deployed contracts behave as
