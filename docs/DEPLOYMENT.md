@@ -3,28 +3,44 @@
 This document records every Base Sepolia deploy of the v2 contract set
 plus the on-chain operations executed against it.
 
-## Status
+**Canonical live deployment: pipeline #4** (palette-reveal-enabled).
+Pipeline #3 is preserved as historical reference; see "Historical
+pipelines" near the end of this document.
 
-| Spec criterion #5 step | Status |
-|---|---|
-| Fresh contract set deployed | ✅ done (12 contracts, 22 setup txs) |
-| One real `registerImage` (face_disc proof) | ✅ done — block 40,761,804 |
-| One real `mintShadow` (1 shadow + 8 carriers) | ✅ done — block 40,761,922 |
-| One real `mutateSlot` (chained to A's on-chain state) | ✅ done — block 40,764,607 |
-| One real `setZIndexCommit` | ✅ done — block 40,764,748 |
-| One real `extractSlot` | ✅ done — block 40,764,834 |
-| One real `solve` (auto-extracts remaining 7 carriers) | ✅ done — block 40,765,120 |
-| One real `insertFeature` into a different shadow B | ✅ done — block 40,766,987 |
-| One real `transferShadow` to a fresh recipient | ✅ done — block 40,767,400 |
-| One real `mutateBatch` (recipient owns the shadow) | ✅ done — block 40,769,858 |
-| Recipient lifecycle on B (extract / setZIndex / solve from new owner) | ✅ done — blocks 40,769,968 / 40,770,095 / 40,770,295 |
-| ECIES decrypt visualizer (real on-chain c2 → sprite) | ✅ done — `tools/render_onchain_shadow.py` (chain-decrypt mode) |
+## Status (canonical = pipeline #4 + lifecycle exercises distributed across #3 and #4)
 
-**Lifecycle is now fully closed on chain.** Every state-changing entry
-point of the v2 protocol has been exercised against the live deployment
-from BOTH the original deployer and a recipient EOA, including the
-multi-slot batch path. The visualizer now decrypts real on-chain c2
-events under the owner's secret key.
+| Spec criterion | Pipeline | Status |
+|---|---|---|
+| Fresh contract set deployed (palette-reveal ABI) | **#4** | done -- 27 deploy txs, blocks 40,780,061-40,780,064 |
+| `registerImage` (face_disc proof) | #3 + #4 | done on both |
+| `mintShadow` (1 shadow + 8 carriers) | #3 + #4 | done on both |
+| `mutateSlot` (chained to live state) | #3 | done -- block 40,764,607 |
+| `mutateBatch` (recipient-side multi-slot) | #3 | done -- block 40,769,858 |
+| `setZIndexCommit` | #3 | done -- block 40,764,748 |
+| `extractSlot` | #3 | done -- block 40,764,834 |
+| `solve` (auto-extracts remaining carriers) | #3 | done -- block 40,765,120 |
+| `insertFeature` (cross-shadow) | #3 | done -- block 40,766,987 |
+| `transferShadow` to fresh recipient | #3 | done -- block 40,767,400 |
+| Recipient lifecycle on B (extract / setZIndex / solve from new owner) | #3 | done |
+| `transferFeature` (held-carrier rotation) | #3 | done -- block 40,772,596 |
+| `bridgeShadow` L2 leg | #3 | done -- block 40,772,843 |
+| `bridgeShadow` L1 finalize | n/a | calendar-bound (~7d OP Stack window) |
+| **`revealPalette`** (item 5) | **#4** | done -- block 40,780,277 |
+| ECIES decrypt visualizer | #3 + #4 | done -- `tools/render_onchain_shadow.py` (`--fn` for revealed palettes) |
+
+**Lifecycle exercise split**: pipeline #3 carries the rich behavioural
+history (16 entry-point txs covering the full mutation/transfer/bridge
+story), pipeline #4 carries the palette-reveal demonstration. Both are
+live; both work for what they support. The split exists because the
+palette-reveal ABI is a breaking change against the FeatureNFT at #3.
+
+**Open redesign work**: the current `revealPalette` implementation is a
+standalone owner-callable function. Per spec, palette reveal should be
+atomic with `solve` (one-time, one-way, simultaneous reveal +
+freeze + bridge-eligibility). Redesign would obsolete the standalone
+`revealPalette` + the `palette_reveal_v2` circuit/verifier and integrate
+palette commitment opening into the solve flow via on-chain Yul Poseidon2
+(no separate proof). That would require pipeline #5.
 
 ---
 
@@ -36,45 +52,60 @@ events under the owner's secret key.
   lower per-tx envelope caps)
 - Deployer EOA: `0x1b43AFe43afC74bF9D0EBd764787eFD7CCcC2B6F`
 
-## Contract addresses (current — v2-gas + registerImage split)
+## Contract addresses (canonical = pipeline #4)
 
-Deploy commit: `c1bfb37` — `registerImage split: drop face_disc from mintShadow body (152 -> 156)`.
+Deploy commit: `c4674e6` -- `palette_reveal_v2: live on Base Sepolia (pipeline #4)`.
+Deployed 2026-04-28, blocks 40,780,061-40,780,064.
 
 | Contract | Address |
 |---|---|
-| `Poseidon2YulSponge` (sponge_39) | [`0xDAB29834F3CEe1Fbc262f4614f61F669B8627F38`](https://sepolia.basescan.org/address/0xDAB29834F3CEe1Fbc262f4614f61F669B8627F38) |
-| `Poseidon2YulSponge16` (sponge_16) | [`0xCa8C63D3F592ec0d9Acd191bc74e4231DA14A5A5`](https://sepolia.basescan.org/address/0xCa8C63D3F592ec0d9Acd191bc74e4231DA14A5A5) |
-| `KeyRegistry` | [`0x5f7cb4DEd00A30D2a5a52F26e1bCDA8401a738C5`](https://sepolia.basescan.org/address/0x5f7cb4DEd00A30D2a5a52F26e1bCDA8401a738C5) |
-| `ShadowToken` | [`0x8439c6796508930863599cd9cB49db741C6ea21f`](https://sepolia.basescan.org/address/0x8439c6796508930863599cd9cB49db741C6ea21f) |
-| `FeatureNFT` | [`0x82cd6763cB7362EA5652b63E12617fBa06702D69`](https://sepolia.basescan.org/address/0x82cd6763cB7362EA5652b63E12617fBa06702D69) |
-| `MintShadowVerifier` | [`0x446daaEa9366e8A465EA911c768476d191480D53`](https://sepolia.basescan.org/address/0x446daaEa9366e8A465EA911c768476d191480D53) |
-| `FaceDiscVerifier` | [`0x739cDab4A464632bFb67bdB8760A59a444044E7d`](https://sepolia.basescan.org/address/0x739cDab4A464632bFb67bdB8760A59a444044E7d) |
-| `MutateSlotVerifier` | [`0xBc5b41EEB6a5c5598fBb0D1aD4120889a7488294`](https://sepolia.basescan.org/address/0xBc5b41EEB6a5c5598fBb0D1aD4120889a7488294) |
-| `T10ShadowVerifier` | [`0xceEC22F38B4507C22D1Cb6a73Ac9069A850cAAfe`](https://sepolia.basescan.org/address/0xceEC22F38B4507C22D1Cb6a73Ac9069A850cAAfe) |
-| `ZIndexCommitVerifier` | [`0x43237d169e5b89609B842ABC60F49c3dA3c1f960`](https://sepolia.basescan.org/address/0x43237d169e5b89609B842ABC60F49c3dA3c1f960) |
-| `TransferShadowVerifier` | [`0x403DcbE6B0Bbc93c21cFa45571Dbd95FC36DAE08`](https://sepolia.basescan.org/address/0x403DcbE6B0Bbc93c21cFa45571Dbd95FC36DAE08) |
-| `SolveShadowVerifier` | [`0x338a715348FB9dbe99Ea103F994BE00b8C11154A`](https://sepolia.basescan.org/address/0x338a715348FB9dbe99Ea103F994BE00b8C11154A) |
+| `Poseidon2YulSponge` (sponge_39) | [`0x36E5A53dd45eB318C3373486ABe854e80b7451CD`](https://sepolia.basescan.org/address/0x36E5A53dd45eB318C3373486ABe854e80b7451CD) |
+| `Poseidon2YulSponge16` (sponge_16) | [`0x44c498f8B871B8F6ADbEfD28E25EE96748d8258a`](https://sepolia.basescan.org/address/0x44c498f8B871B8F6ADbEfD28E25EE96748d8258a) |
+| `KeyRegistry` | [`0x402DCD8f6C615f89D9C34fb6928F4D69e39b3Aa1`](https://sepolia.basescan.org/address/0x402DCD8f6C615f89D9C34fb6928F4D69e39b3Aa1) |
+| `ShadowToken` | [`0xe5089e09D7B8393fE37bC2e53E6a44CCD534Ef88`](https://sepolia.basescan.org/address/0xe5089e09D7B8393fE37bC2e53E6a44CCD534Ef88) |
+| `FeatureNFT` | [`0x578eda36Dc4750c35c29E5F12a0789DaD35e2072`](https://sepolia.basescan.org/address/0x578eda36Dc4750c35c29E5F12a0789DaD35e2072) |
+| `MintShadowVerifier` | [`0x983831dFB2bF827c8689aD2e3bEa202Bc26Fd969`](https://sepolia.basescan.org/address/0x983831dFB2bF827c8689aD2e3bEa202Bc26Fd969) |
+| `FaceDiscVerifier` | [`0xd00E4a5e45A770EA54A295b4748e40F9D5539965`](https://sepolia.basescan.org/address/0xd00E4a5e45A770EA54A295b4748e40F9D5539965) |
+| `MutateSlotVerifier` | [`0x9C879431001Fa90CaD81d0342d61c12D298C0aD8`](https://sepolia.basescan.org/address/0x9C879431001Fa90CaD81d0342d61c12D298C0aD8) |
+| `T10ShadowVerifier` | [`0x1f559689D500b91e07a05432318F1eBBF0637112`](https://sepolia.basescan.org/address/0x1f559689D500b91e07a05432318F1eBBF0637112) |
+| `ZIndexCommitVerifier` | [`0x47E1ACF2131De8c68d2940773ceC946d1F707f10`](https://sepolia.basescan.org/address/0x47E1ACF2131De8c68d2940773ceC946d1F707f10) |
+| `TransferShadowVerifier` | [`0x3240377E7C2947E7A3a1b6f62f0575cea111157e`](https://sepolia.basescan.org/address/0x3240377E7C2947E7A3a1b6f62f0575cea111157e) |
+| `SolveShadowVerifier` | [`0x87371A7C174fDB97215778CF0EFAcd27CA0812F6`](https://sepolia.basescan.org/address/0x87371A7C174fDB97215778CF0EFAcd27CA0812F6) |
+| `TransferFeatureV2Verifier` | [`0xa85eCAcD44D6A6a0659DdcA9d9f3901a2BB4C291`](https://sepolia.basescan.org/address/0xa85eCAcD44D6A6a0659DdcA9d9f3901a2BB4C291) |
+| `PaletteRevealV2Verifier` | [`0x4ef46EFa1484d4981498Fa99e3eE1a580f4EF3D8`](https://sepolia.basescan.org/address/0x4ef46EFa1484d4981498Fa99e3eE1a580f4EF3D8) |
 
-The wiring (cross-references between contracts and the verifier-slot
-assignments inside `ShadowToken`) is set in a single deploy script run.
-Every privileged setter is one-shot and locked after the deploy.
+Wiring: every privileged setter is one-shot and locked after deploy.
+Pipeline #4's `DeployShadowPipeline.s.sol` deploys all 14 contracts and
+wires every verifier slot in a single broadcast.
 
-## Deploy run
+## Deploy run (pipeline #4)
 
 ```
 forge script script/DeployShadowPipeline.s.sol:DeployShadowPipeline \
     --broadcast --rpc-url https://base-sepolia.gateway.tenderly.co \
-    --private-key $PRIVATE_KEY --slow
+    --private-key $PRIVATE_KEY
 ```
 
-Total gas estimate: ~72M (split across 22 txs). No single tx exceeded
-the per-tx gas cap because deploys are bytecode CREATE which charges
-0.4 gas/byte (cold), well below the 16M ceiling.
+Total gas: 68,022,941 across 27 setup txs. Cost ~0.000748 Sepolia ETH.
+No single tx exceeded EIP-170; per-tx CREATE never breaks the 16M cap.
 
 Broadcast artifact:
 `contracts/broadcast/DeployShadowPipeline.s.sol/84532/run-latest.json`
 
 ---
+
+## On-chain lifecycle (preserved on pipeline #3, palette reveal on pipeline #4)
+
+Pipeline #3's ShadowToken (`0x8439c679...6ea21f`) carries the rich
+behavioural lifecycle: 16 entry-point txs over shadows A and B from
+two separate EOAs (deployer + recipient), including transferShadow,
+transferFeature, and bridgeShadow's L2 leg. Pipeline #4's deployment
+carries the palette reveal demonstration (mint with real envelopes +
+first revealPalette tx). The ShadowId math is identical because both
+deploys consume the same `face_disc/alice0` fixture, but the two
+deployments live at different addresses and are independent.
+
+### Pipeline #3 lifecycle
 
 ## On-chain mint flow
 
@@ -136,15 +167,7 @@ set.**
 
 ---
 
-## Full on-chain lifecycle (live deployment)
-
-Beyond mint, every state-changing op in the v2 protocol has been
-exercised on the live Base Sepolia ShadowToken at
-`0x8439c6796508930863599cd9cB49db741C6ea21f`, against the same
-shadow A (`shadowId = 0x011c687ec30b886164f6506b5ad3972fbe295f2e1da1047bd782d686c645d52a`).
-Each downstream op uses a CHAINED fixture whose witness is bound to
-the live state produced by the prior op (not synthetic state):
-
+### Pipeline #3 full per-op lifecycle
 ### Per-op gas + size + timing
 
 Tx hashes link to BaseScan; gas is `cast receipt`'s `gasUsed`; block
@@ -399,13 +422,13 @@ Run:
 ```bash
 python3 tools/verify_onchain_mint.py \
   --rpc https://base-sepolia.gateway.tenderly.co \
-  --st 0x8439c6796508930863599cd9cB49db741C6ea21f \
-  --fn 0x82cd6763cB7362EA5652b63E12617fBa06702D69 \
-  --kr 0x5f7cb4DEd00A30D2a5a52F26e1bCDA8401a738C5 \
-  --poseidon39 0xDAB29834F3CEe1Fbc262f4614f61F669B8627F38 \
-  --poseidon16 0xCa8C63D3F592ec0d9Acd191bc74e4231DA14A5A5 \
-  --mint-tx 0xe273562ab241f52fd7f142fa02794aeee0b3a0453bdd88c67b538fbc1ba5d198 \
-  --register-tx 0x775b291815f34ed36c66a88c10831a24afad5cb3c1d23a05d28e88ac6f02a63c \
+  --st 0xe5089e09D7B8393fE37bC2e53E6a44CCD534Ef88 \
+  --fn 0x578eda36Dc4750c35c29E5F12a0789DaD35e2072 \
+  --kr 0x402DCD8f6C615f89D9C34fb6928F4D69e39b3Aa1 \
+  --poseidon39 0x36E5A53dd45eB318C3373486ABe854e80b7451CD \
+  --poseidon16 0x44c498f8B871B8F6ADbEfD28E25EE96748d8258a \
+  --mint-tx 0x4ff2056fe2b011dc0dc5a8d66fcc3ded5afd23a27d6b05c1f0e7986d3a86e255 \
+  --register-tx 0x9311e37cbb971723c689abd928abba07611afb9f524a310e92748cdde5386fa4 \
   --deployer 0x1b43AFe43afC74bF9D0EBd764787eFD7CCcC2B6F
 ```
 
@@ -448,59 +471,50 @@ bytecode behavior, not heuristic.
 
 ## Local-only verification (current commit)
 
-156/156 forge tests pass with real ZK proofs (no mocks).
+**160/160 forge tests pass with real ZK proofs (no mocks)**, including
+the 4 new in `PaletteReveal.t.sol`.
 
 | Op | Local gas-pin budget | Measured local | On-chain (where measured) |
 |---|---|---|---|
-| `registerImage` | 4M | ~3.79M | **4.66M ✅** |
-| `mintShadow` | 11M | ~9.5M (body only) | **11.04M ✅** |
-| `mutateSlot` | 6M | ~5M | not yet on chain |
-| `mutateBatch` (2 slots) | 25M | ~7.5M | not yet on chain |
-| `transferShadow` (4-occ) | 7M | ~6.2M | not yet on chain |
-| `transferShadow` (16-occ) | 11M | ~9.4M | not yet on chain |
-| `setZIndexCommit` | n/a | ~4.8M | not yet on chain |
-| `extractSlot` | n/a | ~2.4M | not yet on chain |
-| `insertFeature` | n/a | ~5M | not yet on chain |
-| `solve` (4-occ) | 8M | ~6.5M | not yet on chain |
-| `solve` (16-occ) | 7M | ~3.7M | not yet on chain |
+| `registerImage` | 4M | ~3.79M | **4.66M (#3) ✅** |
+| `mintShadow` | 11M | ~9.5M (body only) | **11.04M (#3) / 11.07M (#4) ✅** |
+| `mutateSlot` | 6M | ~5M | **7.12M (#3) ✅** |
+| `mutateBatch` (2 slots) | 25M | ~7.5M | **10.80M (#3) ✅** |
+| `transferShadow` (8-occ) | 7M | ~6.2M | **9.16M (#3) ✅** |
+| `setZIndexCommit` | n/a | ~4.8M | **6.95M (#3) ✅** |
+| `extractSlot` | n/a | ~2.4M | **3.44M (#3) ✅** |
+| `insertFeature` | n/a | ~5M | **7.25M (#3) ✅** |
+| `solve` | 8M | ~6.5M | **4.79M (#3) ✅** |
+| `transferFeature` | n/a | ~3.5M | **3.69M (#3) ✅** |
+| `bridgeShadow` (L2 leg) | n/a | n/a | **0.40M (#3) ✅** |
+| `revealPalette` | n/a | ~2.66M | **3.29M (#4) ✅** |
 
 All 14 `RealChainLimits.t.sol` checks confirm every contract fits
 EIP-170's 24,576-byte runtime cap with 100+ B headroom.
 
 ---
 
-## Next session work
+## Outstanding work (not yet on chain)
 
-The remaining 5 lifecycle ops — `mutateSlot`, `setZIndexCommit`,
-`extractSlot`, `insertFeature`, `solve` — each need a fresh ZK proof
-whose witness is bound to **shadow A's current on-chain state**, not
-to synthetic state generated locally. Existing
-`tools/build_*_fixture.py` scripts produce fixtures keyed off
-self-bootstrapped state (their own random seeds); those proofs would
-fail on-chain because their pre-state hashes (chain_tips, lsh values,
-mutation counts) don't match shadow A's slots.
-
-What's needed:
-
-1. A read-only on-chain state extractor (`tools/read_shadow_state.py`):
-   given a `ShadowToken` address and `shadowId`, returns the per-slot
-   `(originFaceId, mutationCount, chainTip, lsh, c1, ctCommit)` tuple.
-   This already exists implicitly in the contract storage layout —
-   each slot's manifest entry is readable via `ShadowToken.slotOf` and
-   the per-slot chain state is reconstructable from event logs
-   (`ShadowSlotMutated`).
-2. Modified fixture builders (`tools/build_*_onchain.py` variants):
-   accept `--from-state state.json` and use that as the prover witness's
-   `old_*` inputs, so the resulting proof binds to chain state.
-3. A driver script (`tools/run_lifecycle_on_sepolia.py`) that chains:
-   `extract on-chain state → build proof → broadcast → re-extract →
-   build next proof → broadcast → ...` for all 5 ops, capturing tx hashes.
-
-Each proof is ~minutes of `nargo execute` + `bb prove` wall-clock; the
-full lifecycle would take ~30–60 min of compute plus broadcast time.
-Worth its own focused session because the tooling generalises to any
-on-chain proof generation pipeline (post-mint UX, indexer
-back-reconciliation, debugging stuck states).
+1. **L1 finalize for `bridgeShadow` A** -- calendar-bound (~7-day OP
+   Stack challenge window after the L2 output root proposal). Sequence:
+   `proveWithdrawalTransaction` -> wait -> `finalizeWithdrawalTransaction`
+   on Eth Sepolia. ETA >= 2026-05-04. See
+   `STAGING_REFACTOR/2026-04-27_bridge_live_working.md`.
+2. **Pipeline #4 lifecycle is sparse** -- only mintShadow + revealPalette
+   exercised. The full mutation/transfer/bridge story still lives on
+   pipeline #3, which lacks palette reveal. Re-broadcasting the
+   lifecycle on #4 would unify the demo at the cost of ~80M gas /
+   ~30 min compute.
+3. **Spec item 5 redesign**: per the canonical interpretation, palette
+   reveal should be atomic with `solve` -- one tx that simultaneously
+   reveals all occupied carriers' palettes, freezes the shadow, and
+   unlocks bridging. Current implementation is a separate
+   owner-callable `revealPalette()` per carrier. Redesign would
+   obsolete the `palette_reveal_v2` circuit + verifier and inline the
+   commitment opening into `solve` via on-chain Yul Poseidon2 (no
+   per-carrier proof needed). Requires pipeline #5 redeploy due to
+   breaking solve ABI change.
 
 ---
 
@@ -521,13 +535,41 @@ EIP-170 with 100+ bytes of headroom.
 
 ---
 
-## Historical: pre-split deploys (superseded)
+## Historical: pre-pipeline-#3 deploys (superseded, do not use)
 
-Two earlier deploys exist on Base Sepolia history but use
-incompatible ABIs (the `MintShadowArgs` struct and `ShadowToken`
-storage shape have since changed). They are NOT compatible with the
-current `MintOnSepolia.s.sol` and should be ignored:
+Earlier deploys exist on Base Sepolia history but use incompatible
+ABIs (the `MintShadowArgs` struct and `ShadowToken` storage shape
+have since changed). They are NOT compatible with the current
+`MintOnSepolia.s.sol` and should be ignored:
 
 - pre-v2-gas (commit `ff309b1`): `ShadowToken=0xDb5808...A42e`
 - v2-gas only, pre-registerImage-split (commit `5a33652`):
   `ShadowToken=0xf75fd5...56f6`
+
+## Historical: pipeline #3 (palette-reveal-blind, full lifecycle)
+
+Pipeline #3 was deployed 2026-04-26/27 from commit `c1bfb37`
+(`registerImage split: drop face_disc from mintShadow body`). It
+predates the palette-reveal ABI -- its FeatureNFT lacks `revealPalette`,
+`paletteRevealedOf`, `setPaletteRevealVerifier`, the `paletteRevealed`
+flag, and the `FeaturePaletteSaltEnvelope` event. It cannot be
+upgraded; shadows minted on it can never have their palettes revealed.
+
+Preserved as historical reference because the lifecycle exercises on
+it are extensive and unmodified by pipeline #4's existence.
+
+| Contract | Pipeline #3 address |
+|---|---|
+| `Poseidon2YulSponge` | `0xDAB29834F3CEe1Fbc262f4614f61F669B8627F38` |
+| `Poseidon2YulSponge16` | `0xCa8C63D3F592ec0d9Acd191bc74e4231DA14A5A5` |
+| `KeyRegistry` | `0x5f7cb4DEd00A30D2a5a52F26e1bCDA8401a738C5` |
+| `ShadowToken` | `0x8439c6796508930863599cd9cB49db741C6ea21f` |
+| `FeatureNFT` | `0x82cd6763cB7362EA5652b63E12617fBa06702D69` |
+| `MintShadowVerifier` | `0x446daaEa9366e8A465EA911c768476d191480D53` |
+| `FaceDiscVerifier` | `0x739cDab4A464632bFb67bdB8760A59a444044E7d` |
+| `MutateSlotVerifier` | `0xBc5b41EEB6a5c5598fBb0D1aD4120889a7488294` |
+| `T10ShadowVerifier` | `0xceEC22F38B4507C22D1Cb6a73Ac9069A850cAAfe` |
+| `ZIndexCommitVerifier` | `0x43237d169e5b89609B842ABC60F49c3dA3c1f960` |
+| `TransferShadowVerifier` | `0x403DcbE6B0Bbc93c21cFa45571Dbd95FC36DAE08` |
+| `SolveShadowVerifier` | `0x338a715348FB9dbe99Ea103F994BE00b8C11154A` |
+| `TransferFeatureV2Verifier` (added mid-life) | `0x75fB0299451b7F36572631d0200A0FA07F573389` |

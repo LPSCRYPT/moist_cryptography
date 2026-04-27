@@ -50,19 +50,19 @@ Performance note: each Poseidon2 permutation shells out to `nargo`,
 ~16 perms (1 hash_2 + 1 keystream_39 per slot, where keystream_39 is
 batched into 1 helper call). Total ~10-15s for the decrypt phase.
 
-Usage:
+Usage (against pipeline #4 mintShadow):
     python3 verify_onchain_mint.py \
         --rpc https://base-sepolia.gateway.tenderly.co \
-        --st 0x8439c6796508930863599cd9cB49db741C6ea21f \
-        --fn 0x82cd6763cB7362EA5652b63E12617fBa06702D69 \
-        --kr 0x5f7cb4DEd00A30D2a5a52F26e1bCDA8401a738C5 \
-        --poseidon39 0xDAB29834F3CEe1Fbc262f4614f61F669B8627F38 \
-        --poseidon16 0xCa8C63D3F592ec0d9Acd191bc74e4231DA14A5A5 \
-        --mint-tx 0xe273562ab241f52fd7f142fa02794aeee0b3a0453bdd88c67b538fbc1ba5d198 \
-        --register-tx 0x775b291815f34ed36c66a88c10831a24afad5cb3c1d23a05d28e88ac6f02a63c \
+        --st 0xe5089e09D7B8393fE37bC2e53E6a44CCD534Ef88 \
+        --fn 0x578eda36Dc4750c35c29E5F12a0789DaD35e2072 \
+        --kr 0x402DCD8f6C615f89D9C34fb6928F4D69e39b3Aa1 \
+        --poseidon39 0x36E5A53dd45eB318C3373486ABe854e80b7451CD \
+        --poseidon16 0x44c498f8B871B8F6ADbEfD28E25EE96748d8258a \
+        --mint-tx 0x4ff2056fe2b011dc0dc5a8d66fcc3ded5afd23a27d6b05c1f0e7986d3a86e255 \
+        --register-tx 0x9311e37cbb971723c689abd928abba07611afb9f524a310e92748cdde5386fa4 \
         --deployer 0x1b43AFe43afC74bF9D0EBd764787eFD7CCcC2B6F \
-        --fixture contracts/test/fixtures/atomic_mint/atomic_mint_demo \
-        --seed atomic_mint_demo
+        --fixture contracts/test/fixtures/atomic_mint/palette_reveal_live \
+        --seed palette_reveal_live
 """
 from __future__ import annotations
 

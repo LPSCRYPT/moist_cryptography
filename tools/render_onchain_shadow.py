@@ -36,12 +36,14 @@ rather than seed regeneration.
 
 Usage:
   python3 tools/render_onchain_shadow.py \\
-      --shadow-id 0x2c6f0a0b... \\
+      --shadow-id 0x011c687ec... \\
       --rpc https://base-sepolia.gateway.tenderly.co \\
-      --st 0x8439c6796508930863599cd9cB49db741C6ea21f \\
-      --sk 0x1ee9581b... \\
-      --c1-sidecar contracts/test/fixtures/onchain_transfer/onchain_transfer_transfer_recipient_demo/meta.json \\
-      --out-dir /tmp/shadow_b_render
+      --st 0xe5089e09D7B8393fE37bC2e53E6a44CCD534Ef88 \\
+      --fn 0x578eda36Dc4750c35c29E5F12a0789DaD35e2072 \\
+      --sk 0x18097c8c... \\
+      --c1-sidecar contracts/test/fixtures/atomic_mint/palette_reveal_live/meta.json \\
+      --from-block 40780000 \\
+      --out-dir /tmp/shadow_render
 
 The legacy `--seed` flag still works for backwards compat; in seed mode
 the visualizer re-derives plaintexts from the mint seed and labels the

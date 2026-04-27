@@ -20,6 +20,9 @@ Recipient_sk is loaded from the fixture's meta.json side-car
 and only used for testing.
 
 Usage:
+    # Pipeline #4 has no transferShadow demo broadcast yet; this example
+    # references the pipeline #3 transferShadow tx. See
+    # docs/DEPLOYMENT.md "Historical: pipeline #3" for the legacy address.
     python3 verify_onchain_transfer.py \
         --fixture contracts/test/fixtures/onchain_transfer/onchain_transfer_transfer_recipient_demo \
         --st 0x8439c6796508930863599cd9cB49db741C6ea21f \

@@ -20,8 +20,9 @@ import {FeatureNFT} from "../src/FeatureNFT.sol";
 ///
 /// Idempotency: skip if `_ownerOf(featureId)` is already the recipient.
 ///
-/// Run:
-///   FN_ADDRESS=0x82cd6763cB7362EA5652b63E12617fBa06702D69 \
+/// Run (FN_ADDRESS = pipeline #4 FeatureNFT; pipeline #3 transferFeature
+/// is already broadcast and recorded in DEPLOYMENT.md):
+///   FN_ADDRESS=0x578eda36Dc4750c35c29E5F12a0789DaD35e2072 \
 ///   FIX=./test/fixtures/onchain_transfer_feature_v2/transfer_feature_v2_a_slot0 \
 ///     forge script script/TransferFeatureV2OnSepolia.s.sol:TransferFeatureV2OnSepolia \
 ///       --rpc-url $RPC --broadcast --gas-estimate-multiplier 150 \
