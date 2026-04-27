@@ -1,3 +1,12 @@
+// =====================================================================
+// **STALE — v1 circuit, not used by v2 staging contracts.**
+// The v2 transferShadow path is unimplemented (Phase 7 pending). When it
+// lands it will operate per-slot (16 × 39-Field plaintexts), packing PI
+// via paired-poseidon2 hash roots to stay under EIP-170. The contract
+// path `ShadowToken.transferShadow` currently reverts NotImplementedYet.
+// See `STAGING_REFACTOR/PROGRESS.md` Phase 7 for the v2 design sketch.
+// =====================================================================
+
 // transfer_shadow: re-encrypt a 249-Field shadow ciphertext to a new owner.
 //
 // Replaces the legacy 8 x sponge_48 envelope of `transfer_amalgam_8` with a

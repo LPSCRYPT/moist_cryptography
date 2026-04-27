@@ -1,3 +1,13 @@
+// =====================================================================
+// **STALE — v1 circuit, not used by v2 staging contracts.**
+// The v2 solve path is unimplemented (Phase 9 pending). When it lands
+// it will reveal 16 × 39-Field plaintexts + the z-permutation; PI count
+// is the EIP-170 risk and likely needs hash-root packing similar to
+// transferShadow. The contract path `ShadowToken.solve` currently
+// reverts NotImplementedYet. See `STAGING_REFACTOR/PROGRESS.md` Phase 9
+// for the v2 design sketch.
+// =====================================================================
+
 // ZK Solve Circuit (v5 IOD/EMD-proportional geometry)
 //
 // One-way reveal of an amalgam's plaintext pixel data. The owner provides

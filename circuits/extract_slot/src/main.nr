@@ -1,3 +1,13 @@
+// =====================================================================
+// **STALE — v1 circuit, superseded in v2.**
+// The v2 extractSlot path is **proofless** in its contract body: it
+// just copies slot.liveStateHash to carrier.checkpoint, clears the
+// slot, and bundles a `shadow_t10` proof for atomic T10 refresh. No
+// extract-specific ZK proof is required because the unbinding doesn't
+// reveal anything new — the carrier already commits to its frozen
+// state. See `staging/contracts/src/ShadowToken.sol::extractSlot`.
+// =====================================================================
+
 // extract_slot: prove that the prover knew alice's shadow plaintext AND that
 // the witnessed `feature_payload` is the byte-correct slice of that shadow's
 // per-feature bytes for the requested slot.

@@ -1,3 +1,14 @@
+// =====================================================================
+// **STALE — v1 circuit, not used by v2 staging contracts.**
+// In v2 a FeatureNFT held off-host has its own `liveStateHashCheckpoint`
+// frozen on the carrier; transferring the carrier rotates ECIES with
+// the same shape as v1 but PI must reference checkpoint instead of the
+// (now-removed) `c2Commit` field. The contract path
+// `FeatureNFT.transferFromWithRotation` (or equivalent) is unimplemented
+// and `transferFrom` reverts `CustodyLocked`/`TransferGated`. See
+// `STAGING_REFACTOR/PROGRESS.md` for the planned v2 surface.
+// =====================================================================
+
 // transfer_feature: re-encrypt a 42-Field FeatureNFT ciphertext to a new owner.
 //
 // Same shape as transfer_shadow but the underlying payload is 42 Fields (one
