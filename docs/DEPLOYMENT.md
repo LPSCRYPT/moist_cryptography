@@ -171,12 +171,25 @@ write_vk + bb prove + bb verify, single-process).
 | 14 | `extractSlot` (recipient on B[2]) | [`0x577a2a60...`](https://sepolia.basescan.org/tx/0x577a2a60be8d85f801b2da21bd49b17d0f16dcc7a696197f716104e7a687f2e1) | 40,769,968 | 2026-04-27 16:36:10 |  3,435,423 | 12.56M | T10 only 6.85K | 640 B | ~0.5 s |
 | 15 | `setZIndexCommit` (recipient on B) | [`0xe2ea5fce...`](https://sepolia.basescan.org/tx/0xe2ea5fcefc41436242c059f72f9a41e339a9b8be85397da98422374c7f2bbc96) | 40,770,095 | 2026-04-27 16:40:24 |  6,953,399 |  9.05M | z 7.62K + T10 6.85K | 64 + 640 B | ~2 s |
 | 16 | `solve` (recipient on B) | [`0x2df9e58f...`](https://sepolia.basescan.org/tx/0x2df9e58f6c734545c17509c669f63ed97bcc61c70edcd5023f9b095655fe4b03) | 40,770,295 | 2026-04-27 16:47:04 |  4,831,280 | 11.17M | solve 8.77K | 224 B | ~5 s |
+| 17 | `setTransferFeatureVerifier` deploy + wire | [`0xe345c9a7...`](https://sepolia.basescan.org/tx/0xe345c9a7a577d64bc4f65e18f829eac4b9229ac4b71527514f1071a589d9c2c4) + [`0x3a6c086f...`](https://sepolia.basescan.org/tx/0x3a6c086f27e833a1a87072bbb6127f39c6e60e7b5edf25dc005b2f4ac0f23dfd) | 40,772,221 | 2026-04-27 17:48:?? |  6,742,016 | n/a | TransferFeatureV2Verifier `0x75fB0299...` | n/a | n/a |
+| 18 | `transferFeature` (A's slot-0 carrier `0x0c15f2ea...` to recipient) | [`0x8bd6889d...`](https://sepolia.basescan.org/tx/0x8bd6889d92cbc0b8e7a215e5d926c09e4dae9cc79ec4312d8958d780b1158f80) | 40,772,596 | 2026-04-27 17:54:?? |  3,687,517 | 12.31M | transfer_feature_v2 8.00K | 256 B | ~3 s |
+| 19 | `bridgeShadow` (A from L2 to L1) | [`0xc6bebd45...`](https://sepolia.basescan.org/tx/0xc6bebd455248255c549e363a036c74e5a8bf0a7030c68c5efafa7d843daee617) | 40,772,843 | 2026-04-27 17:59:?? |    399,678 | 15.60M | revealedPi 224 B | n/a | ~1 s |
 
-Aggregate gas across all 16 entry-point txs against the live deployment:
-**96,211,643 gas**. At Base Sepolia gas price ~0.011 gwei observed at
-broadcast time, total cost ≈ **0.00106 Sepolia ETH** for the entire
+Aggregate gas across all 19 entry-point txs against the live deployment:
+**107,040,854 gas** on Base Sepolia. At ~0.011 gwei observed at
+broadcast time, total cost ≈ **0.00118 Sepolia ETH** for the entire
 lifecycle including: A's full lifecycle, B's mint + insert + transfer,
-and the recipient's full lifecycle on B (mutateBatch + extract + setZIndex + solve).
+the recipient's full lifecycle on B (mutateBatch + extract + setZIndex +
+solve), the v2 transferFeature deploy + first held-carrier rotation, and
+the L2 leg of bridgeShadow on A.
+
+Plus on Ethereum Sepolia: ShadowMirrorL1 deploy `0x4222e80d...` (1.80M gas)
++ setL2Bridge `0x333512c9...` (45K gas) at L1 mirror `0x89dB0113AeC52f03606E0550c5FfCA5554eF646D`,
+block 10,744,157 / 10,744,166. Cost ≈ 0.00056 L1 Sepolia ETH at 0.24 gwei.
+
+Bridge L1 finalization is calendar-bound: ~1hr for output root proposal +
+proveWithdrawalTransaction + 7-day OP Stack challenge window +
+finalizeWithdrawalTransaction. Sequenced in `STAGING_REFACTOR/2026-04-27_bridge_live_working.md`.
 
 Every entry point clears the 16M sequencer cap with healthy headroom.
 Tightest margins:
