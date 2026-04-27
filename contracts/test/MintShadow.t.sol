@@ -78,9 +78,9 @@ contract MintShadowE2ETest is Test {
         vMint = new MintShadowVerifier();
         vDisc = new FaceDiscVerifier();
         vT10  = new T10ShadowVerifier();
-        st.setMintShadowVerifier(IVerifier(address(vMint)));
-        st.setFaceDiscVerifier(IVerifier(address(vDisc)));
-        st.setT10ShadowVerifier(IVerifier(address(vT10)));
+        st.setVerifier(st.SLOT_MINT_SHADOW(), IVerifier(address(vMint)));
+        st.setVerifier(st.SLOT_FACE_DISC(), IVerifier(address(vDisc)));
+        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
 
         kr = new KeyRegistry();
         st.setKeyRegistry(kr);

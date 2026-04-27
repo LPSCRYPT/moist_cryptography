@@ -112,20 +112,20 @@ contract ShadowToken is ERC721, PausableMixin {
     IFeatureNFT public featureNFT;
     bool private _featureNFTLocked;
 
-    IVerifier public mintShadowVerifier;
-    IVerifier public faceDiscVerifier;
-    IVerifier public mutateSlotVerifier;
-    IVerifier public t10ShadowVerifier;
-    IVerifier public zIndexCommitVerifier;
-    IVerifier public transferShadowVerifier;
-    IVerifier public solveShadowVerifier;
-    bool private _mintShadowVerifierLocked;
-    bool private _faceDiscVerifierLocked;
-    bool private _mutateSlotVerifierLocked;
-    bool private _t10ShadowVerifierLocked;
-    bool private _zIndexCommitVerifierLocked;
-    bool private _transferShadowVerifierLocked;
-    bool private _solveShadowVerifierLocked;
+    // Verifier slots. Stored internally; external readers go via
+    // `verifierAt(slotId)` (one dispatch entry instead of 7 auto-generated
+    // getters; saves ~350 B of runtime bytecode).
+    IVerifier internal mintShadowVerifier;
+    IVerifier internal faceDiscVerifier;
+    IVerifier internal mutateSlotVerifier;
+    IVerifier internal t10ShadowVerifier;
+    IVerifier internal zIndexCommitVerifier;
+    IVerifier internal transferShadowVerifier;
+    IVerifier internal solveShadowVerifier;
+    /// Bitmap of verifier-slot locks. Bit `slotId` set => slot is
+    /// one-shot-locked from setVerifier. Replaces 7 separate booleans
+    /// to save runtime bytecode under EIP-170.
+    uint8 private _verifierLocks;
 
     mapping(uint256 => Shadow) private _shadows;
     mapping(uint256 => ManifestEntry[16]) private _manifests;
@@ -192,13 +192,9 @@ contract ShadowToken is ERC721, PausableMixin {
         uint64  zIndexRevealed
     );
 
-    event MintShadowVerifierSet(IVerifier v);
-    event FaceDiscVerifierSet(IVerifier v);
-    event MutateSlotVerifierSet(IVerifier v);
-    event T10ShadowVerifierSet(IVerifier v);
-    event ZIndexCommitVerifierSet(IVerifier v);
-    event TransferShadowVerifierSet(IVerifier v);
-    event SolveShadowVerifierSet(IVerifier v);
+    /// Single event covers initial set + subsequent rotation. Replaces
+    /// 7 individual setter events to save runtime bytecode.
+    event VerifierSet(uint8 indexed slot, IVerifier v);
     event KeyRegistrySet(KeyRegistry r);
     event FeatureNFTSet(IFeatureNFT f);
     event YulSponge16Set(address indexed addr);
@@ -265,60 +261,17 @@ contract ShadowToken is ERC721, PausableMixin {
         emit YulSponge16Set(addr);
     }
 
-    function setMintShadowVerifier(IVerifier v) external {
+    /// One-shot lock + write for any verifier slot. Slot ids match the
+    /// `SLOT_*` constants below; lock state is a bitmap on `_verifierLocks`.
+    /// Replaces 7 individual `setXVerifier` functions to save runtime
+    /// bytecode (each was ~150 B; collapsing all 7 into 1 saves ~1 KB).
+    function setVerifier(uint8 slotId, IVerifier v) external {
         if (msg.sender != deployer) revert NotDeployer();
-        if (_mintShadowVerifierLocked) revert VerifierAlreadySet();
-        mintShadowVerifier = v;
-        _mintShadowVerifierLocked = true;
-        emit MintShadowVerifierSet(v);
-    }
-
-    function setFaceDiscVerifier(IVerifier v) external {
-        if (msg.sender != deployer) revert NotDeployer();
-        if (_faceDiscVerifierLocked) revert VerifierAlreadySet();
-        faceDiscVerifier = v;
-        _faceDiscVerifierLocked = true;
-        emit FaceDiscVerifierSet(v);
-    }
-
-    function setMutateSlotVerifier(IVerifier v) external {
-        if (msg.sender != deployer) revert NotDeployer();
-        if (_mutateSlotVerifierLocked) revert VerifierAlreadySet();
-        mutateSlotVerifier = v;
-        _mutateSlotVerifierLocked = true;
-        emit MutateSlotVerifierSet(v);
-    }
-
-    function setT10ShadowVerifier(IVerifier v) external {
-        if (msg.sender != deployer) revert NotDeployer();
-        if (_t10ShadowVerifierLocked) revert VerifierAlreadySet();
-        t10ShadowVerifier = v;
-        _t10ShadowVerifierLocked = true;
-        emit T10ShadowVerifierSet(v);
-    }
-
-    function setZIndexCommitVerifier(IVerifier v) external {
-        if (msg.sender != deployer) revert NotDeployer();
-        if (_zIndexCommitVerifierLocked) revert VerifierAlreadySet();
-        zIndexCommitVerifier = v;
-        _zIndexCommitVerifierLocked = true;
-        emit ZIndexCommitVerifierSet(v);
-    }
-
-    function setTransferShadowVerifier(IVerifier v) external {
-        if (msg.sender != deployer) revert NotDeployer();
-        if (_transferShadowVerifierLocked) revert VerifierAlreadySet();
-        transferShadowVerifier = v;
-        _transferShadowVerifierLocked = true;
-        emit TransferShadowVerifierSet(v);
-    }
-
-    function setSolveShadowVerifier(IVerifier v) external {
-        if (msg.sender != deployer) revert NotDeployer();
-        if (_solveShadowVerifierLocked) revert VerifierAlreadySet();
-        solveShadowVerifier = v;
-        _solveShadowVerifierLocked = true;
-        emit SolveShadowVerifierSet(v);
+        uint8 mask = uint8(1) << slotId;
+        if (_verifierLocks & mask != 0) revert VerifierAlreadySet();
+        _verifierLocks |= mask;
+        _writeVerifierSlot(slotId, address(v));
+        emit VerifierSet(slotId, v);
     }
 
     // ============== mintShadow ==============
@@ -405,11 +358,7 @@ contract ShadowToken is ERC721, PausableMixin {
         // ---- face_disc: PI = [imageCommit] ----
         bytes32[] memory piDisc = new bytes32[](FACE_DISC_PI_LEN);
         piDisc[0] = imageCommit;
-        try faceDiscVerifier.verify(args.proofDisc, piDisc) returns (bool ok) {
-            if (!ok) revert InvalidProof();
-        } catch {
-            revert InvalidProof();
-        }
+        _verifyOrRevert(faceDiscVerifier, args.proofDisc, piDisc);
 
         // ---- mint proof: build PI ----
         bytes32[] memory piMint = new bytes32[](MINT_SHADOW_PI_LEN);
@@ -420,11 +369,7 @@ contract ShadowToken is ERC721, PausableMixin {
         piMint[4] = _sponge8Pad16BytesArr(args.liveStateHashInits);
         piMint[5] = _ctCommitsRoot(args.c2s);
         piMint[6] = _sponge8Pad16BytesArr(args.chainTips);
-        try mintShadowVerifier.verify(args.proofMint, piMint) returns (bool ok) {
-            if (!ok) revert InvalidProof();
-        } catch {
-            revert InvalidProof();
-        }
+        _verifyOrRevert(mintShadowVerifier, args.proofMint, piMint);
     }
 
     /// Compute ct_commits_root = sponge_8_pad16(sponge_39(c2s[i])).
@@ -574,14 +519,20 @@ contract ShadowToken is ERC721, PausableMixin {
         if (m.kind != SlotKind.OCCUPIED) revert SlotEmpty(args.slotIdx);
 
         // ---- 1. mutate_slot proof ----
-        bytes32[] memory piMut = _buildMutatePI(args, m);
-        IVerifier vMut = mutateSlotVerifier;
-        if (address(vMut) == address(0)) revert VerifierNotSet();
-        try vMut.verify(args.proofMutate, piMut) returns (bool ok) {
-            if (!ok) revert InvalidProof();
-        } catch {
-            revert InvalidProof();
-        }
+        bytes32[] memory piMut = _buildSlotPI(SlotPIInputs({
+            shadowId:      args.shadowId,
+            slotIdx:       args.slotIdx,
+            featureId:     m.featureId,
+            oldLsh:        m.liveStateHash,
+            newLsh:        args.newLiveStateHash,
+            newCtCommit:   args.newCtCommit,
+            c2FieldCount:  args.c2FieldCount,
+            prevChainTip:  args.prevChainTip,
+            newChainTip:   args.newChainTip,
+            prevCount:     args.prevMutationCount,
+            newCount:      args.newMutationCount
+        }));
+        _verifyOrRevert(mutateSlotVerifier, args.proofMutate, piMut);
 
         // ---- 2. bind c2 calldata via on-chain Yul Poseidon2 sponge_39 ----
         // The proof's PI[8] (new_ct_commit) is sponge_39 of the new c2
@@ -634,48 +585,76 @@ contract ShadowToken is ERC721, PausableMixin {
     ///   PI[13] new_chain_tip        (args, derived in proof)
     ///   PI[14] prev_mutation_count  (args)
     ///   PI[15] new_mutation_count   (args, derived in proof)
-    function _buildMutatePI(
-        MutateSlotArgs calldata args,
-        ManifestEntry storage m
-    ) internal view returns (bytes32[] memory pi) {
+    /// Inputs to `_buildSlotPI`. Wraps the 11 slot-level fields a
+    /// mutate/insert PI build needs so we can pass them by struct and
+    /// reuse one builder across the three call sites (mutateSlot,
+    /// mutateBatch, insertFeature). Without this consolidation the
+    /// three builders were ~80% identical and ate ~600 B of bytecode.
+    struct SlotPIInputs {
+        uint256 shadowId;
+        uint8   slotIdx;
+        uint256 featureId;
+        bytes32 oldLsh;             // m.liveStateHash for mutate; fn.checkpoint for insert
+        bytes32 newLsh;
+        bytes32 newCtCommit;
+        uint16  c2FieldCount;
+        bytes32 prevChainTip;
+        bytes32 newChainTip;
+        uint16  prevCount;
+        uint16  newCount;
+    }
+
+    /// Build the 16-field mutate_slot PI from the canonical slot-level
+    /// inputs + chain state. Layout matches
+    /// `circuits/mutate_slot/src/main.nr` byte-for-byte.
+    function _buildSlotPI(SlotPIInputs memory inp)
+        internal view returns (bytes32[] memory pi)
+    {
         pi = new bytes32[](MUTATE_SLOT_PI_LEN);
         IFeatureNFT fn = featureNFT;
-        pi[0]  = bytes32(args.shadowId);
-        pi[1]  = bytes32(uint256(args.slotIdx));
-        pi[2]  = bytes32(m.featureId);
-        pi[3]  = bytes32(uint256(fn.typeIdxOf(m.featureId)));
-        pi[4]  = fn.originFaceIdOf(m.featureId);
-        pi[5]  = fn.paletteCommitOf(m.featureId);
-        pi[6]  = m.liveStateHash;
-        pi[7]  = args.newLiveStateHash;
-        pi[8]  = bytes32(0);  // filled below from extraData
-        pi[9]  = bytes32(uint256(args.c2FieldCount));
-        pi[10] = _shadows[args.shadowId].ecdhPubX;
-        pi[11] = _shadows[args.shadowId].ecdhPubY;
-        // PI[12..15] are sourced from args via the auxiliary fields.
-        // We thread them through `MutateSlotArgs.aux` to keep the on-chain
-        // payload self-describing.
-        pi[12] = args.prevChainTip;
-        pi[13] = args.newChainTip;
-        pi[14] = bytes32(uint256(args.prevMutationCount));
-        pi[15] = bytes32(uint256(args.newMutationCount));
-        // PI[8] is the proof's claimed new_ct_commit; the contract trusts the
-        // proof's witness here -- the calldata c2 binding is enforced *after*
-        // proof verification by sponge_39(c2) == PI[8]. We carry it forward
-        // from args.newCtCommit so the verifier sees the same value the
-        // prover committed to.
-        pi[8] = args.newCtCommit;
+        pi[0]  = bytes32(inp.shadowId);
+        pi[1]  = bytes32(uint256(inp.slotIdx));
+        pi[2]  = bytes32(inp.featureId);
+        pi[3]  = bytes32(uint256(fn.typeIdxOf(inp.featureId)));
+        pi[4]  = fn.originFaceIdOf(inp.featureId);
+        pi[5]  = fn.paletteCommitOf(inp.featureId);
+        pi[6]  = inp.oldLsh;
+        pi[7]  = inp.newLsh;
+        pi[8]  = inp.newCtCommit;
+        pi[9]  = bytes32(uint256(inp.c2FieldCount));
+        pi[10] = _shadows[inp.shadowId].ecdhPubX;
+        pi[11] = _shadows[inp.shadowId].ecdhPubY;
+        pi[12] = inp.prevChainTip;
+        pi[13] = inp.newChainTip;
+        pi[14] = bytes32(uint256(inp.prevCount));
+        pi[15] = bytes32(uint256(inp.newCount));
     }
 
     /// Verify the bundled shadow_t10 proof and write `shadowT10` atomically.
     /// Builds piT10 from chain state's CURRENT manifest (post-mutate write).
+    /// Verify a proof against a verifier slot or revert. Collapses the
+    /// `if not set / try verify / not ok / catch` pattern that appears
+    /// on every atomic flow (mutate, batch, insert, mint, transfer,
+    /// solve, T10, zindex). Saves ~700 B of runtime bytecode by
+    /// deduplicating the call shape.
+    function _verifyOrRevert(
+        IVerifier v,
+        bytes calldata proof,
+        bytes32[] memory pi
+    ) internal view {
+        if (address(v) == address(0)) revert VerifierNotSet();
+        try v.verify(proof, pi) returns (bool ok) {
+            if (!ok) revert InvalidProof();
+        } catch {
+            revert InvalidProof();
+        }
+    }
+
     function _refreshT10Atomically(
         uint256 shadowId,
         bytes32[2] calldata newT10,
         bytes calldata proofT10
     ) internal {
-        IVerifier vT10 = t10ShadowVerifier;
-        if (address(vT10) == address(0)) revert VerifierNotSet();
 
         bytes32[] memory piT10 = new bytes32[](T10_SHADOW_PI_LEN);
         Shadow storage s = _shadows[shadowId];
@@ -688,11 +667,7 @@ contract ShadowToken is ERC721, PausableMixin {
             piT10[4 + i] = manifest[i].liveStateHash;
         }
 
-        try vT10.verify(proofT10, piT10) returns (bool ok) {
-            if (!ok) revert InvalidProof();
-        } catch {
-            revert InvalidProof();
-        }
+        _verifyOrRevert(t10ShadowVerifier, proofT10, piT10);
 
         shadowT10[shadowId][0] = newT10[0];
         shadowT10[shadowId][1] = newT10[1];
@@ -700,25 +675,124 @@ contract ShadowToken is ERC721, PausableMixin {
     }
 
 
-    /// Calldata struct for mutateBatch. Wrapping ten parallel arrays in
-    /// a struct dodges Solidity's stack-too-deep at the entry point and
-    /// keeps the call site self-documenting.
-    struct MutateBatchArgs {
-        uint256   shadowId;
-        uint8[]   slotIdxs;
-        bytes[]   proofMutates;
-        uint256[] newC1Xs;
-        uint256[] newC1Ys;
-        bytes32[] newLiveStateHashes;
-        uint16[]  c2FieldCounts;
-        bytes[]   c2s;
-        bytes32[2] newT10;
-        bytes     proofT10;
+    /// One per-slot mutation entry inside a `mutateBatch` call. Mirrors
+    /// `MutateSlotArgs` minus the `shadowId` (carried once at the batch
+    /// level) and minus `newT10`/`proofT10` (one refresh at end of batch).
+    /// Spec line 806 listed parallel arrays; we use struct-of-arrays to
+    /// dodge stack-too-deep at the entry point and to keep PI building
+    /// per-entry self-documenting. Field semantics are byte-for-byte
+    /// identical to `MutateSlotArgs`.
+    struct MutateSlotEntry {
+        uint8      slotIdx;
+        bytes      proofMutate;
+        uint256    newC1X;
+        uint256    newC1Y;
+        bytes32    newLiveStateHash;
+        bytes32    newCtCommit;          // == sponge_39(c2); contract sponges c2 to bind
+        uint16     c2FieldCount;
+        bytes      c2;                   // emitted via event; sponge-bound to newCtCommit
+        bytes32    prevChainTip;
+        bytes32    newChainTip;
+        uint16     prevMutationCount;
+        uint16     newMutationCount;
     }
 
-    function mutateBatch(MutateBatchArgs calldata /*args*/) external whenNotPaused {
-        revert NotImplementedYet();
+    /// Calldata struct for mutateBatch. One T10 refresh covers the whole
+    /// batch -- the spec's gas-amortization rationale for the API. Per
+    /// spec line 821, practical batch ceiling is ~2 mutate proofs per tx
+    /// within the 16.7M block-gas cap.
+    struct MutateBatchArgs {
+        uint256             shadowId;
+        MutateSlotEntry[]   entries;     // MUST be non-empty
+        bytes32[2]          newT10;      // post-batch (hi, lo) packed quartets
+        bytes               proofT10;    // bundled atomic T10 against post-batch manifest
     }
+
+    /// Mutate N slots in one transaction with a single T10 refresh at
+    /// the end. The atomic-T10 invariant holds because the T10 proof
+    /// binds the *post-batch* manifest -- at no point between txs is
+    /// `shadowT10` stale.
+    /// Reverts on:
+    ///   - empty entries array (BadArrayLen)
+    ///   - non-owner caller (NotShadowOwner)
+    ///   - shadow already solved (AlreadySolved)
+    ///   - any per-entry failure (slot OOR, slot EMPTY, proof, c2 length,
+    ///     sponge mismatch) -- entire batch aborts atomically
+    function mutateBatch(MutateBatchArgs calldata args) external whenNotPaused {
+        if (_ownerOf(args.shadowId) != msg.sender) revert NotShadowOwner();
+        Shadow storage s = _shadows[args.shadowId];
+        if (s.solved) revert AlreadySolved();
+        if (address(featureNFT) == address(0)) revert FeatureNFTNotSet();
+        uint256 n = args.entries.length;
+        if (n == 0) revert BadArrayLen(0, 1);
+
+        // ---- 1..N: verify + apply each entry ----
+        for (uint256 i = 0; i < n; i++) {
+            _verifyAndApplyOneMutate(args.shadowId, args.entries[i]);
+        }
+
+        // ---- N+1: single atomic T10 refresh against post-batch manifest ----
+        _refreshT10Atomically(args.shadowId, args.newT10, args.proofT10);
+    }
+
+    /// Verify one mutate_slot proof + apply state for a single entry.
+    /// Mirrors the inner body of `mutateSlot` minus the T10 refresh
+    /// (which the batch caller does once at the end). Extracted as a
+    /// helper so the batch loop body stays small enough that Solidity
+    /// can compile it without stack-too-deep.
+    function _verifyAndApplyOneMutate(
+        uint256 shadowId,
+        MutateSlotEntry calldata e
+    ) internal {
+        if (e.slotIdx >= N_SLOTS) revert SlotOutOfRange(e.slotIdx);
+        uint256 expectedC2Bytes = uint256(e.c2FieldCount) * 32;
+        if (e.c2.length != expectedC2Bytes) {
+            revert BadC2Length(e.c2.length, expectedC2Bytes);
+        }
+
+        ManifestEntry storage m = _manifests[shadowId][e.slotIdx];
+        if (m.kind != SlotKind.OCCUPIED) revert SlotEmpty(e.slotIdx);
+
+        // Build PI for this entry (matches mutate_slot circuit byte-for-byte).
+        bytes32[] memory piMut = _buildSlotPI(SlotPIInputs({
+            shadowId:      shadowId,
+            slotIdx:       e.slotIdx,
+            featureId:     m.featureId,
+            oldLsh:        m.liveStateHash,
+            newLsh:        e.newLiveStateHash,
+            newCtCommit:   e.newCtCommit,
+            c2FieldCount:  e.c2FieldCount,
+            prevChainTip:  e.prevChainTip,
+            newChainTip:   e.newChainTip,
+            prevCount:     e.prevMutationCount,
+            newCount:      e.newMutationCount
+        }));
+        _verifyOrRevert(mutateSlotVerifier, e.proofMutate, piMut);
+
+        // Bind c2 calldata via on-chain Yul Poseidon2 sponge_39 ==
+        // PI[8] (new_ct_commit). Same invariant as mutateSlot.
+        bytes32 chainCtCommit = bytes32(_sponge(e.c2));
+        if (chainCtCommit != piMut[8]) {
+            revert CtCommitMismatch(chainCtCommit, piMut[8]);
+        }
+
+        // Apply state: write new LSH; manifest's other fields
+        // (kind/featureId) are unchanged by mutation.
+        m.liveStateHash = e.newLiveStateHash;
+
+        // Emit per-slot event so indexers can reconstruct chain history.
+        emit ShadowSlotMutated(
+            shadowId,
+            e.slotIdx,
+            piMut[4],                              // origin_face_id from PI
+            uint256(piMut[2]),                     // feature_id from PI
+            uint16(uint256(piMut[15])),            // post-bump mutation count
+            piMut[12],                             // prev chain tip
+            piMut[13],                             // new chain tip
+            e.c2
+        );
+    }
+
 
     // ============== extractSlot (STUB) ==============
 
@@ -808,17 +882,9 @@ contract ShadowToken is ERC721, PausableMixin {
             revert BadC2Length(args.c2.length, expectedC2Bytes);
         }
 
-        // ---- 1. mutate_slot proof (reused for insert per spec Open Q2) ----
-        // The proof's old_liveStateHash binds the carrier's checkpoint,
-        // not a chain manifest entry. Build PI from chain state + carrier.
-        bytes32[] memory piMut = _buildInsertPI(args);
-        IVerifier vMut = mutateSlotVerifier;
-        if (address(vMut) == address(0)) revert VerifierNotSet();
-        try vMut.verify(args.proofInsert, piMut) returns (bool ok) {
-            if (!ok) revert InvalidProof();
-        } catch {
-            revert InvalidProof();
-        }
+        // ---- 1. verify mutate_slot proof against carrier checkpoint (helper
+        // dodges stack-too-deep on the entry point) + return PI for events ----
+        bytes32[] memory piMut = _verifyInsertProof(args, fn);
 
         // ---- 2. bind c2 calldata via on-chain sponge ----
         bytes32 chainCtCommit = bytes32(_sponge(args.c2));
@@ -849,35 +915,30 @@ contract ShadowToken is ERC721, PausableMixin {
         );
     }
 
-    /// Build the 16-field PI for mutate_slot reused on the insert path.
-    /// Differences from `_buildMutatePI`:
-    ///   - PI[2] (feature_id) sourced from args (not from manifest, since
-    ///     manifest is EMPTY pre-insert).
-    ///   - PI[6] (old_lsh) sourced from the carrier's
-    ///     liveStateHashCheckpoint, not chain manifest.
-    ///   - PI[3..5] (immutables) read from FeatureNFT's stored values.
-    function _buildInsertPI(InsertFeatureArgs calldata args)
-        internal view returns (bytes32[] memory pi)
+    /// Build the insert PI from carrier checkpoint + verify proof.
+    /// Extracted from `insertFeature` body to dodge stack-too-deep --
+    /// the entry-point body holds many calldata locals + a 16-field PI
+    /// array + a SlotPIInputs struct simultaneously, which exceeds the
+    /// 16-stack-slot Solidity budget without via-ir.
+    function _verifyInsertProof(InsertFeatureArgs calldata args, IFeatureNFT fn)
+        internal view returns (bytes32[] memory piMut)
     {
-        pi = new bytes32[](MUTATE_SLOT_PI_LEN);
-        IFeatureNFT fn = featureNFT;
-        pi[0]  = bytes32(args.shadowId);
-        pi[1]  = bytes32(uint256(args.slotIdx));
-        pi[2]  = bytes32(args.featureId);
-        pi[3]  = bytes32(uint256(fn.typeIdxOf(args.featureId)));
-        pi[4]  = fn.originFaceIdOf(args.featureId);
-        pi[5]  = fn.paletteCommitOf(args.featureId);
-        pi[6]  = fn.liveStateHashCheckpointOf(args.featureId);
-        pi[7]  = args.newLiveStateHash;
-        pi[8]  = args.newCtCommit;
-        pi[9]  = bytes32(uint256(args.c2FieldCount));
-        pi[10] = _shadows[args.shadowId].ecdhPubX;
-        pi[11] = _shadows[args.shadowId].ecdhPubY;
-        pi[12] = args.prevChainTip;
-        pi[13] = args.newChainTip;
-        pi[14] = bytes32(uint256(args.prevMutationCount));
-        pi[15] = bytes32(uint256(args.newMutationCount));
+        piMut = _buildSlotPI(SlotPIInputs({
+            shadowId:      args.shadowId,
+            slotIdx:       args.slotIdx,
+            featureId:     args.featureId,
+            oldLsh:        fn.liveStateHashCheckpointOf(args.featureId),
+            newLsh:        args.newLiveStateHash,
+            newCtCommit:   args.newCtCommit,
+            c2FieldCount:  args.c2FieldCount,
+            prevChainTip:  args.prevChainTip,
+            newChainTip:   args.newChainTip,
+            prevCount:     args.prevMutationCount,
+            newCount:      args.newMutationCount
+        }));
+        _verifyOrRevert(mutateSlotVerifier, args.proofInsert, piMut);
     }
+
 
     // ============== transferShadow (STUB) ==============
 
@@ -937,8 +998,6 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes32 recipientPkX,
         bytes32 recipientPkY
     ) internal view {
-        IVerifier vT = transferShadowVerifier;
-        if (address(vT) == address(0)) revert VerifierNotSet();
         Shadow storage s = _shadows[args.shadowId];
         bytes32[] memory piT = new bytes32[](TRANSFER_SHADOW_PI_LEN);
         piT[0] = bytes32(args.shadowId);
@@ -949,11 +1008,7 @@ contract ShadowToken is ERC721, PausableMixin {
         piT[5] = s.ecdhPubX;
         piT[6] = s.ecdhPubY;
         piT[7] = _sponge16BytesArr(args.newChainTips);
-        try vT.verify(args.proof, piT) returns (bool ok) {
-            if (!ok) revert InvalidProof();
-        } catch {
-            revert InvalidProof();
-        }
+        _verifyOrRevert(transferShadowVerifier, args.proof, piT);
     }
 
     /// Apply post-transfer state to chain: write new per-slot LSH, rotate
@@ -1086,16 +1141,10 @@ contract ShadowToken is ERC721, PausableMixin {
         if (s.solved) revert AlreadySolved();
 
         // 1. Verify the zindex_commit proof.
-        IVerifier vZ = zIndexCommitVerifier;
-        if (address(vZ) == address(0)) revert VerifierNotSet();
         bytes32[] memory piZ = new bytes32[](ZINDEX_COMMIT_PI_LEN);
         piZ[0] = bytes32(args.shadowId);
         piZ[1] = args.newCommit;
-        try vZ.verify(args.proofZ, piZ) returns (bool ok) {
-            if (!ok) revert InvalidProof();
-        } catch {
-            revert InvalidProof();
-        }
+        _verifyOrRevert(zIndexCommitVerifier, args.proofZ, piZ);
 
         // 2. Apply.
         s.zIndexCommit = args.newCommit;
@@ -1146,8 +1195,6 @@ contract ShadowToken is ERC721, PausableMixin {
     }
 
     function _verifySolveProof(SolveArgs calldata args) internal view {
-        IVerifier vS = solveShadowVerifier;
-        if (address(vS) == address(0)) revert VerifierNotSet();
         Shadow storage s = _shadows[args.shadowId];
 
         // Build state_commits root by sponge_39'ing each per-slot plaintext
@@ -1176,11 +1223,7 @@ contract ShadowToken is ERC721, PausableMixin {
         piS[4] = _sponge16Manifest(manifest);
         piS[5] = s.ecdhPubX;
         piS[6] = s.ecdhPubY;
-        try vS.verify(args.proof, piS) returns (bool ok) {
-            if (!ok) revert InvalidProof();
-        } catch {
-            revert InvalidProof();
-        }
+        _verifyOrRevert(solveShadowVerifier, args.proof, piS);
     }
 
     /// Auto-extract every occupied slot at solve time. Each carrier's

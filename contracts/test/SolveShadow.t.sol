@@ -62,7 +62,7 @@ contract SolveShadowE2ETest is Test {
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         st.setYulSponge16(address(sponge16));
         vS = new SolveShadowVerifier();
-        st.setSolveShadowVerifier(IVerifier(address(vS)));
+        st.setVerifier(st.SLOT_SOLVE_SHADOW(), IVerifier(address(vS)));
 
         proofSolve = vm.readFileBinary(string.concat(FIX, "/proof.bin"));
         piSolve    = _loadFields(string.concat(FIX, "/public_inputs.bin"), SOLVE_PI_LEN);

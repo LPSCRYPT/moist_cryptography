@@ -75,31 +75,31 @@ contract DeployShadowPipeline is Script {
         // ---- 4. Verifiers (deploy + one-shot wire) ----
         IVerifier mintV = IVerifier(address(new MintShadowVerifier()));
         console.log("MintShadowVerifier   :", address(mintV));
-        st.setMintShadowVerifier(mintV);
+        st.setVerifier(st.SLOT_MINT_SHADOW(), mintV);
 
         IVerifier discV = IVerifier(address(new FaceDiscVerifier()));
         console.log("FaceDiscVerifier     :", address(discV));
-        st.setFaceDiscVerifier(discV);
+        st.setVerifier(st.SLOT_FACE_DISC(), discV);
 
         IVerifier mutateV = IVerifier(address(new MutateSlotVerifier()));
         console.log("MutateSlotVerifier   :", address(mutateV));
-        st.setMutateSlotVerifier(mutateV);
+        st.setVerifier(st.SLOT_MUTATE_SLOT(), mutateV);
 
         IVerifier t10V = IVerifier(address(new T10ShadowVerifier()));
         console.log("T10ShadowVerifier    :", address(t10V));
-        st.setT10ShadowVerifier(t10V);
+        st.setVerifier(st.SLOT_T10_SHADOW(), t10V);
 
         IVerifier zV = IVerifier(address(new ZIndexCommitVerifier()));
         console.log("ZIndexCommitVerifier :", address(zV));
-        st.setZIndexCommitVerifier(zV);
+        st.setVerifier(st.SLOT_ZINDEX_COMMIT(), zV);
 
         IVerifier transferV = IVerifier(address(new TransferShadowVerifier()));
         console.log("TransferShadowVerifier:", address(transferV));
-        st.setTransferShadowVerifier(transferV);
+        st.setVerifier(st.SLOT_TRANSFER_SHADOW(), transferV);
 
         IVerifier solveV = IVerifier(address(new SolveShadowVerifier()));
         console.log("SolveShadowVerifier  :", address(solveV));
-        st.setSolveShadowVerifier(solveV);
+        st.setVerifier(st.SLOT_SOLVE_SHADOW(), solveV);
 
         vm.stopBroadcast();
     }

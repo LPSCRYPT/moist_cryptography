@@ -73,8 +73,8 @@ contract TransferShadowE2ETest is Test {
         st.setYulSponge16(address(sponge16));
         vT = new TransferShadowVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setTransferShadowVerifier(IVerifier(address(vT)));
-        st.setT10ShadowVerifier(IVerifier(address(vT10)));
+        st.setVerifier(st.SLOT_TRANSFER_SHADOW(), IVerifier(address(vT)));
+        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
 
         kr = new KeyRegistry();
         st.setKeyRegistry(kr);

@@ -88,8 +88,8 @@ contract InsertFeatureE2ETest is Test {
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         vMut = new MutateSlotVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setMutateSlotVerifier(IVerifier(address(vMut)));
-        st.setT10ShadowVerifier(IVerifier(address(vT10)));
+        st.setVerifier(st.SLOT_MUTATE_SLOT(), IVerifier(address(vMut)));
+        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
 
         proofMut = vm.readFileBinary(string.concat(FIX, "/proof_mut.bin"));
         piMut    = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), MUT_PI_LEN);

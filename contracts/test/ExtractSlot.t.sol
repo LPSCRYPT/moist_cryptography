@@ -59,7 +59,7 @@ contract ExtractSlotE2ETest is Test {
         fn = new TestableFeatureNFT(address(st));
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         vT10 = new T10ShadowVerifier();
-        st.setT10ShadowVerifier(IVerifier(address(vT10)));
+        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
 
         proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
         bytes memory raw = vm.readFileBinary(string.concat(FIX, "/public_inputs_t10.bin"));

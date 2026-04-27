@@ -53,8 +53,8 @@ contract SetZIndexCommitE2ETest is Test {
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         vZ = new ZIndexCommitVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setZIndexCommitVerifier(IVerifier(address(vZ)));
-        st.setT10ShadowVerifier(IVerifier(address(vT10)));
+        st.setVerifier(st.SLOT_ZINDEX_COMMIT(), IVerifier(address(vZ)));
+        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
 
         proofZ   = vm.readFileBinary(string.concat(FIX, "/proof_z.bin"));
         piZ      = _loadFields(string.concat(FIX, "/public_inputs_z.bin"), Z_PI_LEN);
