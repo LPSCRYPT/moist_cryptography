@@ -331,4 +331,16 @@ contract SolveShadowE2ETest is Test {
         vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.solve(args);
     }
+
+    /// Gas-pin: solve verifies one proof + auto-extracts every occupied
+    /// carrier + writes zIndexRevealed. Budget: 14M -- ~13% above current
+    /// ~12.4M baseline.
+    function test_solve_gas_under_block_budget() public {
+        ShadowToken.SolveArgs memory args = _buildArgs();
+        vm.prank(alice);
+        uint256 gasBefore = gasleft();
+        st.solve(args);
+        uint256 used = gasBefore - gasleft();
+        assertLt(used, 14_000_000, "solve gas regressed");
+    }
 }

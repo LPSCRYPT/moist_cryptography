@@ -276,4 +276,19 @@ contract MintShadowE2ETest is Test {
         vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.mintShadow(args);
     }
+
+    /// Gas-pin: mintShadow is the heaviest single tx (8 carrier mints +
+    /// 3 ZK proofs + T10 refresh). Budget: 25M -- ~12% above current
+    /// ~22.3M baseline, tight enough to catch a 3M+ regression. If this
+    /// fails, profile via `forge test --match-test test_mintShadow_gas
+    /// --gas-report` before bumping the budget.
+    function test_mintShadow_gas_under_block_budget() public {
+        ShadowToken.MintShadowArgs memory args = _buildArgs();
+        vm.prank(alice);
+        uint256 gasBefore = gasleft();
+        st.mintShadow(args);
+        uint256 used = gasBefore - gasleft();
+        // Budget: 25M. Real-world block gas is 30M (Ethereum) / 60M (Base).
+        assertLt(used, 25_000_000, "mintShadow gas regressed");
+    }
 }

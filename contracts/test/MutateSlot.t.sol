@@ -279,4 +279,15 @@ contract MutateSlotE2ETest is Test {
         vm.expectRevert(ShadowToken.AlreadySolved.selector);
         st.mutateSlot(args);
     }
+
+    /// Gas-pin: mutateSlot is the per-call hot path. Budget: 8M --
+    /// ~16% above current ~6.9M baseline.
+    function test_mutateSlot_gas_under_block_budget() public {
+        ShadowToken.MutateSlotArgs memory args = _buildArgs();
+        vm.prank(alice);
+        uint256 gasBefore = gasleft();
+        st.mutateSlot(args);
+        uint256 used = gasBefore - gasleft();
+        assertLt(used, 8_000_000, "mutateSlot gas regressed");
+    }
 }

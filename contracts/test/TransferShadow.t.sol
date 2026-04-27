@@ -286,4 +286,16 @@ contract TransferShadowE2ETest is Test {
         vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.transferShadow(args);
     }
+
+    /// Gas-pin: transferShadow rotates ownership for shadow + every
+    /// occupied carrier + 16-slot LSH chain. Budget: 14M -- ~16% above
+    /// current ~12.1M baseline (4 occupied slots).
+    function test_transferShadow_gas_under_block_budget() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        vm.prank(alice);
+        uint256 gasBefore = gasleft();
+        st.transferShadow(args);
+        uint256 used = gasBefore - gasleft();
+        assertLt(used, 14_000_000, "transferShadow gas regressed");
+    }
 }
