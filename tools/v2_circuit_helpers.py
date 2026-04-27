@@ -264,3 +264,44 @@ def transfer_chain_step(prev_chain_tip: int, recipient_pk_x: int, recipient_pk_y
     """Mirror transfer_shadow_v2's per-slot chain-tip extension."""
     return sponge_6(prev_chain_tip, TRANSFER_TAG, recipient_pk_x, recipient_pk_y,
                     new_count, slot_idx)
+
+
+# ---- landmark_regions_v2 (mint) constants + helpers ----
+
+# domain-separation tag for the mint chain-tip. matches circuit:
+#   MINT_TAG: Field = 0x9100_15_e_5_a_b_a_d_4_3_e_0_a_d_d_e_d_d_a_7_a
+# and Solidity ShadowToken.MINT_TAG byte-for-byte.
+MINT_TAG = 0x910015e5abad43e0addedda7a
+
+
+def sponge_4(a: int, b: int, c: int, d: int) -> int:
+    """4-element absorb: 1 rate-3 block + rate-1 partial absorb + sentinel.
+
+    Mirrors landmark_regions_v2's sponge_4. Used for chain_tip[i] =
+    sponge_4(MINT_TAG, origin_face_id, owner_pk_x, owner_pk_y)."""
+    s0, s1, s2, s3 = 0, 0, 0, 0
+    s0 = (s0 + a) % P
+    s1 = (s1 + b) % P
+    s2 = (s2 + c) % P
+    s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
+    s0 = (s0 + d) % P
+    s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
+    s0 = (s0 + 1) % P
+    s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
+    return s0
+
+
+def sponge_8_pad16(elems: list[int]) -> int:
+    """Fold 8 fields by zero-padding to 16 and feeding through sponge_16.
+
+    Reuses on-chain Poseidon2YulSponge16 (the contract feeds the same
+    16-field buffer to its yulSponge16 staticcall)."""
+    if len(elems) != 8:
+        raise ValueError(f"sponge_8_pad16 needs 8 elems, got {len(elems)}")
+    return sponge_16(list(elems) + [0] * 8)
+
+
+def mint_chain_step(origin_face_id: int, owner_pk_x: int, owner_pk_y: int) -> int:
+    """Mirror landmark_regions_v2's per-slot mint chain-tip seed."""
+    return sponge_4(MINT_TAG, origin_face_id, owner_pk_x, owner_pk_y)
+

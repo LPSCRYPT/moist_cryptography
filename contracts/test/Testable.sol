@@ -164,6 +164,16 @@ contract TestableShadowToken is ShadowToken {
         s.zIndexCommit = commit;
     }
 
+    /// Test-only verifier swap. Routes through ShadowToken's rotation
+    /// path (`_writeVerifierSlot`), which bypasses the one-shot setter
+    /// lock on `setXyzVerifier`. Used by mint tests to install verifier
+    /// slots after the deploy script has already locked them, e.g. to
+    /// register a face_disc verifier whose proof was generated against
+    /// a real image fixture but pinned post-deploy.
+    function setVerifierForTest(uint8 slotId, address newVerifier) external {
+        _writeVerifierSlot(slotId, newVerifier);
+    }
+
     /// Pinned storage slot of `ShadowToken._shadows` mapping. Derived from
     /// `forge inspect ShadowToken storageLayout`.
     uint256 private constant _SHADOWS_SLOT = 19;
