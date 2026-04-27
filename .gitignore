@@ -46,3 +46,6 @@ circuits/*/target/
 circuits/mutate_slot/Prover.toml
 circuits/zindex_commit/Prover.toml
 circuits/shadow_t10/Prover.toml
+circuits/transfer_shadow_v2/Prover.toml
+circuits/solve_shadow_v2/Prover.toml
+circuits/landmark_regions_v2/Prover.toml

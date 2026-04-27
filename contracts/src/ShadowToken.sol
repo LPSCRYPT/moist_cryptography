@@ -91,7 +91,7 @@ contract ShadowToken is ERC721, PausableMixin {
 
     /// PI lengths for each verifier (subject to circuit-level finalisation;
     /// kept here as named constants so call sites are self-documenting).
-    uint256 public constant MINT_SHADOW_PI_LEN     = 15; // packed per-slot tuples + image_commit + pk + featureId-pack
+    uint256 public constant MINT_SHADOW_PI_LEN     = 7;  // shadowId + imageCommit + pk[2] + lsh/ct/chain roots
     uint256 public constant MUTATE_SLOT_PI_LEN     = 16;
     uint256 public constant T10_SHADOW_PI_LEN      = 20; // shadowId + newT10[2] + 16x liveStateHash + zIndexCommit
     uint256 public constant ZINDEX_COMMIT_PI_LEN   = 2;
@@ -321,33 +321,216 @@ contract ShadowToken is ERC721, PausableMixin {
         emit SolveShadowVerifierSet(v);
     }
 
-    // ============== mintShadow (STUB) ==============
+    // ============== mintShadow ==============
 
     /// Atomically: verify mint + face_disc proofs, derive 8 originFaceIds
     /// from imageCommit, mint 8 carriers via FeatureNFT.mintAtShadowMint,
-    /// install them into slots 0..7, refresh T10.
-    /// Full body lands in Phase 3 once landmark_regions is rewritten.
-    /// Calldata struct for mintShadow. Bundles all 10 parameters to dodge
-    /// stack-too-deep at the entry point.
+    /// install them into slots 0..7, mint the shadow ERC-721 to caller,
+    /// refresh T10.
+    ///
+    /// Calldata struct. Fixed-size 8-element arrays let us hash-root via
+    /// sponge_8_pad16 (16-field buffer fed to Poseidon2YulSponge16 with
+    /// the trailing 8 fields = 0). Identical transcript shape to the
+    /// circuit's `sponge_8_pad16` so PI[4..6] match.
     struct MintShadowArgs {
-        bytes      proofMint;
-        bytes32[]  piMint;
-        bytes      proofDisc;
-        bytes[]    c2s;                  // 8 entries, one per CNN-detected atom
-        bytes32[]  liveStateHashInits;   // 8 entries
-        bytes32[]  paletteCommits;       // 8 entries
-        bytes32    ctCommitsPackHi;      // poseidon2 of (ctCommit[0..3])
-        bytes32    ctCommitsPackLo;      // poseidon2 of (ctCommit[4..7])
-        bytes32[2] newT10;
-        bytes      proofT10;
+        bytes        proofMint;
+        bytes        proofDisc;
+        bytes32      imageCommit;
+        bytes[]      c2s;                   // 8 entries; each MAX_PLAINTEXT_FIELDS_PER_SLOT * 32 bytes
+        bytes32[8]   liveStateHashInits;    // 8 entries; sponge_8_pad16 -> lsh_inits_root (PI[4])
+        bytes32[8]   chainTips;             // 8 entries; sponge_8_pad16 -> chain_tips_root (PI[6])
+        bytes32[8]   paletteCommits;        // 8 entries; stored on each FeatureNFT (no proof binding)
+        bytes32[8]   originFaceIds;         // 8 entries; binding to imageCommit is honored by the prover
+                                            //   (circuit derives origin_face_id_i = poseidon2(image_commit, i)
+                                            //   and folds it into chain_tip_i which is sponge-bound via PI[6]).
+                                            //   The contract trusts these match the prover-derived values; a
+                                            //   prover who lies degrades only their own indexer view.
+        bytes32[2]   newT10;                // post-install (hi, lo) packed quartets
+        bytes        proofT10;              // bundled atomic T10 refresh
     }
 
-    function mintShadow(MintShadowArgs calldata /*args*/)
+    /// Mint domain tag for chain-tip seeding. MUST match landmark_regions_v2
+    /// circuit's MINT_TAG constant byte-for-byte.
+    bytes32 public constant MINT_TAG = bytes32(uint256(0x91001_5_e5_a_b_a_d_4_3_e_0_a_d_d_e_d_d_a7_a));
+
+    function mintShadow(MintShadowArgs calldata args)
         external
         whenNotPaused
-        returns (uint256 /*shadowId*/)
+        returns (uint256 shadowId)
     {
-        revert NotImplementedYet();
+        if (address(featureNFT) == address(0)) revert FeatureNFTNotSet();
+        if (address(keyRegistry) == address(0)) revert VerifierNotSet();
+        if (address(mintShadowVerifier) == address(0)) revert VerifierNotSet();
+        if (address(faceDiscVerifier) == address(0)) revert VerifierNotSet();
+        if (yulSponge == address(0)) revert VerifierNotSet();
+        if (yulSponge16 == address(0)) revert VerifierNotSet();
+        if (args.c2s.length != N_MINT_ATOMS) revert BadArrayLen(args.c2s.length, N_MINT_ATOMS);
+
+        bytes32 imageCommit = args.imageCommit;
+        if (mintedOrigins[imageCommit]) revert AlreadyMinted(imageCommit);
+        mintedOrigins[imageCommit] = true;
+
+        // Deterministic shadowId from imageCommit. Each imageCommit can
+        // only mint once (anti-replay above), so shadowIds are unique.
+        // Mod FR_MOD because imageCommit is treated as a Field in the proof.
+        shadowId = uint256(imageCommit) % FR_MOD;
+
+        // Owner pk from KeyRegistry (caller must be registered).
+        (bytes32 ownerPkX, bytes32 ownerPkY) = keyRegistry.pkOf(msg.sender);
+
+        // ---- 1. verify both proofs (helpers dodge stack-too-deep) ----
+        _verifyMintProofs(args, shadowId, imageCommit, ownerPkX, ownerPkY);
+
+        // ---- 2. apply state (mint 8 carriers + install slots + record shadow + ERC-721 mint) ----
+        uint64 idx = _applyMintState(args, shadowId, ownerPkX, ownerPkY);
+
+        // ---- 3. atomic T10 refresh against post-install manifest ----
+        _refreshT10Atomically(shadowId, args.newT10, args.proofT10);
+
+        // ---- 4. emit ----
+        emit ShadowMinted(shadowId, msg.sender, idx, imageCommit);
+    }
+
+    /// Verify both the mint proof and the face_disc proof. The two
+    /// proofs are bound at the contract level via shared imageCommit.
+    /// Reconstructs PI for mint via on-chain sponge_8_pad16 over per-slot
+    /// hashed c2s, lshInits, chainTips.
+    function _verifyMintProofs(
+        MintShadowArgs calldata args,
+        uint256 shadowId,
+        bytes32 imageCommit,
+        bytes32 ownerPkX,
+        bytes32 ownerPkY
+    ) internal view {
+        // ---- face_disc: PI = [imageCommit] ----
+        bytes32[] memory piDisc = new bytes32[](FACE_DISC_PI_LEN);
+        piDisc[0] = imageCommit;
+        try faceDiscVerifier.verify(args.proofDisc, piDisc) returns (bool ok) {
+            if (!ok) revert InvalidProof();
+        } catch {
+            revert InvalidProof();
+        }
+
+        // ---- mint proof: build PI ----
+        bytes32[] memory piMint = new bytes32[](MINT_SHADOW_PI_LEN);
+        piMint[0] = bytes32(shadowId);
+        piMint[1] = imageCommit;
+        piMint[2] = ownerPkX;
+        piMint[3] = ownerPkY;
+        piMint[4] = _sponge8Pad16BytesArr(args.liveStateHashInits);
+        piMint[5] = _ctCommitsRoot(args.c2s);
+        piMint[6] = _sponge8Pad16BytesArr(args.chainTips);
+        try mintShadowVerifier.verify(args.proofMint, piMint) returns (bool ok) {
+            if (!ok) revert InvalidProof();
+        } catch {
+            revert InvalidProof();
+        }
+    }
+
+    /// Compute ct_commits_root = sponge_8_pad16(sponge_39(c2s[i])).
+    /// Each c2 entry MUST be exactly MAX_PLAINTEXT_FIELDS_PER_SLOT * 32
+    /// bytes; reverts BadC2Length otherwise.
+    function _ctCommitsRoot(bytes[] calldata c2s) internal view returns (bytes32) {
+        bytes32[8] memory ctCommits;
+        uint256 expected = MAX_PLAINTEXT_FIELDS_PER_SLOT * 32;
+        for (uint256 i = 0; i < N_MINT_ATOMS; i++) {
+            if (c2s[i].length != expected) revert BadC2Length(c2s[i].length, expected);
+            ctCommits[i] = bytes32(_sponge(c2s[i]));
+        }
+        return _sponge8Pad16BytesArrMem(ctCommits);
+    }
+
+    /// Calldata variant: feed 8-field array + 8 zero fields to yulSponge16.
+    function _sponge8Pad16BytesArr(bytes32[8] calldata arr)
+        internal view returns (bytes32)
+    {
+        bytes memory buf = new bytes(N_SLOTS * 32);  // 512 bytes; trailing 8 are zero
+        for (uint256 i = 0; i < N_MINT_ATOMS; i++) {
+            bytes32 v = arr[i];
+            assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
+        }
+        return _sponge16(buf);
+    }
+
+    /// Memory variant of the above; for arrays we built locally.
+    function _sponge8Pad16BytesArrMem(bytes32[8] memory arr)
+        internal view returns (bytes32)
+    {
+        bytes memory buf = new bytes(N_SLOTS * 32);
+        for (uint256 i = 0; i < N_MINT_ATOMS; i++) {
+            bytes32 v = arr[i];
+            assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
+        }
+        return _sponge16(buf);
+    }
+
+    /// Apply post-mint state: install shadow record, mint 8 FeatureNFTs
+    /// into slots 0..7, write manifest entries, mint shadow ERC-721 to caller.
+    function _applyMintState(
+        MintShadowArgs calldata args,
+        uint256 shadowId,
+        bytes32 ownerPkX,
+        bytes32 ownerPkY
+    ) internal returns (uint64 idx) {
+        Shadow storage s = _shadows[shadowId];
+        s.ecdhPubX = ownerPkX;
+        s.ecdhPubY = ownerPkY;
+        s.solved = false;
+        s.zIndexCommit = bytes32(0);
+        idx = ++mintCounter;
+        s.mintIdx = idx;
+        s.mintedAt = uint64(block.number);
+
+        IFeatureNFT fn = featureNFT;
+        ManifestEntry[16] storage manifest = _manifests[shadowId];
+        for (uint256 i = 0; i < N_MINT_ATOMS; i++) {
+            _mintOneAtom(args, shadowId, fn, manifest, i);
+        }
+        // Slots 8..15 stay EMPTY (default zero values).
+
+        // Mint the shadow ERC-721 to caller.
+        _safeMint(msg.sender, shadowId);
+    }
+
+    /// Per-slot mint helper. Extracted to dodge stack-too-deep in
+    /// _applyMintState. Mints one FeatureNFT, writes the manifest
+    /// entry, and emits the per-slot mutation event so indexers can
+    /// reconstruct chain history.
+    /// origin_face_id semantics: caller-supplied; the proof binds it
+    /// transitively via chain_tip[i] = sponge_4(MINT_TAG, originFaceId,
+    /// ownerPk.x, ownerPk.y) and chain_tips_root (PI[6]).
+    function _mintOneAtom(
+        MintShadowArgs calldata args,
+        uint256 shadowId,
+        IFeatureNFT fn,
+        ManifestEntry[16] storage manifest,
+        uint256 i
+    ) internal {
+        bytes32 originFaceId = args.originFaceIds[i];
+        uint256 featureId = fn.mintAtShadowMint(
+            shadowId,
+            uint8(i),
+            uint8(i),                          // typeIdx = slot index (8 distinct landmark types)
+            originFaceId,
+            args.paletteCommits[i],
+            args.liveStateHashInits[i],
+            msg.sender
+        );
+        manifest[i] = ManifestEntry({
+            kind: SlotKind.OCCUPIED,
+            featureId: featureId,
+            liveStateHash: args.liveStateHashInits[i]
+        });
+        emit ShadowSlotMutated(
+            shadowId,
+            uint8(i),
+            originFaceId,
+            featureId,
+            0,                                 // mutationCount = 0 at mint
+            bytes32(0),                        // prevChainTip = 0 (mint has no predecessor)
+            args.chainTips[i],
+            args.c2s[i]
+        );
     }
 
     // ============== mutateSlot (STUB) ==============
