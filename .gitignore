@@ -34,3 +34,6 @@ tools/test_keys.json
 
 # Logs
 *.log
+
+# Local-only refactor planning workspace; never pushed
+STAGING_REFACTOR/
