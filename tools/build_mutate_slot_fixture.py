@@ -77,7 +77,7 @@ def render_array(name: str, vals: list[int]) -> str:
     return f"{name} = [{', '.join(fhex(v) for v in vals)}]"
 
 
-def build_witness(seed: bytes) -> dict:
+def build_witness(seed: bytes, slot_idx: int = 3, witness_label: bytes = b"") -> dict:
     """Compute every PI + witness field for a synthetic mutation."""
     print("[1/9] keygen")
     owner_sk = deterministic_int(seed, b"owner_sk", GRUMPKIN_ORDER - 1) + 1
@@ -87,11 +87,13 @@ def build_witness(seed: bytes) -> dict:
     # Synthetic public binding values (transcript-only in the circuit).
     print("[2/9] PI binding stubs")
     shadow_id = deterministic_int(seed, b"shadow_id", P)
-    slot_idx = 3
-    feature_id = deterministic_int(seed, b"feature_id", P)
-    type_idx = 5
-    origin_face_id = deterministic_int(seed, b"origin_face_id", P)
-    palette_commit = deterministic_int(seed, b"palette_commit", P)
+    # slot_idx = caller-supplied (default 3 for the canonical demo).
+    # witness_label distinguishes per-slot witness state when callers
+    # build multiple proofs against the same shadow (e.g. mutateBatch).
+    feature_id     = deterministic_int(seed, b"feature_id"     + witness_label, P)
+    type_idx       = (5 + slot_idx) & 0xff
+    origin_face_id = deterministic_int(seed, b"origin_face_id" + witness_label, P)
+    palette_commit = deterministic_int(seed, b"palette_commit" + witness_label, P)
 
     # ---- OLD slot state ----
     print("[3/9] old plaintext")
@@ -102,7 +104,7 @@ def build_witness(seed: bytes) -> dict:
     assert len(old_plaintext) == PLAINTEXT_FIELDS
 
     print("[4/9] encrypt old plaintext")
-    old_r = deterministic_int(seed, b"old_r", GRUMPKIN_ORDER - 1) + 1
+    old_r = deterministic_int(seed, b"old_r" + witness_label, GRUMPKIN_ORDER - 1) + 1
     old_c1, old_c2, old_k = ecies_encrypt_v2(old_plaintext, owner_pk, old_r)
     old_state_commit = sponge_39(old_plaintext)
     old_ct_commit = sponge_39(old_c2)
@@ -127,7 +129,7 @@ def build_witness(seed: bytes) -> dict:
     new_plaintext = encode_plaintext_v2(new_pose, new_w, new_h, new_indices)
 
     print("[6/9] encrypt new plaintext (deterministic k via owner_pk binding)")
-    new_r = deterministic_int(seed, b"new_r", GRUMPKIN_ORDER - 1) + 1
+    new_r = deterministic_int(seed, b"new_r" + witness_label, GRUMPKIN_ORDER - 1) + 1
     new_c1, new_c2, new_k = ecies_encrypt_v2(new_plaintext, owner_pk, new_r)
     new_state_commit = sponge_39(new_plaintext)
     new_ct_commit = sponge_39(new_c2)
