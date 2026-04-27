@@ -1,3 +1,10 @@
+> **v1 historical document.** Lists deployment addresses and procedures
+> for the v1 contract set on Base Sepolia. The `staging` branch v2
+> contracts have not yet been deployed (Phase 11 pending). See
+> [`V2_STATUS.md`](V2_STATUS.md) for the v2 surface.
+
+---
+
 # Deployment
 
 Step-by-step on Base Sepolia (L2) and Ethereum Sepolia (L1).

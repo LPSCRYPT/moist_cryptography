@@ -1,3 +1,10 @@
+> **v1 historical document.** Verification recipe for the v1 contracts
+> on Base Sepolia. The v2 verification flow on `staging` differs (per-slot
+> `liveStateHash` reconstruction; atomic-T10 hash; per-slot palette-indexed
+> decryption). See [`../docs/V2_STATUS.md`](../docs/V2_STATUS.md).
+
+---
+
 # Verification
 
 Reference runs from a real Base Sepolia / Eth Sepolia execution. These are

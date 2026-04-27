@@ -1,3 +1,13 @@
+> **v1 historical document.** Describes the v1 circuits
+> (`landmark_regions`, `mutate_pose`, `extract_slot`, `transfer`,
+> `solve_shadow`, `face_disc`, `shadow_t10` v1) deployed on Base Sepolia.
+> The `staging` branch ships v2 circuits with different PI shapes:
+> `mutate_slot` (16 PI), `shadow_t10` v2 (20 PI hash circuit),
+> `zindex_commit` (2 PI). See [`V2_STATUS.md`](V2_STATUS.md) for the v2
+> circuit surface.
+
+---
+
 # Circuits
 
 Seven Noir 1.0.0-beta.19 circuits compile to UltraHonk-Keccak Solidity

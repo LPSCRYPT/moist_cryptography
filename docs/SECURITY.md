@@ -1,3 +1,13 @@
+> **v1 historical document.** The threat model and invariants below
+> apply to the v1 contracts deployed on Base Sepolia. The `staging`
+> branch v2 contracts re-establish many of the same invariants in
+> different shapes (notably the **atomic-T10 invariant**: every state
+> change must refresh `shadowT10` in the same tx, gated by a real
+> `shadow_t10` proof bound to the post-write LSH array). See
+> [`V2_STATUS.md`](V2_STATUS.md) for the v2 surface.
+
+---
+
 # Security
 
 ## Cryptographic guarantees

@@ -1,3 +1,13 @@
+> **v1 historical document.** Describes the architecture deployed on
+> Base Sepolia. The `staging` branch has moved on to v2: see
+> [`V2_STATUS.md`](V2_STATUS.md) for the as-built v2 surface. Terms like
+> `ORIGINAL`, `INSERTED`, `originPose`, `boxesPackedOf`, `c2Commit`,
+> `stateCommitsHash`, `removeFeature`, `REGION_W/H`, `stateNonce`,
+> `faceOriginId`, `insertedFeatureId` below are v1-only and do not exist
+> on `staging`.
+
+---
+
 # Architecture
 
 The shadow token has two layers, deliberately separated.

@@ -1,3 +1,11 @@
+> **v1 historical document.** Describes the bridge protocol as deployed
+> for v1 on Base Sepolia ↔ Ethereum Sepolia. The `staging` branch ships
+> a reshaped v2 payload (per-slot `liveStateHash[16]`, `zIndexCommit`,
+> `zIndexRevealed`, `t10Hi/t10Lo`); the cross-chain protocol itself is
+> unchanged. See [`V2_STATUS.md`](V2_STATUS.md) for the v2 surface.
+
+---
+
 # Cross-chain bridge
 
 A solved shadow on Base Sepolia (L2) can bridge to Ethereum Sepolia (L1) via

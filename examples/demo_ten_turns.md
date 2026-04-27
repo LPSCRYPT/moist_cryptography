@@ -1,3 +1,10 @@
+> **v1 historical document.** Walkthrough of the v1 demo ten-turn
+> sequence on Base Sepolia. The v2 demo flow on `staging` will be
+> different (every mutation atomically refreshes T10; no
+> `setShadowT10` user call). See [`../docs/V2_STATUS.md`](../docs/V2_STATUS.md).
+
+---
+
 # Ten-turn demo: PUBLIC vs SECRET
 
 ![10-turn add + mutate demo](demo_ten_turns.png)

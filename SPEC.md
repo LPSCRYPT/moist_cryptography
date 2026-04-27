@@ -1,3 +1,14 @@
+> **v1 historical specification.** This is the spec for the v1
+> contracts deployed on Base Sepolia. The `staging` branch implements
+> a hard-fork v2 design under `STAGING_REFACTOR/`; see
+> [`docs/V2_STATUS.md`](docs/V2_STATUS.md) for the as-built v2 surface.
+> Terms like `ORIGINAL`, `INSERTED`, `originPose`, `boxesPackedOf`,
+> `c2Commit`, `stateCommitsHash`, `removeFeature`, `REGION_W/H`,
+> `stateNonce`, `faceOriginId`, `insertedFeatureId` below are v1-only
+> and do not exist on `staging`.
+
+---
+
 # moist_cryptography — Technical Specification
 
 ## What it is

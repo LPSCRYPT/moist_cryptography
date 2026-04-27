@@ -1,3 +1,14 @@
+> **v2 refactor in progress.** The `staging` branch ships a hard-fork v2
+> design where pose, dimensions, scale, rotation, and pixel content all
+> become **owner-private** (in-c2 plaintext as 4-bit palette indices), and
+> every state-changing operation **atomically refreshes** the public T10
+> hash. See [`docs/V2_STATUS.md`](docs/V2_STATUS.md) for the as-built v2
+> surface and the working note in `STAGING_REFACTOR/` for the full design.
+> The text below describes the **v1** architecture currently deployed on
+> Base Sepolia.
+
+---
+
 <p align="center"><img src="docs/img/a_var_blush.png" alt="a_var_blush" width="480"></p>
 
 # Moist Cryptography, The Protocol
