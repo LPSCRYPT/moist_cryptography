@@ -7,6 +7,9 @@ contracts/cache/
 contracts/out/
 contracts/broadcast/
 contracts/build-info/
+# Stray foundry artifacts at repo root (when forge is run from cwd != contracts/)
+/cache/
+/out/
 
 # Noir build artifacts (regenerable from src/ with `nargo compile`)
 circuits/*/target/

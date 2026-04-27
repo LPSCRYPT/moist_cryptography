@@ -45,7 +45,7 @@ from build_atomic_mutate_fixture import sponge_18, split_128  # noqa: E402
 ROOT = REPO.parent
 MINT_DIR = ROOT / "circuits" / "landmark_regions_v2"
 T10_DIR = ROOT / "circuits" / "shadow_t10"
-FACE_DISC_FIXTURE = ROOT / "contracts" / "test" / "fixtures" / "face_disc" / "alice0"
+DEFAULT_FACE_DISC_FIXTURE = ROOT / "contracts" / "test" / "fixtures" / "face_disc" / "alice0"
 FIXTURE_ROOT = ROOT / "contracts" / "test" / "fixtures" / "atomic_mint"
 
 NARGO = Path(os.environ.get("NARGO_PATH", str(Path.home() / ".nargo" / "bin" / "nargo")))
@@ -84,9 +84,14 @@ def run(cmd: list, cwd: Path, timeout: int = 1800) -> str:
     return p.stdout
 
 
-def build_witness(seed: bytes, image_commit: int) -> dict:
+def build_witness(seed: bytes, image_commit: int, owner_seed: bytes | None = None) -> dict:
+    # owner_seed defaults to the fixture seed (back-compat). Pass a
+    # different value (e.g. the seed of a previously-minted shadow) to
+    # mint a new shadow under the SAME owner key, so KeyRegistry stays
+    # consistent across multiple shadows owned by one wallet.
+    osd = owner_seed if owner_seed is not None else seed
     print("[1/9] keygen: owner")
-    owner_sk = deterministic_int(seed, b"owner_sk", GRUMPKIN_ORDER - 1) + 1
+    owner_sk = deterministic_int(osd, b"owner_sk", GRUMPKIN_ORDER - 1) + 1
     owner_pk = ec_mul(G, owner_sk)
     assert owner_pk is not None
     owner_pk_x, owner_pk_y = owner_pk
@@ -202,20 +207,30 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", default="atomic_mint_demo")
     ap.add_argument("--no-prove", action="store_true")
+    ap.add_argument("--owner-seed", default=None,
+                    help="Seed to derive owner_sk; defaults to --seed. Pass a previously-used seed to reuse that wallet's key.")
+    ap.add_argument("--face-disc-fixture", default=str(DEFAULT_FACE_DISC_FIXTURE),
+                    type=Path,
+                    help="Path to a face_disc fixture dir (must contain proof + public_inputs).")
     args = ap.parse_args()
 
     seed = args.seed.encode()
+    owner_seed = args.owner_seed.encode() if args.owner_seed else None
+    face_disc_fixture = Path(args.face_disc_fixture)
     print(f"[atomic_mint fixture] seed={args.seed!r}")
+    if args.owner_seed:
+        print(f"                      owner_seed={args.owner_seed!r}")
+    print(f"                      face_disc={face_disc_fixture}")
 
-    # Pull imageCommit from the alice0 face_disc fixture so both proofs
+    # Pull imageCommit from the face_disc fixture so both proofs
     # share PI[1] byte-for-byte.
-    pi_bytes = (FACE_DISC_FIXTURE / "public_inputs").read_bytes()
+    pi_bytes = (face_disc_fixture / "public_inputs").read_bytes()
     if len(pi_bytes) != 32:
         sys.exit(f"face_disc public_inputs unexpected length {len(pi_bytes)}")
     image_commit = int.from_bytes(pi_bytes, "big")
     print(f"[face_disc] imageCommit = {hex(image_commit)[:18]}...")
 
-    w = build_witness(seed, image_commit)
+    w = build_witness(seed, image_commit, owner_seed=owner_seed)
     write_mint_prover_toml(w)
 
     print("[4/9] nargo execute (landmark_regions_v2)")
@@ -298,7 +313,7 @@ def main() -> None:
     (fix_dir / "proof_t10.bin").write_bytes(proof_t10_bytes)
     (fix_dir / "public_inputs_t10.bin").write_bytes(pi_t10_bytes)
     # Copy face_disc proof + PI for one-stop test consumption.
-    (fix_dir / "proof_disc.bin").write_bytes((FACE_DISC_FIXTURE / "proof").read_bytes())
+    (fix_dir / "proof_disc.bin").write_bytes((face_disc_fixture / "proof").read_bytes())
     (fix_dir / "public_inputs_disc.bin").write_bytes(pi_bytes)
 
     # Per-slot c2 calldata as bytes32 arrays for forge consumption.
@@ -355,7 +370,7 @@ def main() -> None:
     (fix_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     print(f"[wrote] {fix_dir}/")
     print(f"        proof_mint.bin ({len(proof_mint_bytes)} B)")
-    print(f"        proof_disc.bin ({len(open(FACE_DISC_FIXTURE / 'proof', 'rb').read())} B)")
+    print(f"        proof_disc.bin ({(face_disc_fixture / 'proof').stat().st_size} B)")
     print(f"        proof_t10.bin ({len(proof_t10_bytes)} B)")
 
 

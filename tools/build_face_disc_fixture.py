@@ -139,6 +139,7 @@ def main():
         f"-b target/face_disc.json "
         f"-w target/face_disc.gz "
         f"-o target/proof "
+        f"-k target/vk/vk "
         f"--verifier_target evm 2>&1 | tail -8"
     )
     print(f"    bb prove: {t_prove:.1f}s")
@@ -146,7 +147,7 @@ def main():
     print("\n[7] bb verify on vast")
     out, _, t_ver = ssh(
         f"cd {VAST_CIRCUIT} && /root/.bb/bb verify "
-        f"-k target/vk "
+        f"-k target/vk/vk "
         f"-p target/proof/proof "
         f"-i target/proof/public_inputs "
         f"--verifier_target evm 2>&1 | tail -5"
