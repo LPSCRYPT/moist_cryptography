@@ -45,7 +45,7 @@ REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
 
 from build_mutate_slot_fixture import build_witness as build_mutate_witness, write_prover_toml as write_mut_toml  # noqa: E402
-from v2_circuit_helpers import P, fhex, sponge_6  # noqa: E402
+from v2_circuit_helpers import P, fhex, bx32, sponge_6  # noqa: E402
 from secret_inbox import poseidon2_state  # noqa: E402
 
 ROOT = REPO.parent
@@ -178,28 +178,28 @@ def main() -> None:
 
     meta = {
         "seed": args.seed,
-        "shadow_id": hex(shadow_id),
+        "shadow_id": bx32(shadow_id),
         "slot_idx": slot_idx,
-        "feature_id": hex(w["feature_id"]),
+        "feature_id": bx32(w["feature_id"]),
         "type_idx": w["type_idx"],
-        "origin_face_id": hex(w["origin_face_id"]),
-        "palette_commit": hex(w["palette_commit"]),
-        "owner_pk_x": hex(w["owner_pk_x"]),
-        "owner_pk_y": hex(w["owner_pk_y"]),
-        "owner_sk": hex(w["owner_sk"]),
-        "old_lsh": hex(w["old_lsh"]),
-        "new_lsh": hex(w["new_lsh"]),
-        "new_ct_commit": hex(w["new_ct_commit"]),
-        "new_c1_x": hex(w["new_c1_x"]),
-        "new_c1_y": hex(w["new_c1_y"]),
-        "prev_chain_tip": hex(w["old_chain_tip"]),
-        "new_chain_tip": hex(w["new_chain_tip"]),
+        "origin_face_id": bx32(w["origin_face_id"]),
+        "palette_commit": bx32(w["palette_commit"]),
+        "owner_pk_x": bx32(w["owner_pk_x"]),
+        "owner_pk_y": bx32(w["owner_pk_y"]),
+        "owner_sk": bx32(w["owner_sk"]),
+        "old_lsh": bx32(w["old_lsh"]),
+        "new_lsh": bx32(w["new_lsh"]),
+        "new_ct_commit": bx32(w["new_ct_commit"]),
+        "new_c1_x": bx32(w["new_c1_x"]),
+        "new_c1_y": bx32(w["new_c1_y"]),
+        "prev_chain_tip": bx32(w["old_chain_tip"]),
+        "new_chain_tip": bx32(w["new_chain_tip"]),
         "prev_mutation_count": w["prev_mutation_count"],
         "new_mutation_count": w["new_mutation_count"],
         "c2_field_count": w["c2_field_count"],
         "z_index_commit": "0x0",
-        "t10_hi": hex(hi),
-        "t10_lo": hex(lo),
+        "t10_hi": bx32(hi),
+        "t10_lo": bx32(lo),
         "post_mutate_lsh": [hex(v) for v in lsh_array],
     }
     (fix_dir / "meta.json").write_text(json.dumps(meta, indent=2))

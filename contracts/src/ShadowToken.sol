@@ -532,12 +532,38 @@ contract ShadowToken is ERC721, PausableMixin {
     /// the carrier's checkpoint, clear isInserted, zero slot, refresh T10.
     /// Body lands in Phase 5.
     function extractSlot(
-        uint256 /*shadowId*/,
-        uint8 /*slotIdx*/,
-        bytes32[2] calldata /*newT10*/,
-        bytes calldata /*proofT10*/
-    ) external whenNotPaused {
-        revert NotImplementedYet();
+        uint256 shadowId,
+        uint8 slotIdx,
+        bytes32[2] calldata newT10,
+        bytes calldata proofT10
+    ) external whenNotPaused returns (uint256 featureId) {
+        if (_ownerOf(shadowId) != msg.sender) revert NotShadowOwner();
+        Shadow storage s = _shadows[shadowId];
+        if (s.solved) revert AlreadySolved();
+        if (slotIdx >= N_SLOTS) revert SlotOutOfRange(slotIdx);
+        if (address(featureNFT) == address(0)) revert FeatureNFTNotSet();
+
+        ManifestEntry storage m = _manifests[shadowId][slotIdx];
+        if (m.kind != SlotKind.OCCUPIED) revert SlotEmpty(slotIdx);
+
+        // Capture the live state before we clear, then sync into the
+        // carrier's checkpoint and release custody.
+        featureId = m.featureId;
+        bytes32 finalLsh = m.liveStateHash;
+
+        // Clear the slot BEFORE the cross-contract call. If the
+        // FeatureNFT misbehaves, our manifest is already in the post-extract
+        // state and the contract is reentrancy-safe.
+        m.kind = SlotKind.EMPTY;
+        m.featureId = 0;
+        m.liveStateHash = bytes32(0);
+
+        featureNFT.extractFromShadow(featureId, shadowId, slotIdx, finalLsh);
+
+        // Atomic T10 refresh against the post-extract LSH array.
+        _refreshT10Atomically(shadowId, newT10, proofT10);
+
+        emit SlotExtracted(shadowId, slotIdx, featureId, finalLsh);
     }
 
     // ============== insertFeature (STUB) ==============
@@ -598,8 +624,31 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes      proofT10;
     }
 
-    function setZIndexCommit(SetZIndexCommitArgs calldata /*args*/) external whenNotPaused {
-        revert NotImplementedYet();
+    function setZIndexCommit(SetZIndexCommitArgs calldata args) external whenNotPaused {
+        if (_ownerOf(args.shadowId) != msg.sender) revert NotShadowOwner();
+        Shadow storage s = _shadows[args.shadowId];
+        if (s.solved) revert AlreadySolved();
+
+        // 1. Verify the zindex_commit proof.
+        IVerifier vZ = zIndexCommitVerifier;
+        if (address(vZ) == address(0)) revert VerifierNotSet();
+        bytes32[] memory piZ = new bytes32[](ZINDEX_COMMIT_PI_LEN);
+        piZ[0] = bytes32(args.shadowId);
+        piZ[1] = args.newCommit;
+        try vZ.verify(args.proofZ, piZ) returns (bool ok) {
+            if (!ok) revert InvalidProof();
+        } catch {
+            revert InvalidProof();
+        }
+
+        // 2. Apply.
+        s.zIndexCommit = args.newCommit;
+
+        // 3. Atomic T10 refresh -- T10 covers zIndexCommit so the public
+        //    composite cannot lie about which permutation is committed.
+        _refreshT10Atomically(args.shadowId, args.newT10, args.proofT10);
+
+        emit ShadowZIndexCommitSet(args.shadowId, args.newCommit);
     }
 
     // ============== solve (STUB) ==============

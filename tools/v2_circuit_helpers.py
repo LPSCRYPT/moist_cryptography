@@ -221,3 +221,13 @@ def ecies_decrypt_v2(c1: tuple[int, int], c2: list[int], owner_sk: int) -> tuple
 
 def fhex(v: int) -> str:
     return f'"{hex(v % P)}"'
+
+
+def bx32(v: int) -> str:
+    """Zero-padded 0x-prefix 32-byte hex literal (66 chars total).
+
+    Forge's `vm.parseJsonBytes32` requires exactly 64 hex digits; Python's
+    `hex()` strips leading zeros. Use this for any field emitted into
+    fixture meta.json that's read back as `bytes32`.
+    """
+    return "0x" + format(v % P, "064x")

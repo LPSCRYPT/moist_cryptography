@@ -1,0 +1,31 @@
+{
+  "seed": "extract_demo",
+  "shadow_id": "0x223d41bb5d3a461f54b729d5207b2082bdad49c94469b9047ef4f0471007b0ac",
+  "slot_idx": 3,
+  "feature_id": "0x0029b2808c73f8dfc2c4ad8b2fb10372ab59fdc08bae7baab9864b9e48d6eec5",
+  "type_idx": 4,
+  "origin_face_id": "0x1af3c8fb385b6033331b469ba1d8ec63d15da105ad5b1d6a695dd96c33a1508c",
+  "palette_commit": "0x0b633c474a7e037cc6ebb4ee298df36fd1040ccbf03cfb66132e3545b6cb1114",
+  "lsh_pre": "0x2386978ac07ab4e26feb67e21a74c7c7003416e24f688942ae81c90be982ff74",
+  "z_index_commit": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "t10_hi": "0x000000000000000000000000000000000e59592f46d4739c2aa67041c07384b0",
+  "t10_lo": "0x000000000000000000000000000000007cb1858b2ccc80dd2b94e559207b1004",
+  "post_extract_lsh": [
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0"
+  ]
+}
