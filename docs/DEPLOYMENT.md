@@ -10,17 +10,16 @@ plus the on-chain operations executed against it.
 | Fresh contract set deployed | ✅ done (12 contracts, 22 setup txs) |
 | One real `registerImage` (face_disc proof) | ✅ done — block 40,761,804 |
 | One real `mintShadow` (1 shadow + 8 carriers) | ✅ done — block 40,761,922 |
-| One real `mutateSlot` (chained to A's on-chain state) | ⏳ next session — needs on-chain-bound fixture builder |
-| One real `setZIndexCommit` | ⏳ next session — same |
-| One real `extractSlot` → `insertFeature` into a different shadow | ⏳ next session — same |
-| One real `solve` | ⏳ next session — same |
+| One real `mutateSlot` (chained to A's on-chain state) | ✅ done — block 40,764,607 |
+| One real `setZIndexCommit` | ✅ done — block 40,764,748 |
+| One real `extractSlot` | ✅ done — block 40,764,834 |
+| One real `solve` (auto-extracts remaining 7 carriers) | ✅ done — block 40,765,120 |
+| One real `insertFeature` into a different shadow B | ⏳ open — needs second shadow mint + chained fixture |
+| One real `transferShadow` to a fresh recipient | ⏳ open — chained fixture not built yet |
 
-The mint half of the lifecycle is fully on-chain. The 5 downstream
-ops (mutate / setZIndex / extract / insert / solve) all share a common
-blocker: they need a "chained on-chain fixture" — proofs whose
-witnesses are derived from shadow A's actual current state on chain,
-not from synthetic state local to a Python builder. See "Next session
-work" below.
+Mint + 4-step lifecycle (mutate → setZIndex → extract → solve) is
+fully on-chain. The two remaining ops (`insertFeature`, `transferShadow`)
+require a second shadow B and a fresh recipient address respectively.
 
 ---
 
@@ -141,17 +140,28 @@ shadow A (`shadowId = 0x011c687ec30b886164f6506b5ad3972fbe295f2e1da1047bd782d686
 Each downstream op uses a CHAINED fixture whose witness is bound to
 the live state produced by the prior op (not synthetic state):
 
-| Step | Op | Tx | Block | Gas used | Headroom under 16M cap |
-|---|---|---|---|---:|---:|
-| 1 | `registerImage` | `0x775b2918...` | 40,761,804 | 4,661,236 | 11.34M |
-| 2 | `mintShadow`    | `0xe273562a...` | 40,761,922 | 11,038,478 | 4.96M |
-| 3 | `mutateSlot`    | `0xa713ae31...` | 40,764,607 | 7,118,065 | 8.88M |
-| 4 | `setZIndexCommit` | `0x3333e5de...` | 40,764,748 | 6,953,315 | 9.05M |
-| 5 | `extractSlot`   | `0x07e7e044...` | 40,764,834 | 3,437,387 | 12.56M |
-| 6 | `solve`         | `0x94ee6403...` | 40,765,120 | 4,794,531 | 11.21M |
+### Per-op gas + size + timing
 
-All 6 entry points cleared the 16M sequencer cap with healthy
-headroom. The smallest margin is mint at 4.96M.
+Tx hashes link to BaseScan; gas is `cast receipt`'s `gasUsed`; block
+timestamps are the L2 block's `timestamp`; proof / PI sizes are the
+raw `*.bin` lengths in the fixture dir; build wall-clock is the
+`tools/build_*_onchain.py` end-to-end run on M3 (nargo execute + bb
+write_vk + bb prove + bb verify, single-process).
+
+| # | Op | Tx | Block | Block ts (UTC) | Gas used | Headroom <16M | Proof size | PI size | Build wall-clock |
+|---|---|---|---:|---|---:|---:|---:|---:|---:|
+| 1 | `KeyRegistry.register`  | [`0x87f6cfb5...`](https://sepolia.basescan.org/tx/0x87f6cfb5c3e0bc7e2d0a326d0299af455964098549409c2e68aede58fbbd543f) | 40,761,515 | 2026-04-27 12:01:58 |     68,566 | 15.93M | n/a       | n/a    | n/a   |
+| 2 | `registerImage`         | [`0x775b2918...`](https://sepolia.basescan.org/tx/0x775b291815f34ed36c66a88c10831a24afad5cb3c1d23a05d28e88ac6f02a63c) | 40,761,804 | 2026-04-27 12:11:36 |  4,661,236 | 11.34M | (face_disc fixture) | (face_disc) | reused |
+| 3 | `mintShadow`            | [`0xe273562a...`](https://sepolia.basescan.org/tx/0xe273562ab241f52fd7f142fa02794aeee0b3a0453bdd88c67b538fbc1ba5d198) | 40,761,922 | 2026-04-27 12:15:32 | 11,038,478 |  4.96M | mint 8.77K + T10 6.85K | 224 + 640 B | ~5 min (landmark_regions_v2 dominates) |
+| 4 | `mutateSlot`            | [`0xa713ae31...`](https://sepolia.basescan.org/tx/0xa713ae312ac700e0900d573dd2e7d17531a55f13e1646853ffb8c6a3bdaa8e8c) | 40,764,607 | 2026-04-27 13:45:02 |  7,118,065 |  8.88M | mut 8.00K + T10 6.85K | 512 + 640 B | ~3 s |
+| 5 | `setZIndexCommit`       | [`0x3333e5de...`](https://sepolia.basescan.org/tx/0x3333e5de2c58d847bcae29b557650fdf36bf3f9c604daf21ae532dd2919ec4fc) | 40,764,748 | 2026-04-27 13:49:44 |  6,953,315 |  9.05M | z 7.62K + T10 6.85K |  64 + 640 B | ~2 s |
+| 6 | `extractSlot`           | [`0x07e7e044...`](https://sepolia.basescan.org/tx/0x07e7e0440bf528af6d8d95633974c903cdb8ebe1ba472e2e954d482c99999a3a) | 40,764,834 | 2026-04-27 13:52:36 |  3,437,387 | 12.56M | T10 only 6.85K       | 640 B   | ~0.5 s |
+| 7 | `solve`                 | [`0x94ee6403...`](https://sepolia.basescan.org/tx/0x94ee6403fa5d8e66887b86bcd29de30eba3ad5e1dca6b9a034f7f2440eca5cb5) | 40,765,120 | 2026-04-27 14:02:08 |  4,794,531 | 11.21M | solve 8.77K          | 224 B   | ~3 s |
+
+Aggregate gas across the 7 entry-point txs against the live deployment:
+**38,071,578 gas**. At Base Sepolia gas price ~0.011 gwei observed at
+broadcast time, total cost ≈ **0.0004 Sepolia ETH** for the entire
+lifecycle (≈ $0 mainnet-equivalent on testnet).
 
 ### Chained-fixture builders (`tools/build_*_onchain.py`)
 
