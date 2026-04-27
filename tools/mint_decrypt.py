@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# **STALE — v1 mint decrypt.** v2 decrypts per-slot via
+# `tools/v2_circuit_helpers.py::ecies_encrypt_v2` inverse. Pending Phase 3.
 """Off-chain ECIES decrypt for the v5 landmark_regions mint envelope.
 
 The mint circuit packs all 8 region recolored byte buffers (7716 B total,

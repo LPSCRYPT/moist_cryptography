@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# **STALE — v1 fixture builder.** v2 solve_shadow circuit pending (Phase 9).
 """Generate a solve_shadow fixture: alice0's shadow's full plaintext revealed.
 
 The solve circuit is a one-way reveal: the prover publishes ALL 252 packed

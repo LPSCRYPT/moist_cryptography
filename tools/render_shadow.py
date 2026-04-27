@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# **STALE — v1 renderer.** v2 renders per-slot palette-indexed sprites,
+# z-composed via revealed (post-solve) or hidden (pre-solve) permutation.
 """Off-chain renderer: reproduce a 48x48 RGB face from chain state alone.
 
 Inputs (from a deployed ShadowToken):

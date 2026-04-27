@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# **STALE — v1 fixture builder.** face_disc not used in v2 path yet (Phase 3).
 """Generate face_disc proof for an image.
 
 Companion to build_landmark_mint_fixture.py. The two fixtures together form

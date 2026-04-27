@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# **STALE — v1 fixture builder.** v2 transfer_shadow circuit pending (Phase 7).
 """Generate a transfer_shadow fixture: alice0's shadow re-encrypted to bob.
 
 Pipeline:

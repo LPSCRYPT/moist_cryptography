@@ -1,3 +1,23 @@
+> **v2 status.** The v1 tooling listed below is preserved as historical
+> reference; each v1 script carries an explicit `**STALE**` banner at
+> the top. The active v2 toolchain is:
+>
+> | Script | Role |
+> |---|---|
+> | `v2_circuit_helpers.py` | Canonical Python primitives (sponge_39/16/6/18, keystream_39, ECIES, plaintext encode/decode) |
+> | `build_mutate_slot_fixture.py` | mutate_slot proof + verifier |
+> | `build_zindex_commit_fixture.py` | zindex_commit proof + verifier |
+> | `build_shadow_t10_fixture.py` | shadow_t10 v2 proof + verifier |
+> | `build_atomic_mutate_fixture.py` | linked (mutate, T10) pair |
+> | `build_atomic_extract_fixture.py` | linked (T10 only — extract is proofless) |
+> | `build_atomic_zindex_fixture.py` | linked (zindex, T10) pair |
+>
+> Pending: visualizer rewrite, mint/transfer/solve fixture builders.
+> See [`../docs/V2_STATUS.md`](../docs/V2_STATUS.md) and
+> `STAGING_REFACTOR/PROGRESS.md`.
+
+---
+
 # Tools
 
 Python harness: pixel validator, fixture builders, Sepolia / Anvil / bridge

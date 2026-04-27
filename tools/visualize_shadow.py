@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+# =====================================================================
+# **STALE — v1 visualizer.** Reads v1 events (ShadowMinted, SlotMutated,
+# ShadowT10Updated, ShadowCiphertext) and the v1 monolithic-c2 shape.
+# v2 emits per-slot encryption (ShadowSlotMutated, ShadowFeatureInserted,
+# SlotExtracted, ShadowZIndexCommitSet, ShadowSolved, ShadowT10Updated)
+# with `c2[16]` per shadow. A v2 rewrite needs:
+#   - per-slot ECIES decrypt (39-Field plaintext, 4-bit palette indices)
+#   - palette table from chain (TODO: where lives?)
+#   - z-index composition: pre-solve uses zIndexCommit (opaque), post-solve
+#     uses zIndexRevealed permutation
+#   - T10 byte-equal reproduction via sponge_18 of the post-write state
+# Tracked as Phase 10 in `STAGING_REFACTOR/PROGRESS.md`.
+# =====================================================================
 """
 visualize_shadow.py - read on-chain shadow state and render its visual form.
 

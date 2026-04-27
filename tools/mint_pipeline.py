@@ -1,3 +1,6 @@
+# **STALE — v1 mint pipeline reference.** Drives the v1 landmark_regions
+# circuit (one big monolithic c2). v2 mint emits per-slot bundles (Phase 3).
+
 """Python reference for the v5 mint pipeline (`circuits/landmark_regions`).
 
 This module produces the per-face data needed to construct trio (relay-geom /

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# **STALE — v1 bridge runner.** Pending v2 redeploy (Phase 11).
 """End-to-end Base Sepolia <-> Eth Sepolia bridge runner.
 
 Phases:

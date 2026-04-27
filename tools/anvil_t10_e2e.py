@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# **STALE — v1 Anvil e2e harness.** Targets v1 contracts. v2 forge tests in
+# `contracts/test/` cover the same flows with real proofs. See
+# `STAGING_REFACTOR/PROGRESS.md`.
 """Anvil end-to-end for Screen 1 / T10 public-shadow circuit.
 
 Deploys the full phase-2 stack on a local anvil node, mints alice0, then walks

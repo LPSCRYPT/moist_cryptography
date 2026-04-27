@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# **STALE — v1 ten-turn demo.** Targets v1 surface. v2 demo flow is
+# different (atomic-T10, no setShadowT10 user call). Pending Phase 10.
 """Visualize 10 turns of add + mutate operations on a freshly-minted shadow.
 
 Renders two rows of 10 images each (PNG grid):

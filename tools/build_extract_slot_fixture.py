@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# **STALE — v1 fixture builder.** v2 extractSlot is proofless;
+# `tools/build_atomic_extract_fixture.py` produces only the T10 proof.
 """Generate an extract_slot fixture: alice0's slot N extracted to a FeatureNFT.
 
 Pipeline:

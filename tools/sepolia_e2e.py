@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# **STALE — v1 Sepolia e2e harness.** Pending v2 redeploy (Phase 11) and
+# rewrite to v2 events / function surface.
 """Comprehensive Phase 2 testing on Base Sepolia.
 
 Runs an end-to-end suite that exercises every contract entry point through

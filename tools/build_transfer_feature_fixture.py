@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# **STALE — v1 fixture builder.** v2 transferFeature pending.
 """Generate a transfer_feature fixture: an extracted FeatureNFT re-encrypted
 to a new owner.
 

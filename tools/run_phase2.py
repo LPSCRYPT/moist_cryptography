@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# **STALE — v1 phase-2 runner.** v2 has no equivalent runner; forge tests
+# drive the full v2 surface.
 """End-to-end Phase 2 driver: deploy contracts on anvil + run alice0 fixture
 through mint -> mutate -> insert -> remove on a real chain.
 

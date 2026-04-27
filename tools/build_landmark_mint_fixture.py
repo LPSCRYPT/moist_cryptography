@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# **STALE — v1 fixture builder.** v2 mint circuit pending (Phase 3).
 """Generate a single landmark-mint fixture: image -> proof + 17-field PI.
 
 Runs the v2 mint `landmark_regions` circuit (v5 IOD/EMD-proportional
