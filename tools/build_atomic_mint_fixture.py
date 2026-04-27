@@ -304,6 +304,14 @@ def main() -> None:
     # Per-slot c2 calldata as bytes32 arrays for forge consumption.
     c2_per_slot = [[bx32(v) for v in w["c2s"][i]] for i in range(N_MINT)]
 
+    # Pre-solve, no z_perm is revealed; visualize_shadow_v2 falls back to
+    # identity ordering (slot 0 bottom, slot 15 top). Mint occupies slots
+    # 0..7; 8..15 stay EMPTY.
+    z_perm_identity = list(range(16))
+    occupied_idxs = list(range(N_MINT))
+    # Manifest LSH array post-mint: lsh_inits[0..7] in slots 0..7, zeros elsewhere.
+    post_mint_lsh = list(w["lsh_inits"]) + [0] * 8
+
     meta = {
         "seed": args.seed,
         "shadow_id": bx32(w["shadow_id"]),
@@ -324,7 +332,26 @@ def main() -> None:
         "z_index_commit":  "0x0",
         "t10_hi":          bx32(hi),
         "t10_lo":          bx32(lo),
+
+        # Visualizer-friendly compatibility fields. Identity z_perm so
+        # `visualize_shadow_v2 from-solve-fixture` renders mint outputs;
+        # prev_lsh = post-mint manifest LSH array.
+        "z_perm":          z_perm_identity,
+        "occupied_idxs":   occupied_idxs,
+        "prev_lsh":        [bx32(v) for v in post_mint_lsh],
     }
+
+    # Per-slot plaintexts as bytes32 arrays. Slots 8..15 are empty (39
+    # zero fields). Lets the visualizer decode + render mint outputs.
+    plaintexts_per_slot: list[list[str]] = []
+    for i in range(16):
+        if i < N_MINT:
+            plaintexts_per_slot.append([bx32(v) for v in w["plaintexts"][i]])
+        else:
+            plaintexts_per_slot.append([bx32(0)] * PLAINTEXT_FIELDS)
+    (fix_dir / "plaintexts.json").write_text(
+        json.dumps({"plaintexts": plaintexts_per_slot}, indent=2)
+    )
     (fix_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     print(f"[wrote] {fix_dir}/")
     print(f"        proof_mint.bin ({len(proof_mint_bytes)} B)")

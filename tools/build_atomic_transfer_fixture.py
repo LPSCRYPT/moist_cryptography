@@ -191,7 +191,20 @@ def main() -> None:
         "z_index_commit": "0x0",
         "t10_hi": bx32(hi),
         "t10_lo": bx32(lo),
+
+        # Visualizer-friendly compatibility fields. Identity z_perm so
+        # `visualize_shadow_v2 from-solve-fixture` renders post-transfer
+        # state (pre-solve, no z_perm is revealed).
+        "z_perm": list(range(16)),
+        "occupied_idxs": w["occupied_idxs"],
     }
+    # Per-slot plaintexts as bytes32 arrays (16 slots; empty slots = zeros).
+    plaintexts_per_slot = [
+        [bx32(v) for v in w["plaintexts"][i]] for i in range(16)
+    ]
+    (fix_dir / "plaintexts.json").write_text(
+        json.dumps({"plaintexts": plaintexts_per_slot}, indent=2)
+    )
     (fix_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     print(f"[wrote] {fix_dir}/")
     print(f"        proof_transfer.bin ({len(proof_t_bytes)} B)")
