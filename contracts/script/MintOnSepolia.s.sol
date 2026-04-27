@@ -42,6 +42,9 @@ contract MintOnSepolia is Script {
     bytes32[8] private _paletteCommits;
     bytes32[8] private _originFaceIds;
     bytes32[8] private _ctCommits;
+    bytes32[8] private _paletteSaltCts;
+    bytes32[8] private _saltC1Xs;
+    bytes32[8] private _saltC1Ys;
     bytes[]   private _c2s;
 
     function run() external {
@@ -130,6 +133,9 @@ contract MintOnSepolia is Script {
             _paletteCommits[i] = j.readBytes32(string.concat(".palette_commits[", idx, "]"));
             _originFaceIds[i]  = j.readBytes32(string.concat(".origin_face_ids[", idx, "]"));
             _ctCommits[i]      = j.readBytes32(string.concat(".ct_commits[", idx, "]"));
+            _paletteSaltCts[i] = j.readBytes32(string.concat(".palette_salt_cts[", idx, "]"));
+            _saltC1Xs[i]       = j.readBytes32(string.concat(".salt_c1_xs[", idx, "]"));
+            _saltC1Ys[i]       = j.readBytes32(string.concat(".salt_c1_ys[", idx, "]"));
 
             bytes memory buf = new bytes(39 * 32);
             for (uint256 k = 0; k < 39; k++) {
@@ -149,6 +155,9 @@ contract MintOnSepolia is Script {
         args.paletteCommits     = _paletteCommits;
         args.originFaceIds      = _originFaceIds;
         args.ctCommits          = _ctCommits;
+        args.paletteSaltCts     = _paletteSaltCts;
+        args.saltC1Xs           = _saltC1Xs;
+        args.saltC1Ys           = _saltC1Ys;
         args.c2s                = _c2s;
         args.newT10   = _t10;
         args.proofT10 = _proofT10;

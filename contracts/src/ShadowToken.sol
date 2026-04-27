@@ -331,6 +331,15 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes32[8]   liveStateHashInits;    // 8 entries; sponge_8_pad16 -> lsh_inits_root (PI[4])
         bytes32[8]   chainTips;             // 8 entries; sponge_8_pad16 -> chain_tips_root (PI[6])
         bytes32[8]   paletteCommits;        // 8 entries; stored on each FeatureNFT (no proof binding)
+        // Salt envelope arrays (advisory; emitted at mint, not stored).
+        // Per-slot ECIES envelope of the per-carrier paletteSalt to the
+        // owner's pk. Owner decrypts off-chain to recover the salt needed
+        // to call FeatureNFT.revealPalette. Lying values disable the reveal
+        // path for that carrier (proof can't satisfy commit binding); they
+        // never affect chain state, only owner UX.
+        bytes32[8]   paletteSaltCts;        // 8 entries; per-slot ECIES c2 of palette salt
+        bytes32[8]   saltC1Xs;              // 8 entries; per-slot ECIES c1.x of palette envelope
+        bytes32[8]   saltC1Ys;              // 8 entries; per-slot ECIES c1.y of palette envelope
         bytes32[8]   originFaceIds;         // 8 entries; binding to imageCommit is honored by the prover
                                             //   (circuit derives origin_face_id_i = poseidon2(image_commit, i)
                                             //   and folds it into chain_tip_i which is sponge-bound via PI[6]).
@@ -490,7 +499,12 @@ contract ShadowToken is ERC721, PausableMixin {
             uint8(i),
             uint8(i),                          // typeIdx = slot index (8 distinct landmark types)
             originFaceId,
-            args.paletteCommits[i],
+            IFeatureNFT.PaletteAtMint({
+                commit:  args.paletteCommits[i],
+                saltCt:  args.paletteSaltCts[i],
+                saltC1X: args.saltC1Xs[i],
+                saltC1Y: args.saltC1Ys[i]
+            }),
             args.liveStateHashInits[i],
             msg.sender
         );

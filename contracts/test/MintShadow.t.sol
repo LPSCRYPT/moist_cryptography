@@ -71,6 +71,9 @@ contract MintShadowE2ETest is Test {
     bytes32[8] internal paletteCommits;
     bytes32[8] internal originFaceIds;
     bytes32[8] internal ctCommits;          // sponge_39(c2[i]) per slot, from fixture
+    bytes32[8] internal paletteSaltCts;     // per-slot ECIES salt envelopes (advisory)
+    bytes32[8] internal saltC1Xs;
+    bytes32[8] internal saltC1Ys;
 
     function setUp() public {
         sponge = new Poseidon2YulSponge();
@@ -142,6 +145,9 @@ contract MintShadowE2ETest is Test {
             paletteCommits[i] = j.readBytes32(string.concat(".palette_commits[", idx, "]"));
             originFaceIds[i]  = j.readBytes32(string.concat(".origin_face_ids[", idx, "]"));
             ctCommits[i]      = j.readBytes32(string.concat(".ct_commits[", idx, "]"));
+            paletteSaltCts[i] = j.readBytes32(string.concat(".palette_salt_cts[", idx, "]"));
+            saltC1Xs[i]       = j.readBytes32(string.concat(".salt_c1_xs[", idx, "]"));
+            saltC1Ys[i]       = j.readBytes32(string.concat(".salt_c1_ys[", idx, "]"));
         }
     }
 
@@ -151,6 +157,9 @@ contract MintShadowE2ETest is Test {
         args.liveStateHashInits = lshInits;
         args.chainTips          = chainTips;
         args.paletteCommits     = paletteCommits;
+        args.paletteSaltCts     = paletteSaltCts;
+        args.saltC1Xs           = saltC1Xs;
+        args.saltC1Ys           = saltC1Ys;
         args.originFaceIds      = originFaceIds;
         args.ctCommits          = ctCommits;
 

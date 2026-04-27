@@ -217,6 +217,84 @@ def ecies_decrypt_v2(c1: tuple[int, int], c2: list[int], owner_sk: int) -> tuple
     return plaintext, k
 
 
+# ---- palette_reveal_v2 helpers ----
+#
+# Mirrors circuits/palette_reveal_v2/src/main.nr byte-for-byte. Used by
+# build_atomic_mint_fixture (to compute paletteCommit + salt envelope at
+# mint) and build_palette_reveal_fixture (to drive the reveal proof).
+
+PALETTE_LEN = 16
+PACKED_LEN = 8
+
+
+def sponge_palette_salt(palette: list[int], salt: int) -> int:
+    """Mirrors circuit's `sponge_palette_salt`: 5 full rate-3 absorbs
+    over palette[0..15] (15 elements) + 1 partial absorb of (palette[15],
+    salt, 0) + sentinel pad. Total 7 permutations.
+    """
+    if len(palette) != PALETTE_LEN:
+        raise ValueError(f"palette must be {PALETTE_LEN} fields, got {len(palette)}")
+    s0, s1, s2, s3 = 0, 0, 0, 0
+    for b in range(5):
+        s0 = (s0 + palette[b * 3]) % P
+        s1 = (s1 + palette[b * 3 + 1]) % P
+        s2 = (s2 + palette[b * 3 + 2]) % P
+        s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
+    s0 = (s0 + palette[15]) % P
+    s1 = (s1 + salt) % P
+    s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
+    s0 = (s0 + 1) % P
+    s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
+    return s0
+
+
+def encode_palette_packed(palette: list[int]) -> list[int]:
+    """Pack 16 24-bit colors into 8 Fields:
+       packed[i] = palette[2i] + palette[2i+1] * 2^24.
+    Each color must fit in 24 bits; higher bits are silently truncated
+    by the contract's RGB unpack but are still part of the proof's binding,
+    so callers MUST pass clean 24-bit values.
+    """
+    if len(palette) != PALETTE_LEN:
+        raise ValueError(f"palette must be {PALETTE_LEN} fields, got {len(palette)}")
+    packed = []
+    for i in range(PACKED_LEN):
+        lo = palette[2 * i] & 0xFFFFFF
+        hi = palette[2 * i + 1] & 0xFFFFFF
+        packed.append((lo + hi * (1 << 24)) % P)
+    return packed
+
+
+def encrypt_salt_v2(salt: int, owner_pk: tuple[int, int], r: int
+                    ) -> tuple[tuple[int, int], int, int]:
+    """Single-Field ECIES envelope for the palette salt.
+
+    Returns (c1, salt_ct, salt_k) where:
+       c1     = r * G                       (ephemeral public point)
+       shared = r * owner_pk                (= owner_sk * c1)
+       salt_k = poseidon2(shared.x, shared.y)
+       salt_ct = (salt + salt_k) mod P     (single-Field CTR)
+
+    The owner decrypts via decrypt_salt_v2(c1, salt_ct, owner_sk).
+    """
+    c1 = ec_mul(G, r)
+    shared = ec_mul(owner_pk, r)
+    if c1 is None or shared is None:
+        raise ValueError("ec_mul produced identity")
+    salt_k = poseidon2_hash_2(shared[0], shared[1])
+    salt_ct = (salt + salt_k) % P
+    return c1, salt_ct, salt_k
+
+
+def decrypt_salt_v2(c1: tuple[int, int], salt_ct: int, owner_sk: int) -> int:
+    """Inverse of encrypt_salt_v2: returns the recovered salt as a Field."""
+    shared = ec_mul(c1, owner_sk)
+    if shared is None:
+        raise ValueError("ec_mul produced identity")
+    salt_k = poseidon2_hash_2(shared[0], shared[1])
+    return (salt_ct - salt_k) % P
+
+
 # ---- field <-> hex ----
 
 def fhex(v: int) -> str:

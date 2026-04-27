@@ -57,6 +57,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         bool    isInserted;
         uint256 hostShadowId;
         uint8   hostSlotIdx;
+        bool    paletteRevealed;        // flipped by `revealPalette`
     }
 
     // ============== constants ==============
@@ -73,6 +74,12 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     /// PI[7]    originFaceId                  (asserted unchanged)
     uint256 public constant TRANSFER_FEATURE_PI_LEN = 8;
 
+    /// palette_reveal proof PI layout: see `revealPalette` below.
+    /// PI[0]      featureId
+    /// PI[1]      paletteCommit                  (asserted == storage)
+    /// PI[2..10]  palette_packed[8]              (each = palette[2i] + palette[2i+1] * 2^24)
+    uint256 public constant PALETTE_REVEAL_PI_LEN = 10;
+
     /// bn254 Fr field modulus. featureId is reduced mod FR_MOD so PI[0]
     /// equality (Field == Field) holds across circuit/contract boundary.
     uint256 public constant FR_MOD =
@@ -88,6 +95,9 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
 
     IVerifier public transferFeatureVerifier;
     bool private _transferFeatureVerifierLocked;
+
+    IVerifier public paletteRevealVerifier;
+    bool private _paletteRevealVerifierLocked;
 
     mapping(uint256 => Feature) private _features;
     uint64 public mintCounter;
@@ -108,6 +118,19 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         uint256 indexed featureId,
         bytes32 paletteCommit,
         bytes paletteRGB // 16 colors x 3 bytes = 48 bytes
+    );
+    /// Salt envelope for the per-carrier paletteCommit, ECIES-encrypted to
+    /// the carrier's owner pk. Emitted alongside `FeatureMinted` at mint;
+    /// not stored on chain. Owner decrypts off-chain to recover the salt
+    /// needed to call `revealPalette`. Soundness of `revealPalette` does
+    /// not depend on these values being honest -- the on-chain
+    /// `paletteCommit` storage check is the binding; this event is purely
+    /// the wire-format envelope so the owner can decrypt later.
+    event FeaturePaletteSaltEnvelope(
+        uint256 indexed featureId,
+        bytes32 paletteSaltCt,
+        bytes32 saltC1X,
+        bytes32 saltC1Y
     );
     event FeatureExtracted(
         uint256 indexed featureId,
@@ -131,6 +154,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         address indexed to
     );
     event TransferFeatureVerifierSet(IVerifier v);
+    event PaletteRevealVerifierSet(IVerifier v);
     event KeyRegistrySet(KeyRegistry r);
 
     // ============== errors ==============
@@ -150,6 +174,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     error HostMismatch(uint256 featureId);
     error CustodyLocked(uint256 featureId);
     error TransferGated(uint256 featureId);
+    error PaletteAlreadyRevealed(uint256 featureId);
 
     // ============== ctor ==============
 
@@ -177,6 +202,14 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         emit TransferFeatureVerifierSet(v);
     }
 
+    function setPaletteRevealVerifier(IVerifier v) external {
+        if (msg.sender != deployer) revert NotDeployer();
+        if (_paletteRevealVerifierLocked) revert VerifierAlreadySet();
+        paletteRevealVerifier = v;
+        _paletteRevealVerifierLocked = true;
+        emit PaletteRevealVerifierSet(v);
+    }
+
     // ============== privileged: ShadowToken-only ==============
 
     function mintAtShadowMint(
@@ -184,14 +217,14 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         uint8 hostSlotIdx,
         uint8 typeIdx,
         bytes32 originFaceId,
-        bytes32 paletteCommit,
+        IFeatureNFT.PaletteAtMint calldata palette,
         bytes32 initialLiveStateHash,
         address to
     ) external override returns (uint256 featureId) {
         if (msg.sender != shadowToken) revert NotShadowToken();
 
         mintCounter += 1;
-        // chainId binding mirrors ShadowToken.shadowIdOf — same-chain
+        // chainId binding mirrors ShadowToken.shadowIdOf -- same-chain
         // prevention of cross-chain proof replay.
         featureId = uint256(keccak256(abi.encode(
             DOMAIN_FEATURE, block.chainid, hostShadowId, hostSlotIdx, mintCounter
@@ -200,18 +233,23 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         Feature storage f = _features[featureId];
         f.typeIdx = typeIdx;
         f.originFaceId = originFaceId;
-        f.paletteCommit = paletteCommit;
+        f.paletteCommit = palette.commit;
         f.mintedAt = uint64(block.number);
         f.liveStateHashCheckpoint = initialLiveStateHash; // also the slot's value at mint
         f.isInserted = true;
         f.hostShadowId = hostShadowId;
         f.hostSlotIdx = hostSlotIdx;
+        // f.paletteRevealed defaults to false; flipped by `revealPalette`.
 
         _mint(to, featureId);
         emit FeatureMinted(
             featureId, hostShadowId, hostSlotIdx, to,
-            typeIdx, originFaceId, paletteCommit, initialLiveStateHash
+            typeIdx, originFaceId, palette.commit, initialLiveStateHash
         );
+        // Salt envelope is purely advisory wire-format for the owner; not
+        // bound by chain state. Empty values are allowed (legacy / pre-spec
+        // mints) and just disable the reveal path for that carrier.
+        emit FeaturePaletteSaltEnvelope(featureId, palette.saltCt, palette.saltC1X, palette.saltC1Y);
     }
 
     function extractFromShadow(
@@ -317,6 +355,64 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         _update(to, featureId, address(0));
     }
 
+    // ============== revealPalette (any held or inserted carrier) ==============
+
+    /// @notice Open the carrier's `paletteCommit` to the actual 16-color
+    ///         palette by exhibiting a `palette_reveal_v2` proof. Owner-
+    ///         only (anti-grief). Single-shot: `paletteRevealed` is set
+    ///         on success and a second call reverts.
+    /// @dev    The proof binds `pi[1] == sponge_palette_salt(palette, salt)`
+    ///         and `pi[2..10]` to two-color packings of the palette. The
+    ///         contract checks `pi[1] == storage.paletteCommit`; soundness
+    ///         flows from that check + the proof's commitment binding.
+    ///         Callers off-chain ECIES-decrypt the salt envelope they got
+    ///         at mint to obtain the salt witness.
+    function revealPalette(
+        uint256 featureId,
+        bytes calldata proof,
+        bytes32[] calldata pi
+    ) external whenNotPaused {
+        if (_ownerOf(featureId) != msg.sender) revert NotFeatureOwner();
+        Feature storage f = _features[featureId];
+        if (f.paletteRevealed) revert PaletteAlreadyRevealed(featureId);
+        if (pi.length != PALETTE_REVEAL_PI_LEN) revert BadPILen(pi.length, PALETTE_REVEAL_PI_LEN);
+
+        IVerifier v = paletteRevealVerifier;
+        if (address(v) == address(0)) revert VerifierNotSet();
+
+        if (pi[0] != bytes32(featureId)) revert InvalidProof();
+        if (pi[1] != f.paletteCommit) revert InvalidProof();
+
+        try v.verify(proof, pi) returns (bool ok) {
+            if (!ok) revert InvalidProof();
+        } catch {
+            revert InvalidProof();
+        }
+
+        f.paletteRevealed = true;
+
+        // Unpack pi[2..10] into 48 raw RGB bytes (16 colors x 3 bytes).
+        // Each packed Field carries:
+        //   palette[2i]   in bits  [0..24]   (low color)
+        //   palette[2i+1] in bits  [24..48]  (high color)
+        // Higher bits are ignored: an adversary who would only be lying
+        // to themselves (only the owner has the salt) can't gain anything.
+        bytes memory rgb = new bytes(48);
+        for (uint256 i = 0; i < 8; i++) {
+            uint256 packed = uint256(pi[2 + i]);
+            uint256 lo = packed & 0xFFFFFF;
+            uint256 hi = (packed >> 24) & 0xFFFFFF;
+            rgb[i * 6 + 0] = bytes1(uint8(lo >> 16));
+            rgb[i * 6 + 1] = bytes1(uint8(lo >> 8));
+            rgb[i * 6 + 2] = bytes1(uint8(lo));
+            rgb[i * 6 + 3] = bytes1(uint8(hi >> 16));
+            rgb[i * 6 + 4] = bytes1(uint8(hi >> 8));
+            rgb[i * 6 + 5] = bytes1(uint8(hi));
+        }
+
+        emit FeaturePaletteRevealed(featureId, f.paletteCommit, rgb);
+    }
+
     // ============== view accessors (IFeatureNFT) ==============
 
     function ownerOfFeature(uint256 featureId) external view override returns (address) {
@@ -353,6 +449,10 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
 
     function featureOf(uint256 featureId) external view returns (Feature memory) {
         return _features[featureId];
+    }
+
+    function paletteRevealedOf(uint256 featureId) external view returns (bool) {
+        return _features[featureId].paletteRevealed;
     }
 
     // ============== ERC-721 transfer lockdown ==============
@@ -394,10 +494,13 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
 
     // ============== verifier rotation slot ids ==============
     uint8 public constant SLOT_TRANSFER_FEATURE = 0;
+    uint8 public constant SLOT_PALETTE_REVEAL  = 1;
 
     function _writeVerifierSlot(uint8 slot, address newVerifier) internal override {
         if (slot == SLOT_TRANSFER_FEATURE) {
             transferFeatureVerifier = IVerifier(newVerifier);
+        } else if (slot == SLOT_PALETTE_REVEAL) {
+            paletteRevealVerifier = IVerifier(newVerifier);
         } else {
             revert("unknown slot");
         }

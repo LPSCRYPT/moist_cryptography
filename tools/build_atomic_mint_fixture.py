@@ -38,6 +38,7 @@ from v2_circuit_helpers import (  # noqa: E402
     poseidon2_hash_2, mint_chain_step, MINT_TAG,
     encode_plaintext_v2, pack_pose,
     ecies_encrypt_v2,
+    sponge_palette_salt, encode_palette_packed, encrypt_salt_v2,
     fhex, bx32,
 )
 from build_atomic_mutate_fixture import sponge_18, split_128  # noqa: E402
@@ -112,6 +113,11 @@ def build_witness(seed: bytes, image_commit: int, owner_seed: bytes | None = Non
     chain_tips: list[int] = []
     lsh_inits: list[int] = []
     palette_commits: list[int] = []
+    palettes: list[list[int]] = []
+    palette_salts: list[int] = []
+    palette_salt_cts: list[int] = []
+    salt_c1_xs: list[int] = []
+    salt_c1_ys: list[int] = []
 
     print(f"[2/9] per-slot bundles for {N_MINT} origin slots")
     for i in range(N_MINT):
@@ -146,8 +152,28 @@ def build_witness(seed: bytes, image_commit: int, owner_seed: bytes | None = Non
         lsh = sponge_6(sc, cc, c1[0], c1[1], 0, ct)
         lsh_inits.append(lsh)
 
-        # paletteCommit is owner-private; pick a deterministic dummy.
-        palette_commits.append(deterministic_int(seed, f"palette_{i}".encode(), P))
+        # Per-slot 16-color palette + secret salt; commit binds them.
+        # Colors are 24-bit; salt is a Field. The owner ECIES-decrypts the
+        # salt envelope at reveal time to drive `palette_reveal_v2`.
+        import hashlib  # local import keeps top-level minimal
+        palette = []
+        for j in range(16):
+            d = hashlib.sha256(seed + f":palette:{i}:{j}".encode()).digest()
+            palette.append(int.from_bytes(d[:3], "big") & 0xFFFFFF)
+        palette_salt = deterministic_int(seed, f"palette_salt_{i}".encode(), P)
+        commit = sponge_palette_salt(palette, palette_salt)
+        # Fresh r_salt per slot for the salt envelope. Reusing the slot's
+        # plaintext-envelope `r_i` would tie the two ciphertexts; cheap to
+        # use a fresh value, so we do.
+        r_salt = deterministic_int(seed, f"r_salt_{i}".encode(), GRUMPKIN_ORDER - 1) + 1
+        c1_salt, salt_ct, _salt_k = encrypt_salt_v2(palette_salt, owner_pk, r_salt)
+
+        palettes.append(palette)
+        palette_salts.append(palette_salt)
+        palette_commits.append(commit)
+        palette_salt_cts.append(salt_ct)
+        salt_c1_xs.append(c1_salt[0])
+        salt_c1_ys.append(c1_salt[1])
 
     lsh_inits_root = sponge_8_pad16(lsh_inits)
     ct_commits_root = sponge_8_pad16(ct_commits)
@@ -182,6 +208,11 @@ def build_witness(seed: bytes, image_commit: int, owner_seed: bytes | None = Non
         "chain_tips": chain_tips,
         "lsh_inits": lsh_inits,
         "palette_commits": palette_commits,
+        "palettes":          palettes,
+        "palette_salts":     palette_salts,
+        "palette_salt_cts":  palette_salt_cts,
+        "salt_c1_xs":        salt_c1_xs,
+        "salt_c1_ys":        salt_c1_ys,
     }
 
 
@@ -342,7 +373,17 @@ def main() -> None:
         "c1_ys":           [bx32(v) for v in w["c1_ys"]],
         "origin_face_ids": [bx32(v) for v in w["origin_face_ids"]],
         "chain_tips":      [bx32(v) for v in w["chain_tips"]],
-        "palette_commits": [bx32(v) for v in w["palette_commits"]],
+        "palette_commits":  [bx32(v) for v in w["palette_commits"]],
+        # Per-slot palette ECIES envelopes (advisory, emitted in events;
+        # not stored on chain). The reveal proof needs the palette + salt
+        # pair which the owner re-derives by ECIES-decrypting (saltCt, c1).
+        "palette_salt_cts": [bx32(v) for v in w["palette_salt_cts"]],
+        "salt_c1_xs":       [bx32(v) for v in w["salt_c1_xs"]],
+        "salt_c1_ys":       [bx32(v) for v in w["salt_c1_ys"]],
+        # Per-slot palettes + salts, the witness for `palette_reveal_v2`.
+        # Mint test consumers can ignore these. Fixture-bound only.
+        "palettes":         [[bx32(v) for v in p] for p in w["palettes"]],
+        "palette_salts":    [bx32(v) for v in w["palette_salts"]],
         "c2_per_slot":     c2_per_slot,
         "z_index_commit":  "0x0",
         "t10_hi":          bx32(hi),

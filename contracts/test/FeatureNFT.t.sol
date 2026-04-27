@@ -36,7 +36,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_mintAtShadowMint_writesAllImmutableFields() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 3, 7, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 3, 7, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
 
         assertEq(fn.ownerOfFeature(fid), owner, "owner");
@@ -55,12 +58,27 @@ contract FeatureNFTv2Test is Test {
     function test_mintAtShadowMint_revertsForNonShadowToken() public {
         vm.prank(stranger);
         vm.expectRevert(FeatureNFT.NotShadowToken.selector);
-        fn.mintAtShadowMint(SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner);
+        fn.mintAtShadowMint(
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
+        );
     }
 
     function test_mintCounter_increments_andDistinctIds() public {
-        uint256 a = fn.mintAtShadowMint(SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner);
-        uint256 b = fn.mintAtShadowMint(SHADOW_A, 1, 1, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner);
+        uint256 a = fn.mintAtShadowMint(
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
+        );
+        uint256 b = fn.mintAtShadowMint(
+            SHADOW_A, 1, 1, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
+        );
         assertTrue(a != b, "distinct featureIds");
         assertEq(fn.mintCounter(), 2, "mintCounter == 2");
     }
@@ -69,7 +87,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_extractFromShadow_syncsCheckpoint_clearsHost() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 5, 2, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 5, 2, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
 
         fn.extractFromShadow(fid, SHADOW_A, 5, LSH_FINAL);
@@ -86,7 +107,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_extractFromShadow_revertsWrongHostShadow() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         vm.expectRevert(abi.encodeWithSelector(FeatureNFT.WrongHost.selector, fid));
         fn.extractFromShadow(fid, SHADOW_B, 0, LSH_FINAL);
@@ -94,7 +118,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_extractFromShadow_revertsWrongHostSlot() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         vm.expectRevert(abi.encodeWithSelector(FeatureNFT.WrongHost.selector, fid));
         fn.extractFromShadow(fid, SHADOW_A, 1, LSH_FINAL);
@@ -102,7 +129,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_extractFromShadow_revertsWhenNotInserted() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         fn.extractFromShadow(fid, SHADOW_A, 0, LSH_FINAL);
 
@@ -112,7 +142,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_extractFromShadow_revertsForNonShadowToken() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         vm.prank(stranger);
         vm.expectRevert(FeatureNFT.NotShadowToken.selector);
@@ -123,7 +156,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_insertIntoShadow_setsHost_marksInserted() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         fn.extractFromShadow(fid, SHADOW_A, 0, LSH_FINAL);
 
@@ -139,7 +175,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_insertIntoShadow_revertsWhenAlreadyInserted_singleHostInvariant() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         // Still inserted in SHADOW_A; trying to bind into SHADOW_B must revert.
         vm.expectRevert(abi.encodeWithSelector(FeatureNFT.AlreadyInserted.selector, fid));
@@ -148,7 +187,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_insertIntoShadow_revertsForNonShadowToken() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         fn.extractFromShadow(fid, SHADOW_A, 0, LSH_FINAL);
 
@@ -161,7 +203,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_transferFrom_revertsWhileInserted_custodyLock() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(FeatureNFT.CustodyLocked.selector, fid));
@@ -170,7 +215,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_transferFrom_revertsWhenHeld_TransferGated() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         fn.extractFromShadow(fid, SHADOW_A, 0, LSH_FINAL);
 
@@ -181,7 +229,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_safeTransferFrom_revertsWhileInserted() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(FeatureNFT.CustodyLocked.selector, fid));
@@ -190,7 +241,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_safeTransferFrom_revertsWhenHeld_TransferGated() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         fn.extractFromShadow(fid, SHADOW_A, 0, LSH_FINAL);
 
@@ -203,7 +257,10 @@ contract FeatureNFTv2Test is Test {
         // OZ 5.x routes the 3-arg `safeTransferFrom(from, to, id)` to the 4-arg
         // virtual override; both must end at the same lockdown.
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(FeatureNFT.CustodyLocked.selector, fid));
@@ -214,7 +271,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_transferFeature_revertsWhileInserted() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         bytes memory proof = hex"";
         bytes32[] memory pi = new bytes32[](8);
@@ -225,7 +285,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_transferFeature_revertsWhenNotOwner() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         fn.extractFromShadow(fid, SHADOW_A, 0, LSH_FINAL);
 
@@ -238,7 +301,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_transferFeature_revertsWhenVerifierUnset() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         fn.extractFromShadow(fid, SHADOW_A, 0, LSH_FINAL);
 
@@ -251,7 +317,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_transferFeature_revertsBadPILen() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 0, 0, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 0, 0, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         fn.extractFromShadow(fid, SHADOW_A, 0, LSH_FINAL);
 
@@ -266,7 +335,10 @@ contract FeatureNFTv2Test is Test {
 
     function test_lifecycle_mintExtractInsert_preservesImmutables() public {
         uint256 fid = fn.mintAtShadowMint(
-            SHADOW_A, 4, 6, ORIGIN_FACE, PALETTE_COMMIT, LSH_INIT, owner
+            SHADOW_A, 4, 6, ORIGIN_FACE,
+            IFeatureNFT.PaletteAtMint({commit: PALETTE_COMMIT, saltCt: bytes32(0), saltC1X: bytes32(0), saltC1Y: bytes32(0)}),
+            LSH_INIT,
+            owner
         );
         bytes32 lshA = fn.liveStateHashCheckpointOf(fid);
 

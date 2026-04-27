@@ -17,6 +17,8 @@ import {T10ShadowVerifier}      from "../src/T10ShadowVerifier.sol";
 import {ZIndexCommitVerifier}   from "../src/ZIndexCommitVerifier.sol";
 import {TransferShadowVerifier} from "../src/TransferShadowVerifier.sol";
 import {SolveShadowVerifier}    from "../src/SolveShadowVerifier.sol";
+import {TransferFeatureV2Verifier} from "../src/TransferFeatureV2Verifier.sol";
+import {PaletteRevealV2Verifier}   from "../src/PaletteRevealV2Verifier.sol";
 
 /// @notice Deploys the v2 shadow pipeline end-to-end:
 ///         - 2 Yul sponge contracts (sponge_39 and sponge_16)
@@ -100,6 +102,15 @@ contract DeployShadowPipeline is Script {
         IVerifier solveV = IVerifier(address(new SolveShadowVerifier()));
         console.log("SolveShadowVerifier  :", address(solveV));
         st.setVerifier(st.SLOT_SOLVE_SHADOW(), solveV);
+
+        // ---- 5. FeatureNFT-side verifiers ----
+        IVerifier transferFeatureV = IVerifier(address(new TransferFeatureV2Verifier()));
+        console.log("TransferFeatureV2Verifier:", address(transferFeatureV));
+        fn.setTransferFeatureVerifier(transferFeatureV);
+
+        IVerifier paletteRevealV = IVerifier(address(new PaletteRevealV2Verifier()));
+        console.log("PaletteRevealV2Verifier:", address(paletteRevealV));
+        fn.setPaletteRevealVerifier(paletteRevealV);
 
         vm.stopBroadcast();
     }

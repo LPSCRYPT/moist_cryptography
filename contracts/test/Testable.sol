@@ -75,7 +75,7 @@ contract TestableFeatureNFT is FeatureNFT {
     /// Pinned storage slot of `FeatureNFT._features`. Derived from
     /// `forge inspect FeatureNFT storageLayout`. See note above; if upstream
     /// layout shifts this constant must move.
-    uint256 private constant _FEATURES_SLOT = 11;
+    uint256 private constant _FEATURES_SLOT = 12;
 }
 
 /// @title  TestableShadowToken

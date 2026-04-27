@@ -21,6 +21,20 @@ pragma solidity ^0.8.27;
 /// MUST revert and FeatureNFT-level `transferFeature` MUST revert. The
 /// only exit is `extractFromShadow`, which the host shadow drives.
 interface IFeatureNFT {
+    /// Bundle of the per-carrier palette commitment + its salt envelope at
+    /// mint. The commit is stored on chain (bound by `revealPalette`); the
+    /// envelope (saltCt, c1.x, c1.y) is purely advisory wire-format emitted
+    /// in `FeaturePaletteSaltEnvelope` so the owner can off-chain decrypt
+    /// the salt later. Soundness of `revealPalette` flows from the commit
+    /// storage check + the proof's commitment binding; the envelope is
+    /// trustless from the chain's perspective.
+    struct PaletteAtMint {
+        bytes32 commit;
+        bytes32 saltCt;
+        bytes32 saltC1X;
+        bytes32 saltC1Y;
+    }
+
     // ---- privileged: only ShadowToken may call ----
 
     /// @notice Mint a fresh FeatureNFT and immediately install it as
@@ -31,7 +45,7 @@ interface IFeatureNFT {
     /// @param  hostSlotIdx            slot index 0..15 the carrier binds to
     /// @param  typeIdx                landmark type 0..7, immutable
     /// @param  originFaceId           lineage anchor, immutable
-    /// @param  paletteCommit          poseidon2 of 16 palette colors, immutable
+    /// @param  palette                paletteCommit + salt envelope (see PaletteAtMint)
     /// @param  initialLiveStateHash   slot's `liveStateHash` at mint
     /// @param  to                     recipient address (= shadow minter)
     function mintAtShadowMint(
@@ -39,7 +53,7 @@ interface IFeatureNFT {
         uint8 hostSlotIdx,
         uint8 typeIdx,
         bytes32 originFaceId,
-        bytes32 paletteCommit,
+        PaletteAtMint calldata palette,
         bytes32 initialLiveStateHash,
         address to
     ) external returns (uint256 featureId);
