@@ -125,6 +125,11 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         address indexed to,
         bytes32 newLiveStateHashCheckpoint
     );
+    event FeatureInsertedOwnerRotated(
+        uint256 indexed featureId,
+        uint256 indexed hostShadowId,
+        address indexed to
+    );
     event TransferFeatureVerifierSet(IVerifier v);
     event KeyRegistrySet(KeyRegistry r);
 
@@ -142,6 +147,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     error AlreadyInserted(uint256 featureId);
     error NotInserted(uint256 featureId);
     error WrongHost(uint256 featureId);
+    error HostMismatch(uint256 featureId);
     error CustodyLocked(uint256 featureId);
     error TransferGated(uint256 featureId);
 
@@ -241,6 +247,30 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         // checkpoint stays as it was at last extract; v2 lets the slot's
         // liveStateHash be the authoritative value while inserted.
         emit FeatureInserted(featureId, newHostShadowId, newHostSlotIdx);
+    }
+
+    /// @notice Rotate ERC-721 ownership of an inserted carrier when its host
+    ///         shadow is being transferred. Privileged: only ShadowToken may
+    ///         call. Bypasses the custody lock because the caller is the
+    ///         host shadow itself, mid-transfer.
+    /// @dev    `feature.isInserted` MUST be true and `feature.hostShadowId`
+    ///         MUST equal `expectedHostShadowId`; otherwise revert. The
+    ///         carrier's `liveStateHashCheckpoint` is unchanged (the slot's
+    ///         current `liveStateHash` on the host shadow stays authoritative
+    ///         while inserted). Emits a `FeatureInsertedOwnerRotated` event
+    ///         so indexers can track the carrier's owner alongside the shadow's.
+    function rotateInsertedOwner(
+        uint256 featureId,
+        uint256 expectedHostShadowId,
+        address to
+    ) external {
+        if (msg.sender != shadowToken) revert NotShadowToken();
+        Feature storage f = _features[featureId];
+        if (!f.isInserted) revert NotInserted(featureId);
+        if (f.hostShadowId != expectedHostShadowId) revert HostMismatch(featureId);
+        // ERC721 _update bypasses the public transferFrom guards.
+        _update(to, featureId, address(0));
+        emit FeatureInsertedOwnerRotated(featureId, expectedHostShadowId, to);
     }
 
     // ============== transferFeature (held carriers only) ==============

@@ -231,3 +231,36 @@ def bx32(v: int) -> str:
     fixture meta.json that's read back as `bytes32`.
     """
     return "0x" + format(v % P, "064x")
+
+
+# ---- sponge_16 (matches both zindex_commit and transfer_shadow_v2) ----
+
+def sponge_16(elems: list[int]) -> int:
+    """5 full rate-3 absorb blocks (e[0..15]) + final partial absorb of e[15] + sentinel."""
+    if len(elems) != 16:
+        raise ValueError(f"sponge_16 needs 16 elems, got {len(elems)}")
+    s0, s1, s2, s3 = 0, 0, 0, 0
+    for b in range(5):
+        s0 = (s0 + elems[b * 3]) % P
+        s1 = (s1 + elems[b * 3 + 1]) % P
+        s2 = (s2 + elems[b * 3 + 2]) % P
+        s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
+    s0 = (s0 + elems[15]) % P
+    s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
+    s0 = (s0 + 1) % P
+    s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
+    return s0
+
+
+# ---- transfer_shadow_v2 constants (mirror circuit globals) ----
+
+# domain-separation tag for the transfer chain-step. matches circuit:
+#   TRANSFER_TAG: Field = 0x1ad75ff_a_e4_711a5_fe_a7_e_ed
+TRANSFER_TAG = 0x1ad75ffae4711a5fea7eed
+
+
+def transfer_chain_step(prev_chain_tip: int, recipient_pk_x: int, recipient_pk_y: int,
+                        new_count: int, slot_idx: int) -> int:
+    """Mirror transfer_shadow_v2's per-slot chain-tip extension."""
+    return sponge_6(prev_chain_tip, TRANSFER_TAG, recipient_pk_x, recipient_pk_y,
+                    new_count, slot_idx)

@@ -95,14 +95,16 @@ contract ShadowToken is ERC721, PausableMixin {
     uint256 public constant MUTATE_SLOT_PI_LEN     = 16;
     uint256 public constant T10_SHADOW_PI_LEN      = 20; // shadowId + newT10[2] + 16x liveStateHash + zIndexCommit
     uint256 public constant ZINDEX_COMMIT_PI_LEN   = 2;
-    uint256 public constant TRANSFER_SHADOW_PI_LEN = 0;  // TBD when circuit lands
-    uint256 public constant SOLVE_SHADOW_PI_LEN    = 0;  // TBD when circuit lands
+    uint256 public constant TRANSFER_SHADOW_PI_LEN = 8;
+    uint256 public constant SOLVE_SHADOW_PI_LEN    = 7;
     uint256 public constant FACE_DISC_PI_LEN       = 1;
 
     // ============== storage ==============
 
     address public immutable deployer;
     address public immutable yulSponge;
+    address public yulSponge16;
+    bool private _yulSponge16Locked;
 
     KeyRegistry public keyRegistry;
     bool private _keyRegistryLocked;
@@ -199,6 +201,7 @@ contract ShadowToken is ERC721, PausableMixin {
     event SolveShadowVerifierSet(IVerifier v);
     event KeyRegistrySet(KeyRegistry r);
     event FeatureNFTSet(IFeatureNFT f);
+    event YulSponge16Set(address indexed addr);
 
     // ============== errors ==============
 
@@ -252,6 +255,14 @@ contract ShadowToken is ERC721, PausableMixin {
         featureNFT = f;
         _featureNFTLocked = true;
         emit FeatureNFTSet(f);
+    }
+
+    function setYulSponge16(address addr) external {
+        if (msg.sender != deployer) revert NotDeployer();
+        if (_yulSponge16Locked) revert VerifierAlreadySet();
+        yulSponge16 = addr;
+        _yulSponge16Locked = true;
+        emit YulSponge16Set(addr);
     }
 
     function setMintShadowVerifier(IVerifier v) external {
@@ -691,19 +702,172 @@ contract ShadowToken is ERC721, PausableMixin {
     /// All inserted carriers' ERC-721 ownership is also rotated atomically
     /// (the carriers travel with the shadow per single-host invariant).
     /// Body lands in Phase 7.
+    /// Calldata struct for transferShadow. All 16 per-slot arrays are
+    /// fixed-size to make the contract's hash-root reconstruction
+    /// (sponge_16 over each) deterministic and EIP-170-cheap.
     struct TransferShadowArgs {
-        uint256   shadowId;
-        address   to;
-        bytes     proof;
-        bytes32[] pi;
-        bytes[]   c2s;             // 16 entries, one per slot
-        bytes32[] newLiveStateHashes; // 16 entries
-        uint256[] newC1Xs;         // 16 entries
-        uint256[] newC1Ys;         // 16 entries
+        uint256     shadowId;
+        address     to;
+        bytes       proof;                  // transfer_shadow_v2 proof
+        bytes32[16] newLiveStateHashes;     // post-rotation; chain writes these
+        bytes32[16] newChainTips;           // post-rotation per-slot chain tips (committed in proof)
+        uint256[16] newC1Xs;                // per-slot fresh ECIES ephemeral c1.x
+        uint256[16] newC1Ys;                // per-slot fresh ECIES ephemeral c1.y
+        bytes32[16] newCtCommits;           // per-slot sponge_39 of new c2 (for events)
+        uint16[16]  newMutationCounts;      // == prev + 1 for occupied; 0 for empty
+        bytes[]     c2s;                    // 16 entries; empty bytes for empty slots
+        bytes32[2]  newT10;                 // post-rotation T10 (hi, lo)
+        bytes       proofT10;               // bundled atomic T10 proof
     }
 
-    function transferShadow(TransferShadowArgs calldata /*args*/) external whenNotPaused {
-        revert NotImplementedYet();
+    function transferShadow(TransferShadowArgs calldata args) external whenNotPaused {
+        if (_ownerOf(args.shadowId) != msg.sender) revert NotShadowOwner();
+        Shadow storage s = _shadows[args.shadowId];
+        if (s.solved) revert AlreadySolved();
+        if (address(featureNFT) == address(0)) revert FeatureNFTNotSet();
+        if (address(keyRegistry) == address(0)) revert VerifierNotSet();
+        if (yulSponge16 == address(0)) revert VerifierNotSet();
+        if (args.c2s.length != N_SLOTS) revert BadArrayLen(args.c2s.length, N_SLOTS);
+
+        // ---- 1. recipient pubkey from KeyRegistry ----
+        (bytes32 recipientPkX, bytes32 recipientPkY) = keyRegistry.pkOf(args.to);
+
+        // ---- 2. verify transfer proof (separate fn to dodge stack-too-deep) ----
+        _verifyTransferProof(args, recipientPkX, recipientPkY);
+
+        // ---- 3. apply state changes (separate fn) ----
+        _applyTransferState(args, recipientPkX, recipientPkY);
+
+        // ---- 4. atomic T10 refresh against post-rotation manifest ----
+        _refreshT10Atomically(args.shadowId, args.newT10, args.proofT10);
+
+        // ---- 5. emit per-slot mutation events for indexers ----
+        emit ShadowTransferred(args.shadowId, args.to, recipientPkX, recipientPkY);
+        _emitTransferSlotEvents(args);
+    }
+
+    /// Verify the transfer_shadow_v2 proof. Reconstructs PI from chain
+    /// state (prev_lsh_root) and from calldata (newLshRoot, newChainTipsRoot)
+    /// via the Yul sponge_16 staticcall.
+    function _verifyTransferProof(
+        TransferShadowArgs calldata args,
+        bytes32 recipientPkX,
+        bytes32 recipientPkY
+    ) internal view {
+        IVerifier vT = transferShadowVerifier;
+        if (address(vT) == address(0)) revert VerifierNotSet();
+        Shadow storage s = _shadows[args.shadowId];
+        bytes32[] memory piT = new bytes32[](TRANSFER_SHADOW_PI_LEN);
+        piT[0] = bytes32(args.shadowId);
+        piT[1] = recipientPkX;
+        piT[2] = recipientPkY;
+        piT[3] = _sponge16Manifest(_manifests[args.shadowId]);
+        piT[4] = _sponge16BytesArr(args.newLiveStateHashes);
+        piT[5] = s.ecdhPubX;
+        piT[6] = s.ecdhPubY;
+        piT[7] = _sponge16BytesArr(args.newChainTips);
+        try vT.verify(args.proof, piT) returns (bool ok) {
+            if (!ok) revert InvalidProof();
+        } catch {
+            revert InvalidProof();
+        }
+    }
+
+    /// Apply post-transfer state to chain: write new per-slot LSH, rotate
+    /// carriers, rotate Shadow.ecdhPub, rotate the shadow's ERC-721 owner.
+    function _applyTransferState(
+        TransferShadowArgs calldata args,
+        bytes32 recipientPkX,
+        bytes32 recipientPkY
+    ) internal {
+        IFeatureNFT fn = featureNFT;
+        ManifestEntry[16] storage manifest = _manifests[args.shadowId];
+        for (uint256 i = 0; i < N_SLOTS; i++) {
+            ManifestEntry storage m = manifest[i];
+            m.liveStateHash = args.newLiveStateHashes[i];
+            if (m.kind == SlotKind.OCCUPIED) {
+                fn.rotateInsertedOwner(m.featureId, args.shadowId, args.to);
+                if (args.c2s[i].length != MAX_PLAINTEXT_FIELDS_PER_SLOT * 32) {
+                    revert BadC2Length(args.c2s[i].length, MAX_PLAINTEXT_FIELDS_PER_SLOT * 32);
+                }
+                bytes32 chainCt = bytes32(_sponge(args.c2s[i]));
+                if (chainCt != args.newCtCommits[i]) {
+                    revert CtCommitMismatch(chainCt, args.newCtCommits[i]);
+                }
+            } else {
+                if (args.c2s[i].length != 0) {
+                    revert BadC2Length(args.c2s[i].length, 0);
+                }
+            }
+        }
+        Shadow storage s = _shadows[args.shadowId];
+        s.ecdhPubX = recipientPkX;
+        s.ecdhPubY = recipientPkY;
+        // ERC-721 ownership of the shadow itself rotates here. _update bypasses
+        // the public transferFrom guard; we are the proof-bound path and have
+        // already verified the rotation proof.
+        _update(args.to, args.shadowId, address(0));
+    }
+
+    /// Emit ShadowSlotMutated for every occupied slot so indexers can
+    /// reconstruct chain history. Separate from _applyTransferState to
+    /// dodge stack-too-deep on the entry point.
+    function _emitTransferSlotEvents(TransferShadowArgs calldata args) internal {
+        IFeatureNFT fn = featureNFT;
+        ManifestEntry[16] storage manifest = _manifests[args.shadowId];
+        for (uint256 i = 0; i < N_SLOTS; i++) {
+            ManifestEntry storage m = manifest[i];
+            if (m.kind == SlotKind.OCCUPIED) {
+                emit ShadowSlotMutated(
+                    args.shadowId,
+                    uint8(i),
+                    fn.originFaceIdOf(m.featureId),
+                    m.featureId,
+                    args.newMutationCounts[i],
+                    bytes32(0),
+                    args.newChainTips[i],
+                    args.c2s[i]
+                );
+            }
+        }
+    }
+
+    /// Hash the chain manifest's per-slot liveStateHash array via the
+    /// Yul sponge_16 contract.
+    function _sponge16Manifest(ManifestEntry[16] storage manifest)
+        internal view returns (bytes32)
+    {
+        bytes memory buf = new bytes(N_SLOTS * 32);
+        for (uint256 i = 0; i < N_SLOTS; i++) {
+            bytes32 v = manifest[i].liveStateHash;
+            assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
+        }
+        return _sponge16(buf);
+    }
+
+    /// Hash a fixed-size 16-element bytes32 array via the Yul sponge_16.
+    function _sponge16BytesArr(bytes32[16] calldata arr)
+        internal view returns (bytes32)
+    {
+        bytes memory buf = new bytes(N_SLOTS * 32);
+        for (uint256 i = 0; i < N_SLOTS; i++) {
+            bytes32 v = arr[i];
+            assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
+        }
+        return _sponge16(buf);
+    }
+
+    /// Yul Poseidon2 sponge_16 staticcall over exactly 512 bytes.
+    function _sponge16(bytes memory data) internal view returns (bytes32 digest) {
+        address y = yulSponge16;
+        assembly ("memory-safe") {
+            let ok := staticcall(gas(), y, add(data, 32), 512, 0, 32)
+            if iszero(ok) {
+                returndatacopy(0, 0, returndatasize())
+                revert(0, returndatasize())
+            }
+            digest := mload(0)
+        }
     }
 
     // ============== setZIndexCommit (STUB) ==============

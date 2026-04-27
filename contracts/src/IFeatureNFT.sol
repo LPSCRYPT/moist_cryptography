@@ -67,6 +67,15 @@ interface IFeatureNFT {
         uint8 newHostSlotIdx
     ) external;
 
+    /// @notice Privileged: rotate ERC-721 ownership of an inserted carrier
+    ///         when its host shadow is being transferred. Bypasses the
+    ///         custody lock; only ShadowToken may call.
+    function rotateInsertedOwner(
+        uint256 featureId,
+        uint256 expectedHostShadowId,
+        address to
+    ) external;
+
     // ---- read accessors used by ShadowToken's logic ----
 
     function ownerOfFeature(uint256 featureId) external view returns (address);

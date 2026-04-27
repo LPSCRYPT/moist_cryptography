@@ -252,7 +252,7 @@ contract MutateSlotE2ETest is Test {
         // Tamper with chain state's stored lsh; proof's PI[6] no longer matches.
         // Storage-poke: ManifestEntry's `liveStateHash` lives at offset 2 of the
         // entry (3 slots: kind, featureId, liveStateHash). _MANIFESTS_SLOT = 19.
-        bytes32 outerBase = keccak256(abi.encode(shadowId, uint256(19)));
+        bytes32 outerBase = keccak256(abi.encode(shadowId, uint256(20)));
         bytes32 entryBase = bytes32(uint256(outerBase) + uint256(slotIdx) * 3);
         bytes32 lshSlot = bytes32(uint256(entryBase) + 2);
         vm.store(address(st), lshSlot, bytes32(uint256(oldLsh) ^ 1));
@@ -270,7 +270,7 @@ contract MutateSlotE2ETest is Test {
         // Simpler: call solve() via TestableShadowToken... wait, solve() is
         // stubbed and reverts. So we must storage-poke. Compute the slot
         // manually by mirroring _shadowsStorage's keccak base + offset 2.
-        bytes32 baseSlot = keccak256(abi.encode(shadowId, uint256(18))); // _SHADOWS_SLOT
+        bytes32 baseSlot = keccak256(abi.encode(shadowId, uint256(19))); // _SHADOWS_SLOT
         bytes32 solvedSlot = bytes32(uint256(baseSlot) + 2); // Shadow.solved offset
         vm.store(address(st), solvedSlot, bytes32(uint256(1)));
 

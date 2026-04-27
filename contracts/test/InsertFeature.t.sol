@@ -238,7 +238,7 @@ contract InsertFeatureE2ETest is Test {
 
     function test_insertFeature_reverts_when_slot_occupied() public {
         // Pre-occupy the destination slot via storage poke (avoid double-mint).
-        bytes32 outerBase = keccak256(abi.encode(shadowId, uint256(19))); // _MANIFESTS_SLOT
+        bytes32 outerBase = keccak256(abi.encode(shadowId, uint256(20))); // _MANIFESTS_SLOT
         bytes32 entryBase = bytes32(uint256(outerBase) + uint256(slotIdx) * 3);
         // entry slot 0: kind packed in low byte (1 = OCCUPIED)
         vm.store(address(st), entryBase, bytes32(uint256(1)));

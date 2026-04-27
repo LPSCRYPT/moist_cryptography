@@ -128,11 +128,39 @@ contract TestableShadowToken is ShadowToken {
         _mint(to, shadowId);
     }
 
+    /// Synthetic mint with N occupied slots seeded at once. Useful for
+    /// transferShadow real-proof tests that require multiple slots populated.
+    /// Slots not in `slotIdxs` remain EMPTY (default-zero).
+    function seedShadowMultiSlot(
+        uint256 shadowId,
+        address to,
+        bytes32 ecdhPubX,
+        bytes32 ecdhPubY,
+        uint8[] calldata slotIdxs,
+        uint256[] calldata featureIds,
+        bytes32[] calldata liveStateHashes
+    ) external {
+        require(slotIdxs.length == featureIds.length, "len mismatch");
+        require(slotIdxs.length == liveStateHashes.length, "len mismatch");
+        Shadow storage s = _shadowsStorage(shadowId);
+        s.ecdhPubX = ecdhPubX;
+        s.ecdhPubY = ecdhPubY;
+        s.mintIdx = 1;
+        s.mintedAt = uint64(block.number);
+        for (uint256 i = 0; i < slotIdxs.length; i++) {
+            ManifestEntry storage m = _manifestStorage(shadowId, slotIdxs[i]);
+            m.kind = SlotKind.OCCUPIED;
+            m.featureId = featureIds[i];
+            m.liveStateHash = liveStateHashes[i];
+        }
+        _mint(to, shadowId);
+    }
+
     /// Pinned storage slot of `ShadowToken._shadows` mapping. Derived from
     /// `forge inspect ShadowToken storageLayout`.
-    uint256 private constant _SHADOWS_SLOT = 18;
+    uint256 private constant _SHADOWS_SLOT = 19;
     /// Pinned storage slot of `ShadowToken._manifests` mapping.
-    uint256 private constant _MANIFESTS_SLOT = 19;
+    uint256 private constant _MANIFESTS_SLOT = 20;
 
     function _shadowsStorage(uint256 shadowId) private pure returns (Shadow storage s) {
         uint256 slot = _SHADOWS_SLOT;
