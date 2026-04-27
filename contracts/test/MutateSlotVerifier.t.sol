@@ -22,7 +22,7 @@ contract MutateSlotVerifierTest is Test {
     string internal constant PROOF_PATH = "./test/fixtures/mutate_slot/mutate_demo_v2/proof.bin";
     string internal constant PI_PATH    = "./test/fixtures/mutate_slot/mutate_demo_v2/public_inputs.bin";
 
-    uint256 internal constant EXPECTED_PI_LEN = 12;
+    uint256 internal constant EXPECTED_PI_LEN = 16;
 
     function setUp() public {
         v = new MutateSlotVerifier();

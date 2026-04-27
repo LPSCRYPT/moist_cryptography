@@ -40,7 +40,7 @@ sys.path.insert(0, str(REPO))
 from secret_inbox import G, GRUMPKIN_ORDER, ec_mul  # noqa: E402
 from v2_circuit_helpers import (  # noqa: E402
     P, PLAINTEXT_FIELDS, CANVAS_W, CANVAS_H,
-    sponge_38, sponge_6, keystream_38, poseidon2_hash_2,
+    sponge_39, sponge_6, keystream_39, poseidon2_hash_2,
     encode_plaintext_v2, pack_pose,
     ecies_encrypt_v2, ecies_decrypt_v2,
     live_state_hash, chain_step, fhex,
@@ -104,8 +104,8 @@ def build_witness(seed: bytes) -> dict:
     print("[4/9] encrypt old plaintext")
     old_r = deterministic_int(seed, b"old_r", GRUMPKIN_ORDER - 1) + 1
     old_c1, old_c2, old_k = ecies_encrypt_v2(old_plaintext, owner_pk, old_r)
-    old_state_commit = sponge_38(old_plaintext)
-    old_ct_commit = sponge_38(old_c2)
+    old_state_commit = sponge_39(old_plaintext)
+    old_ct_commit = sponge_39(old_c2)
 
     # Sanity: decryption recovers same plaintext.
     decoded, dk = ecies_decrypt_v2(old_c1, old_c2, owner_sk)
@@ -129,8 +129,8 @@ def build_witness(seed: bytes) -> dict:
     print("[6/9] encrypt new plaintext (deterministic k via owner_pk binding)")
     new_r = deterministic_int(seed, b"new_r", GRUMPKIN_ORDER - 1) + 1
     new_c1, new_c2, new_k = ecies_encrypt_v2(new_plaintext, owner_pk, new_r)
-    new_state_commit = sponge_38(new_plaintext)
-    new_ct_commit = sponge_38(new_c2)
+    new_state_commit = sponge_39(new_plaintext)
+    new_ct_commit = sponge_39(new_c2)
 
     new_count = old_count + 1
     new_chain_tip = chain_step(old_chain_tip, new_state_commit, new_ct_commit,
@@ -138,7 +138,7 @@ def build_witness(seed: bytes) -> dict:
     new_lsh = live_state_hash(new_state_commit, new_ct_commit, new_c1[0], new_c1[1],
                               new_count, new_chain_tip)
 
-    c2_field_count = PLAINTEXT_FIELDS  # always 38 in v2 (constant per-slot capacity)
+    c2_field_count = PLAINTEXT_FIELDS  # always 39 in v2 (13 sponge blocks; on-chain Yul-friendly) (constant per-slot capacity)
 
     return {
         "shadow_id": shadow_id,
@@ -153,6 +153,10 @@ def build_witness(seed: bytes) -> dict:
         "c2_field_count": c2_field_count,
         "owner_pk_x": owner_pk[0],
         "owner_pk_y": owner_pk[1],
+        "prev_chain_tip": old_chain_tip,
+        "new_chain_tip": new_chain_tip,
+        "prev_mutation_count": old_count,
+        "new_mutation_count": new_count,
 
         # witness
         "old_plaintext": old_plaintext,
@@ -194,6 +198,10 @@ def write_prover_toml(w: dict) -> None:
         f"c2_field_count = {fhex(w['c2_field_count'])}",
         f"owner_pk_x = {fhex(w['owner_pk_x'])}",
         f"owner_pk_y = {fhex(w['owner_pk_y'])}",
+        f"prev_chain_tip = {fhex(w['prev_chain_tip'])}",
+        f"new_chain_tip_pi = {fhex(w['new_chain_tip'])}",
+        f"prev_mutation_count = {fhex(w['prev_mutation_count'])}",
+        f"new_mutation_count_pi = {fhex(w['new_mutation_count'])}",
 
         render_array("old_plaintext", w["old_plaintext"]),
         render_array("new_plaintext", w["new_plaintext"]),
@@ -222,6 +230,7 @@ def write_fixture_json(w: dict, fixture_path: Path) -> None:
         w["shadow_id"], w["slot_idx"], w["feature_id"], w["type_idx"],
         w["origin_face_id"], w["palette_commit"], w["old_lsh"], w["new_lsh"],
         w["new_ct_commit"], w["c2_field_count"], w["owner_pk_x"], w["owner_pk_y"],
+        w["prev_chain_tip"], w["new_chain_tip"], w["prev_mutation_count"], w["new_mutation_count"],
     ]
     out = {
         "circuit": "mutate_slot",

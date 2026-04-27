@@ -21,35 +21,32 @@ from secret_inbox import P, GRUMPKIN_ORDER, G, ec_mul, is_on_curve, poseidon2_st
 
 # ---- v2 size constants (mirror circuits/mutate_slot/src/main.nr) ----
 
-PLAINTEXT_FIELDS = 38
+PLAINTEXT_FIELDS = 39
 CANVAS_W = 48
 CANVAS_H = 48
 
 
-# ---- Poseidon2 sponge_38 (rate=3, capacity=1, sentinel=1) ----
+# ---- Poseidon2 sponge_39 (rate=3, capacity=1, sentinel=1) ----
 
 def poseidon2_perm(a: int, b: int, c: int, d: int) -> tuple[int, int, int, int]:
     return poseidon2_state(a % P, b % P, c % P, d % P)
 
 
-def sponge_38(elems: list[int]) -> int:
-    """Mirrors circuits/mutate_slot/src/main.nr's `sponge_38`.
+def sponge_39(elems: list[int]) -> int:
+    """Mirrors circuits/mutate_slot/src/main.nr's `sponge_39`.
 
-    Layout: 12 full absorb blocks (e[0..36]) then a partial 13th block
-    (e[36], e[37], pad=0) then a final length-tag absorb (state[0] += 1).
+    Layout: 13 full rate-3 absorb blocks (e[0..39]); no tail; sentinel pad
+    after the last absorb. 39 = 13 * 3 so the on-chain Yul sponge can hash
+    the c2 calldata directly (39 fields = 1248 bytes = 13 * 96).
     """
     if len(elems) != PLAINTEXT_FIELDS:
-        raise ValueError(f"sponge_38 needs {PLAINTEXT_FIELDS} elems, got {len(elems)}")
+        raise ValueError(f"sponge_39 needs {PLAINTEXT_FIELDS} elems, got {len(elems)}")
     s0, s1, s2, s3 = 0, 0, 0, 0
-    for b in range(12):
+    for b in range(13):
         s0 = (s0 + elems[b * 3]) % P
         s1 = (s1 + elems[b * 3 + 1]) % P
         s2 = (s2 + elems[b * 3 + 2]) % P
         s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
-    # last partial block (only e[36], e[37])
-    s0 = (s0 + elems[36]) % P
-    s1 = (s1 + elems[37]) % P
-    s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
     # sentinel pad
     s0 = (s0 + 1) % P
     s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
@@ -76,18 +73,15 @@ def poseidon2_hash_2(x: int, y: int) -> int:
     return poseidon2_perm(x, y, 0, 0)[0]
 
 
-# ---- keystream_38 (CTR mode, matches circuit's `keystream_38`) ----
+# ---- keystream_39 (CTR mode, matches circuit's `keystream_39`) ----
 
-def keystream_38(k: int) -> list[int]:
+def keystream_39(k: int) -> list[int]:
     ks: list[int] = [0] * PLAINTEXT_FIELDS
-    for b in range(12):
+    for b in range(13):
         block = poseidon2_perm(k, b, 0, 0)
         ks[b * 3]     = block[0]
         ks[b * 3 + 1] = block[1]
         ks[b * 3 + 2] = block[2]
-    last = poseidon2_perm(k, 12, 0, 0)
-    ks[36] = last[0]
-    ks[37] = last[1]
     return ks
 
 
@@ -115,7 +109,7 @@ def pack_pose(x: int, y: int, scale_q88: int = 256, cos_q15: int = 32767, sin_q1
 
 # ---- plaintext encode/decode ----
 #
-# Plaintext layout (38 fields × 31 bytes = 1178 bytes available):
+# Plaintext layout (39 fields x 31 bytes = 1209 bytes available; field 38 is
 #   bytes 0..7   pose (uint64 LE)
 #   byte 8       w (uint8)
 #   byte 9       h (uint8)
@@ -123,7 +117,7 @@ def pack_pose(x: int, y: int, scale_q88: int = 256, cos_q15: int = 32767, sin_q1
 #   ... zero pad to field boundary ...
 
 def encode_plaintext_v2(pose: int, w: int, h: int, indices: list[int]) -> list[int]:
-    """Encode (pose, w, h, palette indices) into 38 packed Fields."""
+    """Encode (pose, w, h, palette indices) into 39 packed Fields (last field zero pad)."""
     if not (1 <= w <= CANVAS_W and 1 <= h <= CANVAS_H):
         raise ValueError(f"dims out of range: ({w}, {h})")
     expected = w * h
@@ -137,7 +131,7 @@ def encode_plaintext_v2(pose: int, w: int, h: int, indices: list[int]) -> list[i
     for i, idx in enumerate(indices):
         pixel_bytes[i // 2] |= (idx & 0xF) << (4 * (i & 1))
 
-    plaintext_bytes = bytearray(38 * 31)
+    plaintext_bytes = bytearray(PLAINTEXT_FIELDS * 31)
     plaintext_bytes[0:8] = pose.to_bytes(8, "little")
     plaintext_bytes[8] = w
     plaintext_bytes[9] = h
@@ -145,7 +139,7 @@ def encode_plaintext_v2(pose: int, w: int, h: int, indices: list[int]) -> list[i
 
     # Pack into Fields: each field gets 31 LE bytes.
     fields: list[int] = []
-    for f in range(38):
+    for f in range(PLAINTEXT_FIELDS):
         chunk = plaintext_bytes[f * 31:(f + 1) * 31]
         fields.append(int.from_bytes(chunk, "little"))
     return fields
@@ -153,9 +147,9 @@ def encode_plaintext_v2(pose: int, w: int, h: int, indices: list[int]) -> list[i
 
 def decode_plaintext_v2(fields: list[int]) -> tuple[int, int, int, list[int]]:
     """Inverse of encode_plaintext_v2."""
-    if len(fields) != 38:
-        raise ValueError("expected 38 fields")
-    plaintext_bytes = bytearray(38 * 31)
+    if len(fields) != PLAINTEXT_FIELDS:
+        raise ValueError(f"expected {PLAINTEXT_FIELDS} fields, got {len(fields)}")
+    plaintext_bytes = bytearray(PLAINTEXT_FIELDS * 31)
     for f, val in enumerate(fields):
         chunk = (val & ((1 << (8 * 31)) - 1)).to_bytes(31, "little")
         plaintext_bytes[f * 31:(f + 1) * 31] = chunk
@@ -192,7 +186,7 @@ def chain_step(prev_chain_tip: int, new_state_commit: int, new_ct_commit: int,
 #     c1 = r * G
 #     shared = r * owner_pk = sk * c1
 #     k = poseidon2_hash_2(shared.x, shared.y)
-#     keystream = keystream_38(k)
+#     keystream = keystream_39(k)
 #     c2 = plaintext + keystream  (Field-wise, mod P)
 #
 # Note: in v1's extract_slot, c2_scalar = k + mask was a separate PI.
@@ -208,7 +202,7 @@ def ecies_encrypt_v2(plaintext_fields: list[int], owner_pk: tuple[int, int], r: 
     if c1 is None or shared is None:
         raise ValueError("ec_mul produced identity")
     k = poseidon2_hash_2(shared[0], shared[1])
-    ks = keystream_38(k)
+    ks = keystream_39(k)
     c2 = [(p + s) % P for p, s in zip(plaintext_fields, ks)]
     return c1, c2, k
 
@@ -218,7 +212,7 @@ def ecies_decrypt_v2(c1: tuple[int, int], c2: list[int], owner_sk: int) -> tuple
     if shared is None:
         raise ValueError("ec_mul produced identity")
     k = poseidon2_hash_2(shared[0], shared[1])
-    ks = keystream_38(k)
+    ks = keystream_39(k)
     plaintext = [(c - s) % P for c, s in zip(c2, ks)]
     return plaintext, k
 

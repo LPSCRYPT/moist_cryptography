@@ -81,7 +81,7 @@ contract ShadowToken is ERC721, PausableMixin {
     /// Aligned to 32B boundary = 1184 B = 37 fields of 32B each, or 38
     /// fields if we use 31B per Field per ECIES packing.
     uint256 public constant MAX_PLAINTEXT_BYTES_PER_SLOT = 1184;
-    uint256 public constant MAX_PLAINTEXT_FIELDS_PER_SLOT = 38;
+    uint256 public constant MAX_PLAINTEXT_FIELDS_PER_SLOT = 39;
 
     bytes32 public constant DOMAIN_SHADOW = keccak256("OMP_SHADOW_TOKEN_v2");
 
@@ -92,7 +92,7 @@ contract ShadowToken is ERC721, PausableMixin {
     /// PI lengths for each verifier (subject to circuit-level finalisation;
     /// kept here as named constants so call sites are self-documenting).
     uint256 public constant MINT_SHADOW_PI_LEN     = 15; // packed per-slot tuples + image_commit + pk + featureId-pack
-    uint256 public constant MUTATE_SLOT_PI_LEN     = 11;
+    uint256 public constant MUTATE_SLOT_PI_LEN     = 16;
     uint256 public constant T10_SHADOW_PI_LEN      = 20; // shadowId + newT10[2] + 16x liveStateHash + zIndexCommit
     uint256 public constant ZINDEX_COMMIT_PI_LEN   = 2;
     uint256 public constant TRANSFER_SHADOW_PI_LEN = 0;  // TBD when circuit lands
@@ -350,18 +350,161 @@ contract ShadowToken is ERC721, PausableMixin {
         uint256    shadowId;
         uint8      slotIdx;
         bytes      proofMutate;
-        uint256    newC1X;
+        uint256    newC1X;             // public component of new ECIES ephemeral
         uint256    newC1Y;
         bytes32    newLiveStateHash;
-        uint16     c2FieldCount;
-        bytes      c2;
-        bytes32[2] newT10;
-        bytes      proofT10;
+        bytes32    newCtCommit;        // = sponge_39(c2); contract sponges c2 to bind
+        uint16     c2FieldCount;       // == new_c2.length / 32 (constant 39 in v2)
+        bytes      c2;                 // emitted via event; sponge-bound to newCtCommit
+        bytes32    prevChainTip;       // pre-bump chain tip (== old_chain_tip)
+        bytes32    newChainTip;        // post-bump chain tip
+        uint16     prevMutationCount;  // pre-bump count (uint16 in chain semantics)
+        uint16     newMutationCount;   // == prev + 1
+        bytes32[2] newT10;             // (hi, lo) packed quartets
+        bytes      proofT10;           // bundled atomic T10 refresh
     }
 
-    function mutateSlot(MutateSlotArgs calldata /*args*/) external whenNotPaused {
-        revert NotImplementedYet();
+    function mutateSlot(MutateSlotArgs calldata args) external whenNotPaused {
+        if (_ownerOf(args.shadowId) != msg.sender) revert NotShadowOwner();
+        Shadow storage s = _shadows[args.shadowId];
+        if (s.solved) revert AlreadySolved();
+        if (args.slotIdx >= N_SLOTS) revert SlotOutOfRange(args.slotIdx);
+        if (address(featureNFT) == address(0)) revert FeatureNFTNotSet();
+
+        uint256 expectedC2Bytes = uint256(args.c2FieldCount) * 32;
+        if (args.c2.length != expectedC2Bytes) {
+            revert BadC2Length(args.c2.length, expectedC2Bytes);
+        }
+
+        ManifestEntry storage m = _manifests[args.shadowId][args.slotIdx];
+        if (m.kind != SlotKind.OCCUPIED) revert SlotEmpty(args.slotIdx);
+
+        // ---- 1. mutate_slot proof ----
+        bytes32[] memory piMut = _buildMutatePI(args, m);
+        IVerifier vMut = mutateSlotVerifier;
+        if (address(vMut) == address(0)) revert VerifierNotSet();
+        try vMut.verify(args.proofMutate, piMut) returns (bool ok) {
+            if (!ok) revert InvalidProof();
+        } catch {
+            revert InvalidProof();
+        }
+
+        // ---- 2. bind c2 calldata via on-chain Yul Poseidon2 sponge_39 ----
+        // The proof's PI[8] (new_ct_commit) is sponge_39 of the new c2
+        // computed in-circuit. We sponge the calldata locally and require equality.
+        bytes32 chainCtCommit = bytes32(_sponge(args.c2));
+        if (chainCtCommit != piMut[8]) {
+            revert CtCommitMismatch(chainCtCommit, piMut[8]);
+        }
+
+        // ---- 3. apply state change ----
+        bytes32 prevLSH = m.liveStateHash;
+        m.liveStateHash = args.newLiveStateHash;
+
+        // ---- 4. atomic T10 refresh ----
+        _refreshT10Atomically(args.shadowId, args.newT10, args.proofT10);
+
+        // ---- 5. event ----
+        // The proof binds prev_chain_tip (PI[12]), new_chain_tip (PI[13]),
+        // prev_count (PI[14]), and new_count (PI[15]) so an indexer can
+        // reconstruct the chain history without trusting the emitter.
+        emit ShadowSlotMutated(
+            args.shadowId,
+            args.slotIdx,
+            piMut[4],                              // origin_face_id from PI
+            uint256(piMut[2]),                     // feature_id from PI
+            uint16(uint256(piMut[15])),            // post-bump mutation count
+            piMut[12],                             // prev chain tip
+            piMut[13],                             // new chain tip
+            args.c2
+        );
+        // silence unused-prevLSH warning while still asserting the read.
+        prevLSH;
     }
+
+    /// Build the 16-field PI for mutate_slot from the args + chain state.
+    /// Layout matches circuits/mutate_slot/src/main.nr (16 fields):
+    ///   PI[0]  shadow_id            (transcript)
+    ///   PI[1]  slot_idx
+    ///   PI[2]  feature_id           (chain)
+    ///   PI[3]  type_idx             (chain)
+    ///   PI[4]  origin_face_id       (chain)
+    ///   PI[5]  palette_commit       (chain)
+    ///   PI[6]  old_live_state_hash  (chain)
+    ///   PI[7]  new_live_state_hash  (args)
+    ///   PI[8]  new_ct_commit        (args -- bound on-chain via sponge below)
+    ///   PI[9]  c2_field_count       (args)
+    ///   PI[10] owner_pk_x           (chain)
+    ///   PI[11] owner_pk_y           (chain)
+    ///   PI[12] prev_chain_tip       (args)
+    ///   PI[13] new_chain_tip        (args, derived in proof)
+    ///   PI[14] prev_mutation_count  (args)
+    ///   PI[15] new_mutation_count   (args, derived in proof)
+    function _buildMutatePI(
+        MutateSlotArgs calldata args,
+        ManifestEntry storage m
+    ) internal view returns (bytes32[] memory pi) {
+        pi = new bytes32[](MUTATE_SLOT_PI_LEN);
+        IFeatureNFT fn = featureNFT;
+        pi[0]  = bytes32(args.shadowId);
+        pi[1]  = bytes32(uint256(args.slotIdx));
+        pi[2]  = bytes32(m.featureId);
+        pi[3]  = bytes32(uint256(fn.typeIdxOf(m.featureId)));
+        pi[4]  = fn.originFaceIdOf(m.featureId);
+        pi[5]  = fn.paletteCommitOf(m.featureId);
+        pi[6]  = m.liveStateHash;
+        pi[7]  = args.newLiveStateHash;
+        pi[8]  = bytes32(0);  // filled below from extraData
+        pi[9]  = bytes32(uint256(args.c2FieldCount));
+        pi[10] = _shadows[args.shadowId].ecdhPubX;
+        pi[11] = _shadows[args.shadowId].ecdhPubY;
+        // PI[12..15] are sourced from args via the auxiliary fields.
+        // We thread them through `MutateSlotArgs.aux` to keep the on-chain
+        // payload self-describing.
+        pi[12] = args.prevChainTip;
+        pi[13] = args.newChainTip;
+        pi[14] = bytes32(uint256(args.prevMutationCount));
+        pi[15] = bytes32(uint256(args.newMutationCount));
+        // PI[8] is the proof's claimed new_ct_commit; the contract trusts the
+        // proof's witness here -- the calldata c2 binding is enforced *after*
+        // proof verification by sponge_39(c2) == PI[8]. We carry it forward
+        // from args.newCtCommit so the verifier sees the same value the
+        // prover committed to.
+        pi[8] = args.newCtCommit;
+    }
+
+    /// Verify the bundled shadow_t10 proof and write `shadowT10` atomically.
+    /// Builds piT10 from chain state's CURRENT manifest (post-mutate write).
+    function _refreshT10Atomically(
+        uint256 shadowId,
+        bytes32[2] calldata newT10,
+        bytes calldata proofT10
+    ) internal {
+        IVerifier vT10 = t10ShadowVerifier;
+        if (address(vT10) == address(0)) revert VerifierNotSet();
+
+        bytes32[] memory piT10 = new bytes32[](T10_SHADOW_PI_LEN);
+        Shadow storage s = _shadows[shadowId];
+        ManifestEntry[16] storage manifest = _manifests[shadowId];
+        piT10[0] = bytes32(shadowId);
+        piT10[1] = s.zIndexCommit;
+        piT10[2] = newT10[0];   // hi
+        piT10[3] = newT10[1];   // lo
+        for (uint256 i = 0; i < N_SLOTS; i++) {
+            piT10[4 + i] = manifest[i].liveStateHash;
+        }
+
+        try vT10.verify(proofT10, piT10) returns (bool ok) {
+            if (!ok) revert InvalidProof();
+        } catch {
+            revert InvalidProof();
+        }
+
+        shadowT10[shadowId][0] = newT10[0];
+        shadowT10[shadowId][1] = newT10[1];
+        emit ShadowT10Updated(shadowId, newT10[0], newT10[1]);
+    }
+
 
     /// Calldata struct for mutateBatch. Wrapping ten parallel arrays in
     /// a struct dodges Solidity's stack-too-deep at the entry point and

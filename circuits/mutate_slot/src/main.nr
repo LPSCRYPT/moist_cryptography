@@ -18,7 +18,7 @@
 // to old. The owner is free to repaint and reposition the slot to anything
 // that passes well-formedness + canvas containment.
 //
-// Public inputs (12 Fields):
+// Public inputs (16 Fields):
 //   PI[0]   shadow_id              (chain-level binding only; transcript-only here)
 //   PI[1]   slot_idx               (0..15)
 //   PI[2]   feature_id             (must match manifest[slot].featureId on chain)
@@ -27,13 +27,17 @@
 //   PI[5]   palette_commit         (asserted unchanged from FeatureNFT)
 //   PI[6]   old_live_state_hash    (== chain manifest[slot].liveStateHash)
 //   PI[7]   new_live_state_hash    (written to chain on success)
-//   PI[8]   new_ct_commit          (= sponge_38 of new c2; for chain calldata bind)
-//   PI[9]   c2_field_count         (used field count of new c2 plaintext; lets contract length-check calldata)
+//   PI[8]   new_ct_commit          (= sponge_39 of new c2; for chain calldata bind)
+//   PI[9]   c2_field_count         (used field count of new c2 plaintext; contract length-checks calldata)
 //   PI[10]  owner_pk_x             (== KeyRegistry pk for the caller)
 //   PI[11]  owner_pk_y
+//   PI[12]  prev_chain_tip         (= old_chain_tip; for ShadowSlotMutated event indexer chain reconstruction)
+//   PI[13]  new_chain_tip          (post-extension)
+//   PI[14]  prev_mutation_count    (uint16 in chain semantics)
+//   PI[15]  new_mutation_count     (== prev + 1)
 //
 // Witness (private):
-//   old_plaintext, new_plaintext        : [Field; 38]    (pose | w | h | indices)
+//   old_plaintext, new_plaintext        : [Field; 39]    (pose | w | h | indices | zero pad)
 //   old_state_commit, old_ct_commit     : Field          (folded into old_live_state_hash)
 //   old_c1_x, old_c1_y                  : Field
 //   old_mutation_count                  : Field          (uint16 in upper logic)
@@ -60,8 +64,11 @@ use std::embedded_curve_ops::{
 
 // ---- size constants ----
 
-global PLAINTEXT_FIELDS: u32 = 38;
-// PLAINTEXT_BLOCKS = ceil(PLAINTEXT_FIELDS / 3) = 13 sponge blocks; encoded inline in sponge_38.
+// 39 fields = 13 sponge blocks (rate-3, capacity-1, sentinel pad). Multiple
+// of 3 by construction so the on-chain Yul Poseidon2 sponge can hash the
+// c2 calldata directly without padding gymnastics. Field 38 is reserved as
+// a hard-coded zero pad to keep the encoding deterministic.
+global PLAINTEXT_FIELDS: u32 = 39;
 
 global CANVAS_W: u32 = 48;
 global CANVAS_H: u32 = 48;
@@ -84,20 +91,15 @@ global CANVAS_H: u32 = 48;
 // (with one trailing absorb of the constant 1 to act as a length tag).
 // Mirrors the v1 sponge_249/sponge_42 pattern so prover/verifier
 // implementations on chain (Yul Poseidon2 sponge) can match byte-for-byte.
-fn sponge_38(e: [Field; 38]) -> Field {
+fn sponge_39(e: [Field; 39]) -> Field {
     let mut s: [Field; 4] = [0, 0, 0, 0];
-    // Process 12 full blocks (36 elements) then 2 elements + 1 pad in the
-    // 13th block.
-    for b in 0..12 {
+    // 13 full rate-3 blocks. No tail.
+    for b in 0..13 {
         s[0] = s[0] + e[b * 3];
         s[1] = s[1] + e[b * 3 + 1];
         s[2] = s[2] + e[b * 3 + 2];
         s = poseidon2_permutation(s, 4);
     }
-    // Last block: e[36], e[37], pad=0.
-    s[0] = s[0] + e[36];
-    s[1] = s[1] + e[37];
-    s = poseidon2_permutation(s, 4);
     // Final length-tag absorb.
     s[0] = s[0] + 1;
     s = poseidon2_permutation(s, 4);
@@ -135,18 +137,14 @@ fn sponge_6(a: Field, b: Field, c: Field, d: Field, e: Field, f: Field) -> Field
 
 // ---- ECIES-Pohlig keystream ----
 
-fn keystream_38(k: Field) -> [Field; 38] {
-    let mut ks: [Field; 38] = [0; 38];
-    for b in 0..12 {
+fn keystream_39(k: Field) -> [Field; 39] {
+    let mut ks: [Field; 39] = [0; 39];
+    for b in 0..13 {
         let block = poseidon2_permutation([k, b as Field, 0, 0], 4);
         ks[b * 3]     = block[0];
         ks[b * 3 + 1] = block[1];
         ks[b * 3 + 2] = block[2];
     }
-    // Last partial block.
-    let last = poseidon2_permutation([k, 12, 0, 0], 4);
-    ks[36] = last[0];
-    ks[37] = last[1];
     ks
 }
 
@@ -185,7 +183,7 @@ fn decode_xy(pose_low_bits: Field) -> (u8, u8) {
     (x, y)
 }
 
-fn assert_pose_byte_dims(plaintext: [Field; 38], w_pub: u32, h_pub: u32) {
+fn assert_pose_byte_dims(plaintext: [Field; 39], w_pub: u32, h_pub: u32) {
     // Plaintext layout in field 0 (low 31 bytes):
     //   bytes 0..7   pose (8 B, uint64 packed)
     //   byte 8       w
@@ -234,10 +232,14 @@ fn main(
     c2_field_count:      pub Field,
     owner_pk_x:          pub Field,
     owner_pk_y:          pub Field,
+    prev_chain_tip:      pub Field,
+    new_chain_tip_pi:    pub Field,
+    prev_mutation_count: pub Field,
+    new_mutation_count_pi: pub Field,
 
     // witness
-    old_plaintext:       [Field; 38],
-    new_plaintext:       [Field; 38],
+    old_plaintext:       [Field; 39],
+    new_plaintext:       [Field; 39],
     old_state_commit:    Field,
     old_ct_commit:       Field,
     old_c1_x:            Field,
@@ -276,15 +278,15 @@ fn main(
     assert(lsh_old_recomputed == old_live_state_hash);
 
     // ---- 2. old plaintext sponge-hashes to old_state_commit ----
-    assert(sponge_38(old_plaintext) == old_state_commit);
+    assert(sponge_39(old_plaintext) == old_state_commit);
 
     // ---- 3. old plaintext, encrypted under old_k, is the chain's c2 ----
-    let old_ks = keystream_38(old_k);
-    let mut old_ct: [Field; 38] = [0; 38];
+    let old_ks = keystream_39(old_k);
+    let mut old_ct: [Field; 39] = [0; 39];
     for i in 0..PLAINTEXT_FIELDS {
         old_ct[i] = old_plaintext[i] + old_ks[i];
     }
-    assert(sponge_38(old_ct) == old_ct_commit);
+    assert(sponge_39(old_ct) == old_ct_commit);
 
     // ---- 4. owner_sk recovers old_k from old_c1 ----
     // ECIES-Pohlig: shared_old = old_c1 * owner_sk; mask_old = poseidon2_hash_2(shared_old.x, shared_old.y);
@@ -311,13 +313,13 @@ fn main(
     assert_pose_byte_dims(new_plaintext, w_new as u32, h_new as u32);
 
     // ---- 6. new c2 = encrypt(new_plaintext, new_k, owner_pk) ----
-    let new_ks = keystream_38(new_k);
-    let mut new_ct: [Field; 38] = [0; 38];
+    let new_ks = keystream_39(new_k);
+    let mut new_ct: [Field; 39] = [0; 39];
     for i in 0..PLAINTEXT_FIELDS {
         new_ct[i] = new_plaintext[i] + new_ks[i];
     }
-    let new_state_commit_local = sponge_38(new_plaintext);
-    let new_ct_commit_local = sponge_38(new_ct);
+    let new_state_commit_local = sponge_39(new_plaintext);
+    let new_ct_commit_local = sponge_39(new_ct);
     assert(new_ct_commit_local == new_ct_commit);
 
     // ---- 7. fresh ECIES ephemeral c1 + ECDH binding ----
@@ -352,6 +354,11 @@ fn main(
         origin_face_id,
         slot_idx,
     );
+    // Bind: PI must commit to the same chain step the witness derived.
+    assert(prev_chain_tip == old_chain_tip);
+    assert(new_chain_tip_pi == new_chain_tip);
+    assert(prev_mutation_count == old_mutation_count);
+    assert(new_mutation_count_pi == new_count);
 
     // ---- 9. new_live_state_hash binds new state ----
     let lsh_new_recomputed = sponge_6(
