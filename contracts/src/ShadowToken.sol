@@ -1206,16 +1206,26 @@ contract ShadowToken is ERC721, PausableMixin {
     /// sponge_39 then sponge_16 to match the proof's PI[1] state_commits_root.
     /// Auto-extracts every occupied carrier so post-solve they become plain
     /// transferable. The shadow itself becomes solved (no further mutation).
+    /// Calldata struct for solve. The shadow owner provides the witness
+    /// for the canonical NFT image: per-slot plaintext (pose, w, h, palette
+    /// indices), per-slot 16-color palette, and per-slot salt. Solve binds
+    /// each plaintext on chain via `sponge_39(plaintext) == stateCommit`,
+    /// then sponge_16's the 16 stateCommits to feed PI[1]. Each occupied
+    /// slot's palette is checked against the carrier's stored
+    /// `paletteCommit` via the new on-chain `Poseidon2YulSpongePaletteSalt`
+    /// (no per-slot ZK proof needed; soundness via Poseidon2 collision-
+    /// resistance + chain-stored `paletteCommit`).
     struct SolveArgs {
-        uint256   shadowId;
-        bytes     proof;            // solve_shadow_v2 proof
-        bytes[16] plaintexts;       // per-slot 39-field plaintext (1248 B each); empty for unused.
-                                    //   ADVISORY (emitted post-solve for indexers; NOT sponge-checked on chain)
-        bytes32[16] stateCommits;   // per-slot sponge_39(plaintext[i]) for OCCUPIED slots; 0 for EMPTY.
-                                    //   Contract sponge_16(stateCommits) -> PI[1]. Proof binds the witness's
-                                    //   actual plaintext -> stateCommit, so a lying caller cannot satisfy proof.
-        bytes32   zPermPacked;      // 16 nibbles, base-16 little-endian
-        uint8[16] zPerm;            // explicit per-position values (decoded from packed)
+        uint256 shadowId;
+        bytes   proof;                 // solve_shadow_v2 proof
+        bytes[16]            plaintexts;    // 39-field plaintext per slot (1248 B each); empty for EMPTY slots.
+                                            //   BOUND on chain: contract sponge_39's each and uses result
+                                            //   for the proof's PI[1] root, then emits FeatureSlotRevealed.
+        bytes32[16][16]      palettes;      // per-slot 16 RGB-as-Field colors (low 24 bits used);
+                                            //   zero rows for EMPTY slots.
+        bytes32[16]          paletteSalts;  // per-slot salt; 0 for EMPTY slots.
+        bytes32   zPermPacked;         // 16 nibbles, base-16 little-endian
+        uint8[16] zPerm;               // explicit per-position values (decoded from packed)
     }
 
     /// One-way reveal of the per-slot plaintexts + the z-index permutation.
@@ -1225,55 +1235,98 @@ contract ShadowToken is ERC721, PausableMixin {
         Shadow storage s = _shadows[args.shadowId];
         if (s.solved) revert AlreadySolved();
         if (address(featureNFT) == address(0)) revert FeatureNFTNotSet();
+        if (yulSponge == address(0)) revert VerifierNotSet();
         if (yulSponge16 == address(0)) revert VerifierNotSet();
 
-        // ---- 1. verify solve proof ----
-        _verifySolveProof(args);
+        // ---- 1. verify solve proof + derive stateCommits ----
+        bytes32[16] memory stateCommits = _deriveStateCommits(args);
+        _verifySolveProof(args, stateCommits);
 
-        // ---- 2. apply: write zIndexRevealed, mark solved, auto-extract carriers ----
+        // ---- 2. reveal palette + plaintext per occupied slot ----
+        // Done BEFORE auto-extract because auto-extract zeroes manifest
+        // entries (we'd lose featureId).
+        _revealOccupiedSlots(args);
+
+        // ---- 3. write state ----
         s.solved = true;
         s.zIndexRevealed = uint64(uint256(args.zPermPacked));
         s.zIndexRevealedSet = true;
 
+        // ---- 4. auto-extract carriers ----
         _autoExtractAllSlots(args.shadowId);
 
-        // ---- 3. emit ----
+        // ---- 5. emit ----
         emit ShadowSolved(args.shadowId, msg.sender, s.zIndexRevealed);
     }
 
-    function _verifySolveProof(SolveArgs calldata args) internal view {
-        Shadow storage s = _shadows[args.shadowId];
-
-        // Build state_commits root by sponge_39'ing each per-slot plaintext
-        // (or 0 for empty slots), then sponge_16 over the 16 commits.
-        bytes32[16] memory stateCommits;
+    /// Per-slot sponge_39 over plaintexts. Returns the 16-element
+    /// stateCommits array; EMPTY slots get 0 (with a length check enforcing
+    /// empty calldata for those). OCCUPIED slots compute stateCommit via
+    /// on-chain Yul sponge_39 -- this BINDS the calldata plaintext to the
+    /// proof's witness (which uses the same hash), closing the soundness
+    /// gap that the v2 advisory-plaintext design had.
+    function _deriveStateCommits(SolveArgs calldata args)
+        internal view returns (bytes32[16] memory stateCommits)
+    {
         ManifestEntry[16] storage manifest = _manifests[args.shadowId];
         for (uint256 i = 0; i < N_SLOTS; i++) {
             if (manifest[i].kind == SlotKind.OCCUPIED) {
-                // Length sanity only. plaintext is ADVISORY; not sponge-checked.
                 if (args.plaintexts[i].length != MAX_PLAINTEXT_FIELDS_PER_SLOT * 32) {
                     revert BadC2Length(args.plaintexts[i].length, MAX_PLAINTEXT_FIELDS_PER_SLOT * 32);
                 }
+                stateCommits[i] = bytes32(_sponge(args.plaintexts[i]));
             } else {
                 if (args.plaintexts[i].length != 0) {
                     revert BadC2Length(args.plaintexts[i].length, 0);
                 }
-                // Caller MUST claim 0 stateCommit for EMPTY slots; proof witness is 0.
-                if (args.stateCommits[i] != bytes32(0)) {
-                    revert BadC2Length(uint256(uint8(1)), 0);  // reuse error; non-zero claim for empty
-                }
+                // stateCommits[i] stays 0 by default.
             }
         }
+    }
 
+    /// Build PI for solve_shadow_v2 and verify the proof. PI[1] is the
+    /// sponge_16 root over per-slot stateCommits (derived via
+    /// `_deriveStateCommits`). PI[4] is the sponge_16 root over the
+    /// chain-stored manifest LSH array (anchors verification to the
+    /// shadow's current state).
+    function _verifySolveProof(
+        SolveArgs calldata args,
+        bytes32[16] memory stateCommits
+    ) internal view {
+        Shadow storage s = _shadows[args.shadowId];
+        ManifestEntry[16] storage manifest = _manifests[args.shadowId];
         bytes32[] memory piS = new bytes32[](SOLVE_SHADOW_PI_LEN);
         piS[0] = bytes32(args.shadowId);
-        piS[1] = _sponge16BytesArr(args.stateCommits);
+        piS[1] = _sponge16BytesArrMem(stateCommits);
         piS[2] = args.zPermPacked;
         piS[3] = s.zIndexCommit;
         piS[4] = _sponge16Manifest(manifest);
         piS[5] = s.ecdhPubX;
         piS[6] = s.ecdhPubY;
         _verifyOrRevert(solveShadowVerifier, args.proof, piS);
+    }
+
+    /// Per-slot palette + plaintext reveal. Calls FeatureNFT for each
+    /// occupied slot; FeatureNFT verifies the palette commitment opens via
+    /// on-chain Poseidon2 and emits FeaturePaletteRevealed +
+    /// FeatureSlotRevealed events. Plaintext binding is enforced upstream
+    /// (see _deriveStateCommits) so the plaintext bytes here are guaranteed
+    /// to be what the proof witnessed.
+    function _revealOccupiedSlots(SolveArgs calldata args) internal {
+        IFeatureNFT fn = featureNFT;
+        ManifestEntry[16] storage manifest = _manifests[args.shadowId];
+        for (uint256 i = 0; i < N_SLOTS; i++) {
+            if (manifest[i].kind == SlotKind.OCCUPIED) {
+                fn.revealPaletteAtSolve(
+                    manifest[i].featureId,
+                    args.shadowId,
+                    uint8(i),
+                    args.palettes[i],
+                    args.paletteSalts[i],
+                    args.plaintexts[i]
+                );
+            }
+        }
     }
 
     /// Auto-extract every occupied slot at solve time. Each carrier's

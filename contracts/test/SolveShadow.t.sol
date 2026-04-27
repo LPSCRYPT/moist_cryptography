@@ -9,6 +9,7 @@ import {IVerifier} from "../src/IVerifier.sol";
 import {SolveShadowVerifier} from "../src/SolveShadowVerifier.sol";
 import {Poseidon2YulSponge} from "../src/Poseidon2YulSponge.sol";
 import {Poseidon2YulSponge16} from "../src/Poseidon2YulSponge16.sol";
+import {Poseidon2YulSpongePaletteSalt} from "../src/Poseidon2YulSpongePaletteSalt.sol";
 import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 
 /// @notice Real-proof e2e test for `ShadowToken.solve`.
@@ -29,6 +30,7 @@ contract SolveShadowE2ETest is Test {
     SolveShadowVerifier  internal vS;
     Poseidon2YulSponge   internal sponge;
     Poseidon2YulSponge16 internal sponge16;
+    Poseidon2YulSpongePaletteSalt internal sponge17;
 
     string internal constant FIX = "./test/fixtures/solve_shadow_v2/solve_demo";
 
@@ -50,7 +52,9 @@ contract SolveShadowE2ETest is Test {
     uint8[]   internal occupiedIdxs;
     uint256[] internal featureIds;
     bytes32[16] internal prevLsh;
-    bytes32[16] internal stateCommits;
+    bytes32[16] internal stateCommits;       // pre-derivation; for assertions only
+    bytes32[16][16] internal palettes;       // [slot][color]
+    bytes32[16] internal paletteSalts;       // per-slot
     bytes[16] internal plaintextBytes;
     uint8[16] internal zPerm;
 
@@ -61,6 +65,8 @@ contract SolveShadowE2ETest is Test {
         fn = new TestableFeatureNFT(address(st));
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         st.setYulSponge16(address(sponge16));
+        sponge17 = new Poseidon2YulSpongePaletteSalt();
+        fn.setPaletteSponge(address(sponge17));
         vS = new SolveShadowVerifier();
         st.setVerifier(st.SLOT_SOLVE_SHADOW(), IVerifier(address(vS)));
 
@@ -174,16 +180,54 @@ contract SolveShadowE2ETest is Test {
         // Set zIndexCommit so the solve proof's PI[3] matches chain.
         st.setShadowZIndexCommitForTest(shadowId, zIndexCommit);
 
+        // Each occupied slot gets a deterministic (palette, salt) pair;
+        // the resulting paletteCommit is computed via the on-chain Yul
+        // sponge_17 (so seed and reveal use byte-identical hashing).
         for (uint256 i = 0; i < occupiedIdxs.length; i++) {
             uint8 sIdx = occupiedIdxs[i];
             uint8 typeIdx = uint8(i);
             bytes32 originFaceId = keccak256(abi.encode("origin", shadowId, sIdx));
-            bytes32 paletteCommit = keccak256(abi.encode("palette", shadowId, sIdx));
+            (bytes32[16] memory pal, bytes32 salt) = _genPaletteSalt(sIdx);
+            for (uint256 c = 0; c < 16; c++) {
+                palettes[sIdx][c] = pal[c];
+            }
+            paletteSalts[sIdx] = salt;
+            bytes32 paletteCommit = _computePaletteCommit(pal, salt);
             fn.seedFeature(
                 featIds[i], shadowId, sIdx, typeIdx,
                 originFaceId, paletteCommit, prevLsh[sIdx], alice
             );
         }
+    }
+
+    /// Generate a deterministic 16-color palette + salt for a slot. Each
+    /// color is a 24-bit value seeded from (shadowId, slotIdx, colorIdx).
+    function _genPaletteSalt(uint8 sIdx)
+        internal view returns (bytes32[16] memory palette, bytes32 salt)
+    {
+        for (uint256 c = 0; c < 16; c++) {
+            palette[c] = bytes32(uint256(
+                uint24(uint256(keccak256(abi.encode("color", shadowId, sIdx, c))))
+            ));
+        }
+        salt = keccak256(abi.encode("salt", shadowId, sIdx));
+    }
+
+    /// Compute paletteCommit by static-calling the same Yul sponge_17 the
+    /// contract uses at solve. Guarantees seed-side and reveal-side hashing
+    /// agree byte-for-byte.
+    function _computePaletteCommit(bytes32[16] memory palette, bytes32 salt)
+        internal view returns (bytes32 commit)
+    {
+        bytes memory buf = new bytes(17 * 32);
+        for (uint256 i = 0; i < 16; i++) {
+            bytes32 v = palette[i];
+            assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
+        }
+        assembly { mstore(add(add(buf, 32), mul(16, 32)), salt) }
+        (bool ok, bytes memory ret) = address(sponge17).staticcall(buf);
+        require(ok && ret.length == 32, "sponge17 staticcall failed");
+        assembly { commit := mload(add(ret, 32)) }
     }
 
     function _buildArgs() internal returns (ShadowToken.SolveArgs memory args) {
@@ -193,7 +237,8 @@ contract SolveShadowE2ETest is Test {
         args.plaintexts = plaintextBytes;
         args.zPermPacked = zPermPacked;
         args.zPerm = zPerm;
-        args.stateCommits = stateCommits;
+        args.palettes = palettes;
+        args.paletteSalts = paletteSalts;
     }
 
     function test_solve_success_freezes_shadow_and_extracts_carriers() public {
@@ -269,24 +314,50 @@ contract SolveShadowE2ETest is Test {
         st.solve(args);
     }
 
-    /// v2-gas: plaintexts is ADVISORY (not sponge-checked). Tamper plaintext
-    /// alone -> no revert. Tamper args.stateCommits -> InvalidProof.
-    function test_solve_reverts_when_stateCommits_tampered() public {
+    /// reveal-update: plaintext is now BOUND on chain via sponge_39 ==
+    /// stateCommit. Tampering plaintext changes the derived stateCommit,
+    /// which feeds PI[1], breaking proof verification.
+    function test_solve_reverts_when_plaintext_tampered() public {
         ShadowToken.SolveArgs memory args = _buildArgs();
         uint8 sIdx = occupiedIdxs[0];
-        args.stateCommits[sIdx] = bytes32(uint256(args.stateCommits[sIdx]) ^ 1);
+        args.plaintexts[sIdx][100] = bytes1(uint8(args.plaintexts[sIdx][100]) ^ 1);
         vm.prank(alice);
         vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.solve(args);
     }
 
-    function test_solve_plaintext_tamper_does_not_revert() public {
+    /// reveal-update: tampering a palette color makes sponge_palette_salt
+    /// produce a hash that doesn't match the carrier's stored
+    /// paletteCommit. FeatureNFT.revealPaletteAtSolve reverts with
+    /// PaletteCommitMismatch BEFORE auto-extract runs.
+    function test_solve_reverts_when_palette_tampered() public {
         ShadowToken.SolveArgs memory args = _buildArgs();
         uint8 sIdx = occupiedIdxs[0];
-        args.plaintexts[sIdx][100] = bytes1(uint8(args.plaintexts[sIdx][100]) ^ 1);
+        // Flip one bit in palette[0] of the first occupied slot.
+        args.palettes[sIdx][0] = bytes32(uint256(args.palettes[sIdx][0]) ^ 1);
         vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FeatureNFT.PaletteCommitMismatch.selector,
+                featureIds[0]
+            )
+        );
         st.solve(args);
-        // No revert. Off-chain consumers verify plaintext via ECIES decrypt.
+    }
+
+    /// reveal-update: tampering the salt also breaks the commit opening.
+    function test_solve_reverts_when_salt_tampered() public {
+        ShadowToken.SolveArgs memory args = _buildArgs();
+        uint8 sIdx = occupiedIdxs[0];
+        args.paletteSalts[sIdx] = bytes32(uint256(args.paletteSalts[sIdx]) ^ 1);
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FeatureNFT.PaletteCommitMismatch.selector,
+                featureIds[0]
+            )
+        );
+        st.solve(args);
     }
 
     // ============== Edge cases the spec called out ==============
@@ -353,6 +424,9 @@ contract SolveShadowE2ETest is Test {
         st.solve(args);
         uint256 used = gasBefore - gasleft();
         // v2-gas: ~6M for 4-occ post-sponge-drop. Budget 8M.
-        assertLt(used, 8_000_000, "solve gas regressed");
+        // reveal-update: solve now does on-chain sponge_39 per occupied
+        // slot + sponge_17 per occupied slot + per-slot revealPaletteAtSolve.
+        // 4-occ baseline: ~9-10M expected. Budget 12M (4M headroom under cap).
+        assertLt(used, 12_000_000, "solve gas regressed");
     }
 }

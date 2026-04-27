@@ -57,7 +57,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         bool    isInserted;
         uint256 hostShadowId;
         uint8   hostSlotIdx;
-        bool    paletteRevealed;        // flipped by `revealPalette`
+        bool    paletteRevealed;        // flipped by `revealPaletteAtSolve`
     }
 
     // ============== constants ==============
@@ -74,11 +74,6 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     /// PI[7]    originFaceId                  (asserted unchanged)
     uint256 public constant TRANSFER_FEATURE_PI_LEN = 8;
 
-    /// palette_reveal proof PI layout: see `revealPalette` below.
-    /// PI[0]      featureId
-    /// PI[1]      paletteCommit                  (asserted == storage)
-    /// PI[2..10]  palette_packed[8]              (each = palette[2i] + palette[2i+1] * 2^24)
-    uint256 public constant PALETTE_REVEAL_PI_LEN = 10;
 
     /// bn254 Fr field modulus. featureId is reduced mod FR_MOD so PI[0]
     /// equality (Field == Field) holds across circuit/contract boundary.
@@ -96,8 +91,13 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     IVerifier public transferFeatureVerifier;
     bool private _transferFeatureVerifierLocked;
 
-    IVerifier public paletteRevealVerifier;
-    bool private _paletteRevealVerifierLocked;
+    /// Yul Poseidon2 sponge over (palette[16], salt) -> 17 fields. Used by
+    /// `revealPaletteAtSolve` to verify the palette + salt witness opens
+    /// the stored `paletteCommit` byte-for-byte. Set once via
+    /// `setPaletteSponge`; address(0) until then (revealPaletteAtSolve will
+    /// revert).
+    address public paletteSpongeYul;
+    bool private _paletteSpongeLocked;
 
     mapping(uint256 => Feature) private _features;
     uint64 public mintCounter;
@@ -119,10 +119,21 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         bytes32 paletteCommit,
         bytes paletteRGB // 16 colors x 3 bytes = 48 bytes
     );
+    /// Per-slot plaintext reveal at solve. Emitted by
+    /// `revealPaletteAtSolve` after the palette commitment opens, so
+    /// indexers receive the full 39-field plaintext (pose, w, h, palette
+    /// indices) bound to chain state in a single tx alongside the
+    /// palette colors.
+    event FeatureSlotRevealed(
+        uint256 indexed featureId,
+        uint256 indexed shadowId,
+        uint8   indexed slotIdx,
+        bytes   plaintext  // 39 fields = 1248 bytes
+    );
     /// Salt envelope for the per-carrier paletteCommit, ECIES-encrypted to
     /// the carrier's owner pk. Emitted alongside `FeatureMinted` at mint;
     /// not stored on chain. Owner decrypts off-chain to recover the salt
-    /// needed to call `revealPalette`. Soundness of `revealPalette` does
+    /// needed to call `revealPaletteAtSolve` (driven from ShadowToken.solve).
     /// not depend on these values being honest -- the on-chain
     /// `paletteCommit` storage check is the binding; this event is purely
     /// the wire-format envelope so the owner can decrypt later.
@@ -154,7 +165,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         address indexed to
     );
     event TransferFeatureVerifierSet(IVerifier v);
-    event PaletteRevealVerifierSet(IVerifier v);
+    event PaletteSpongeSet(address yul);
     event KeyRegistrySet(KeyRegistry r);
 
     // ============== errors ==============
@@ -175,6 +186,9 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     error CustodyLocked(uint256 featureId);
     error TransferGated(uint256 featureId);
     error PaletteAlreadyRevealed(uint256 featureId);
+    error PaletteCommitMismatch(uint256 featureId);
+    error PaletteSpongeNotSet();
+    error PaletteSpongeCallFailed();
 
     // ============== ctor ==============
 
@@ -202,12 +216,12 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         emit TransferFeatureVerifierSet(v);
     }
 
-    function setPaletteRevealVerifier(IVerifier v) external {
+    function setPaletteSponge(address yul) external {
         if (msg.sender != deployer) revert NotDeployer();
-        if (_paletteRevealVerifierLocked) revert VerifierAlreadySet();
-        paletteRevealVerifier = v;
-        _paletteRevealVerifierLocked = true;
-        emit PaletteRevealVerifierSet(v);
+        if (_paletteSpongeLocked) revert VerifierAlreadySet();
+        paletteSpongeYul = yul;
+        _paletteSpongeLocked = true;
+        emit PaletteSpongeSet(yul);
     }
 
     // ============== privileged: ShadowToken-only ==============
@@ -355,62 +369,76 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         _update(to, featureId, address(0));
     }
 
-    // ============== revealPalette (any held or inserted carrier) ==============
+    // ============== revealPaletteAtSolve (privileged: ShadowToken-only) ==============
 
-    /// @notice Open the carrier's `paletteCommit` to the actual 16-color
-    ///         palette by exhibiting a `palette_reveal_v2` proof. Owner-
-    ///         only (anti-grief). Single-shot: `paletteRevealed` is set
-    ///         on success and a second call reverts.
-    /// @dev    The proof binds `pi[1] == sponge_palette_salt(palette, salt)`
-    ///         and `pi[2..10]` to two-color packings of the palette. The
-    ///         contract checks `pi[1] == storage.paletteCommit`; soundness
-    ///         flows from that check + the proof's commitment binding.
-    ///         Callers off-chain ECIES-decrypt the salt envelope they got
-    ///         at mint to obtain the salt witness.
-    function revealPalette(
+    /// @notice Open the carrier's `paletteCommit` to the actual 16 RGB
+    ///         colors. Called only by ShadowToken inside its `solve`
+    ///         flow, atomic with the per-slot plaintext reveal and shadow
+    ///         freeze. Single-shot: `paletteRevealed` is set on success
+    ///         and a second call reverts.
+    /// @dev    Soundness: the contract recomputes
+    ///         `sponge_palette_salt(palette, salt)` via the deployed Yul
+    ///         contract `paletteSpongeYul` and asserts equality with
+    ///         `f.paletteCommit` (immutable since mint). Poseidon2's
+    ///         collision-resistance binds the witness; no ZK proof needed.
+    /// @param  shadowId               host shadow id at solve time;
+    ///                                emitted in `FeatureSlotRevealed` for
+    ///                                cross-event linkage
+    /// @param  slotIdx                host slot index at solve time;
+    ///                                emitted in `FeatureSlotRevealed`
+    /// @param  palette                16 colors, each Field's low 24 bits
+    ///                                interpreted as 0xRRGGBB
+    /// @param  salt                   the per-carrier salt mixed into
+    ///                                paletteCommit at mint
+    /// @param  plaintext              39-field slot plaintext, emitted
+    ///                                via FeatureSlotRevealed; bound by
+    ///                                ShadowToken's solve flow against the
+    ///                                proof's stateCommit (so the bytes here
+    ///                                are guaranteed to be what the proof
+    ///                                witnessed)
+    function revealPaletteAtSolve(
         uint256 featureId,
-        bytes calldata proof,
-        bytes32[] calldata pi
-    ) external whenNotPaused {
-        if (_ownerOf(featureId) != msg.sender) revert NotFeatureOwner();
+        uint256 shadowId,
+        uint8 slotIdx,
+        bytes32[16] calldata palette,
+        bytes32 salt,
+        bytes calldata plaintext
+    ) external {
+        if (msg.sender != shadowToken) revert NotShadowToken();
         Feature storage f = _features[featureId];
         if (f.paletteRevealed) revert PaletteAlreadyRevealed(featureId);
-        if (pi.length != PALETTE_REVEAL_PI_LEN) revert BadPILen(pi.length, PALETTE_REVEAL_PI_LEN);
 
-        IVerifier v = paletteRevealVerifier;
-        if (address(v) == address(0)) revert VerifierNotSet();
+        address yul = paletteSpongeYul;
+        if (yul == address(0)) revert PaletteSpongeNotSet();
 
-        if (pi[0] != bytes32(featureId)) revert InvalidProof();
-        if (pi[1] != f.paletteCommit) revert InvalidProof();
-
-        try v.verify(proof, pi) returns (bool ok) {
-            if (!ok) revert InvalidProof();
-        } catch {
-            revert InvalidProof();
+        // Pack 17 fields = 544 bytes calldata for the Yul sponge.
+        bytes memory buf = new bytes(17 * 32);
+        for (uint256 i = 0; i < 16; i++) {
+            bytes32 v = palette[i];
+            assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
         }
+        assembly { mstore(add(add(buf, 32), mul(16, 32)), salt) }
+
+        (bool ok, bytes memory ret) = yul.staticcall(buf);
+        if (!ok || ret.length != 32) revert PaletteSpongeCallFailed();
+        bytes32 recomputed;
+        assembly { recomputed := mload(add(ret, 32)) }
+        if (recomputed != f.paletteCommit) revert PaletteCommitMismatch(featureId);
 
         f.paletteRevealed = true;
 
-        // Unpack pi[2..10] into 48 raw RGB bytes (16 colors x 3 bytes).
-        // Each packed Field carries:
-        //   palette[2i]   in bits  [0..24]   (low color)
-        //   palette[2i+1] in bits  [24..48]  (high color)
-        // Higher bits are ignored: an adversary who would only be lying
-        // to themselves (only the owner has the salt) can't gain anything.
+        // Unpack the 16-color palette into 48 raw RGB bytes.
+        // Each Field's low 24 bits = 0xRRGGBB; bits >= 24 are ignored.
         bytes memory rgb = new bytes(48);
-        for (uint256 i = 0; i < 8; i++) {
-            uint256 packed = uint256(pi[2 + i]);
-            uint256 lo = packed & 0xFFFFFF;
-            uint256 hi = (packed >> 24) & 0xFFFFFF;
-            rgb[i * 6 + 0] = bytes1(uint8(lo >> 16));
-            rgb[i * 6 + 1] = bytes1(uint8(lo >> 8));
-            rgb[i * 6 + 2] = bytes1(uint8(lo));
-            rgb[i * 6 + 3] = bytes1(uint8(hi >> 16));
-            rgb[i * 6 + 4] = bytes1(uint8(hi >> 8));
-            rgb[i * 6 + 5] = bytes1(uint8(hi));
+        for (uint256 i = 0; i < 16; i++) {
+            uint256 c = uint256(palette[i]) & 0xFFFFFF;
+            rgb[i * 3 + 0] = bytes1(uint8(c >> 16));
+            rgb[i * 3 + 1] = bytes1(uint8(c >> 8));
+            rgb[i * 3 + 2] = bytes1(uint8(c));
         }
 
         emit FeaturePaletteRevealed(featureId, f.paletteCommit, rgb);
+        emit FeatureSlotRevealed(featureId, shadowId, slotIdx, plaintext);
     }
 
     // ============== view accessors (IFeatureNFT) ==============
@@ -451,7 +479,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         return _features[featureId];
     }
 
-    function paletteRevealedOf(uint256 featureId) external view returns (bool) {
+    function paletteRevealedOf(uint256 featureId) external view override returns (bool) {
         return _features[featureId].paletteRevealed;
     }
 
@@ -494,13 +522,10 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
 
     // ============== verifier rotation slot ids ==============
     uint8 public constant SLOT_TRANSFER_FEATURE = 0;
-    uint8 public constant SLOT_PALETTE_REVEAL  = 1;
 
     function _writeVerifierSlot(uint8 slot, address newVerifier) internal override {
         if (slot == SLOT_TRANSFER_FEATURE) {
             transferFeatureVerifier = IVerifier(newVerifier);
-        } else if (slot == SLOT_PALETTE_REVEAL) {
-            paletteRevealVerifier = IVerifier(newVerifier);
         } else {
             revert("unknown slot");
         }

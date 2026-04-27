@@ -1,7 +1,0 @@
-[package]
-name = "palette_reveal_v2"
-type = "bin"
-authors = [""]
-compiler_version = ">=0.34.0"
-
-[dependencies]

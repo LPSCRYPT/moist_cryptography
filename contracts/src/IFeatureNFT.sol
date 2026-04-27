@@ -90,6 +90,20 @@ interface IFeatureNFT {
         address to
     ) external;
 
+    /// @notice Privileged: open the carrier's `paletteCommit` to its 16
+    ///         RGB colors and emit the per-slot plaintext, atomic with
+    ///         ShadowToken.solve(). Bypasses owner gating because the
+    ///         caller is the host shadow, mid-solve. Single-shot: reverts
+    ///         if `paletteRevealed` is already true.
+    function revealPaletteAtSolve(
+        uint256 featureId,
+        uint256 shadowId,
+        uint8 slotIdx,
+        bytes32[16] calldata palette,
+        bytes32 salt,
+        bytes calldata plaintext
+    ) external;
+
     // ---- read accessors used by ShadowToken's logic ----
 
     function ownerOfFeature(uint256 featureId) external view returns (address);
@@ -100,4 +114,5 @@ interface IFeatureNFT {
     function isInserted(uint256 featureId) external view returns (bool);
     function hostShadowIdOf(uint256 featureId) external view returns (uint256);
     function hostSlotIdxOf(uint256 featureId) external view returns (uint8);
+    function paletteRevealedOf(uint256 featureId) external view returns (bool);
 }

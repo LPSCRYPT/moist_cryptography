@@ -18,7 +18,7 @@ import {ZIndexCommitVerifier}   from "../src/ZIndexCommitVerifier.sol";
 import {TransferShadowVerifier} from "../src/TransferShadowVerifier.sol";
 import {SolveShadowVerifier}    from "../src/SolveShadowVerifier.sol";
 import {TransferFeatureV2Verifier} from "../src/TransferFeatureV2Verifier.sol";
-import {PaletteRevealV2Verifier}   from "../src/PaletteRevealV2Verifier.sol";
+import {Poseidon2YulSpongePaletteSalt} from "../src/Poseidon2YulSpongePaletteSalt.sol";
 
 /// @notice Deploys the v2 shadow pipeline end-to-end:
 ///         - 2 Yul sponge contracts (sponge_39 and sponge_16)
@@ -108,9 +108,13 @@ contract DeployShadowPipeline is Script {
         console.log("TransferFeatureV2Verifier:", address(transferFeatureV));
         fn.setTransferFeatureVerifier(transferFeatureV);
 
-        IVerifier paletteRevealV = IVerifier(address(new PaletteRevealV2Verifier()));
-        console.log("PaletteRevealV2Verifier:", address(paletteRevealV));
-        fn.setPaletteRevealVerifier(paletteRevealV);
+        // FeatureNFT-side palette commitment opening at solve time uses an
+        // on-chain Yul Poseidon2 sponge-17 (palette[16] + salt). No ZK
+        // verifier needed; soundness comes from the chain-stored
+        // paletteCommit + Poseidon2 collision-resistance.
+        Poseidon2YulSpongePaletteSalt paletteSponge = new Poseidon2YulSpongePaletteSalt();
+        console.log("Poseidon2YulSpongePaletteSalt:", address(paletteSponge));
+        fn.setPaletteSponge(address(paletteSponge));
 
         vm.stopBroadcast();
     }
