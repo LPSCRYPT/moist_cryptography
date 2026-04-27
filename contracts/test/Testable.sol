@@ -164,6 +164,25 @@ contract TestableShadowToken is ShadowToken {
         s.zIndexCommit = commit;
     }
 
+    /// Test-only: mark a shadow as solved + write zIndexRevealed +
+    /// shadowT10. Used by BridgeShadow tests to simulate a post-solve
+    /// chain state without driving the full solve flow (which requires
+    /// a real solve_shadow_v2 proof). Spec criterion: bridge MUST work
+    /// against v2 storage post-solve.
+    function setShadowSolvedForTest(
+        uint256 shadowId,
+        uint64 zIndexRevealed,
+        bytes32 t10Hi,
+        bytes32 t10Lo
+    ) external {
+        Shadow storage s = _shadowsStorage(shadowId);
+        s.solved = true;
+        s.zIndexRevealed = zIndexRevealed;
+        s.zIndexRevealedSet = true;
+        shadowT10[shadowId][0] = t10Hi;
+        shadowT10[shadowId][1] = t10Lo;
+    }
+
     /// Test-only verifier swap. Routes through ShadowToken's rotation
     /// path (`_writeVerifierSlot`), which bypasses the one-shot setter
     /// lock on `setXyzVerifier`. Used by mint tests to install verifier
