@@ -277,4 +277,58 @@ contract SolveShadowE2ETest is Test {
         vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.solve(args);
     }
+
+    // ============== Edge cases the spec called out ==============
+
+    /// `zIndexCommit == 0` is the default storage value when
+    /// setZIndexCommit was never called for a shadow. The solve circuit
+    /// asserts `sponge_16(z_perm) == z_index_commit` with z_index_commit
+    /// fed from the chain (PI[3] = s.zIndexCommit). With s.zIndexCommit=0,
+    /// PI[3]=0; the proof's frozen PI[3] = fixture's sponge_16(perm) which
+    /// is non-zero (sponge sentinel-pad invariant pinned in
+    /// CryptoInvariants). Mismatch -> InvalidProof.
+    ///
+    /// This pins the property: a shadow MUST have setZIndexCommit called
+    /// before solve is possible. Without it, no permutation reveal is
+    /// allowed -- not even an identity permutation [0,1,...,15].
+    function test_solve_reverts_when_zIndexCommit_unset() public {
+        // Re-seed without setting zIndexCommit. Cleanest path: rebuild the
+        // chain state minus the setZIndexCommit step. We have a fresh
+        // st instance per test, but the existing setUp already calls
+        // setShadowZIndexCommitForTest -- so storage-clear it here.
+        st.setShadowZIndexCommitForTest(shadowId, bytes32(0));
+        assertEq(st.shadowOf(shadowId).zIndexCommit, bytes32(0), "pre: commit cleared");
+
+        ShadowToken.SolveArgs memory args = _buildArgs();
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.solve(args);
+    }
+
+    /// Even with the right zPermPacked from the fixture, swapping it for
+    /// the identity permutation (encoded packed as 0xfedcba9876543210
+    /// = nibbles [0,1,2,...,15] LE) fails verification. Pins that the
+    /// proof's PI[2] is rigidly bound -- callers cannot substitute a
+    /// different reveal for the one the prover witnessed.
+    function test_solve_reverts_when_zPermPacked_tampered() public {
+        ShadowToken.SolveArgs memory args = _buildArgs();
+        // Identity perm packed: nibble i = i, low-to-high.
+        // 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 -> 0xfedcba9876543210
+        args.zPermPacked = bytes32(uint256(0xfedcba9876543210));
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.solve(args);
+    }
+
+    /// Solve with a zIndexCommit that does not match the proof's witnessed
+    /// commit. Any non-zero off-by-one tampering at the chain level (e.g.,
+    /// a corrupt commit due to storage poke) MUST fail solve. Pins the
+    /// commit-binding invariant.
+    function test_solve_reverts_when_zIndexCommit_mismatched() public {
+        st.setShadowZIndexCommitForTest(shadowId, bytes32(uint256(zIndexCommit) ^ 1));
+        ShadowToken.SolveArgs memory args = _buildArgs();
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.solve(args);
+    }
 }
