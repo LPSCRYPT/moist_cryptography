@@ -77,8 +77,34 @@ def render_array(name: str, vals: list[int]) -> str:
     return f"{name} = [{', '.join(fhex(v) for v in vals)}]"
 
 
-def build_witness(seed: bytes, slot_idx: int = 3, witness_label: bytes = b"") -> dict:
-    """Compute every PI + witness field for a synthetic mutation."""
+def build_witness(
+    seed: bytes,
+    slot_idx: int = 3,
+    witness_label: bytes = b"",
+    prev_state: dict | None = None,
+    step_index: int = 0,
+) -> dict:
+    """Compute every PI + witness field for a synthetic mutation.
+
+    Args:
+        seed: deterministic seed for keygen + randomness.
+        slot_idx: target slot (default 3 for canonical demo).
+        witness_label: distinguishes per-slot witness state when a single
+            seed must produce multiple INDEPENDENT proofs (e.g. mutateBatch
+            against different slots that don't share carrier identity).
+        prev_state: if not None, the OLD state for this step is inherited
+            from a previous mutation's `new_*` fields. Used to chain
+            multiple mutations on the SAME slot, where each step's old_*
+            equals the prior step's new_*. Must contain keys:
+              new_count, new_chain_tip, new_state_commit, new_ct_commit,
+              new_c1_x, new_c1_y, new_k, new_plaintext
+            (all of which are present in this function's own return dict).
+        step_index: mutation index in the chain (0 = first, 1 = second, ...).
+            Used to vary the new_* state per step so successive mutations
+            produce DISTINCT plaintexts/poses. Stable feature/shadow PI is
+            unaffected (chained mutations on the same slot bind the same
+            featureId/originFaceId/paletteCommit).
+    """
     print("[1/9] keygen")
     owner_sk = deterministic_int(seed, b"owner_sk", GRUMPKIN_ORDER - 1) + 1
     owner_pk = ec_mul(G, owner_sk)
@@ -96,40 +122,66 @@ def build_witness(seed: bytes, slot_idx: int = 3, witness_label: bytes = b"") ->
     palette_commit = deterministic_int(seed, b"palette_commit" + witness_label, P)
 
     # ---- OLD slot state ----
-    print("[3/9] old plaintext")
-    old_pose = pack_pose(x=4, y=8)             # identity rot/scale, anchor (4, 8)
-    old_w, old_h = 12, 10
-    old_indices = [(i * 7 + 3) & 0xF for i in range(old_w * old_h)]
-    old_plaintext = encode_plaintext_v2(old_pose, old_w, old_h, old_indices)
-    assert len(old_plaintext) == PLAINTEXT_FIELDS
+    if prev_state is None:
+        # Mint-time fresh state: synthesise an OLD plaintext + encrypt.
+        print("[3/9] old plaintext (mint-time)")
+        old_pose = pack_pose(x=4, y=8)             # identity rot/scale, anchor (4, 8)
+        old_w, old_h = 12, 10
+        old_indices = [(i * 7 + 3) & 0xF for i in range(old_w * old_h)]
+        old_plaintext = encode_plaintext_v2(old_pose, old_w, old_h, old_indices)
+        assert len(old_plaintext) == PLAINTEXT_FIELDS
 
-    print("[4/9] encrypt old plaintext")
-    old_r = deterministic_int(seed, b"old_r" + witness_label, GRUMPKIN_ORDER - 1) + 1
-    old_c1, old_c2, old_k = ecies_encrypt_v2(old_plaintext, owner_pk, old_r)
-    old_state_commit = sponge_39(old_plaintext)
-    old_ct_commit = sponge_39(old_c2)
+        print("[4/9] encrypt old plaintext")
+        old_r = deterministic_int(seed, b"old_r" + witness_label, GRUMPKIN_ORDER - 1) + 1
+        old_c1, old_c2, old_k = ecies_encrypt_v2(old_plaintext, owner_pk, old_r)
+        old_state_commit = sponge_39(old_plaintext)
+        old_ct_commit = sponge_39(old_c2)
 
-    # Sanity: decryption recovers same plaintext.
-    decoded, dk = ecies_decrypt_v2(old_c1, old_c2, owner_sk)
-    assert decoded == old_plaintext
-    assert dk == old_k
+        # Sanity: decryption recovers same plaintext.
+        decoded, dk = ecies_decrypt_v2(old_c1, old_c2, owner_sk)
+        assert decoded == old_plaintext
+        assert dk == old_k
 
-    # Mint-time chain tip is sponge_6(0, state, ct, 0, origin_face_id, slot).
-    # Mutation count starts at 0; first user mutation produces count = 1.
-    old_count = 0
-    old_chain_tip = chain_step(0, old_state_commit, old_ct_commit, 0, origin_face_id, slot_idx)
+        # Mint-time chain tip is sponge_6(0, state, ct, 0, origin_face_id, slot).
+        old_count = 0
+        old_chain_tip = chain_step(0, old_state_commit, old_ct_commit, 0, origin_face_id, slot_idx)
+    else:
+        # Inherit from previous step's new_* outputs. Chained mutation:
+        # this step's pre-state is the prior step's post-state.
+        print(f"[3/9] old plaintext (chained, step={step_index}, count={prev_state['new_count']})")
+        old_plaintext = list(prev_state["new_plaintext"])
+        old_state_commit = prev_state["new_state_commit"]
+        old_ct_commit = prev_state["new_ct_commit"]
+        old_c1 = (prev_state["new_c1_x"], prev_state["new_c1_y"])
+        # old_c2 is needed only to round-trip emit; the circuit does not
+        # take old_c2 as witness, so we don't need to recompute it here.
+        # We do recompute old_state_commit / old_ct_commit defensively.
+        assert sponge_39(old_plaintext) == old_state_commit, \
+            "prev_state.new_plaintext does not match prev_state.new_state_commit"
+        old_k = prev_state["new_k"]
+        old_count = prev_state["new_count"]
+        old_chain_tip = prev_state["new_chain_tip"]
+        # We rebuild old_c2 from the witness's old_plaintext + old_k for the
+        # round-trip event/calldata field.
+        old_c2 = [(p + ks) % P for p, ks in zip(old_plaintext, keystream_39(old_k))]
+        assert sponge_39(old_c2) == old_ct_commit, \
+            "prev_state.new_ct_commit inconsistent with new_plaintext + new_k"
+
     old_lsh = live_state_hash(old_state_commit, old_ct_commit, old_c1[0], old_c1[1],
                               old_count, old_chain_tip)
 
     # ---- NEW slot state ----
     print("[5/9] new plaintext")
-    new_pose = pack_pose(x=10, y=20)           # repositioned, still axis-aligned
-    new_w, new_h = 16, 14
-    new_indices = [(i * 11 + 5) & 0xF for i in range(new_w * new_h)]
+    # Vary new_* per step_index so chained mutations produce distinct
+    # plaintexts. step_index=0 keeps the canonical demo values.
+    new_pose = pack_pose(x=10 + 2 * step_index, y=20 + step_index)
+    new_w, new_h = 16 + step_index % 4, 14 + step_index % 4   # stays inside 48x48
+    new_indices = [(i * (11 + step_index) + 5 + step_index) & 0xF for i in range(new_w * new_h)]
     new_plaintext = encode_plaintext_v2(new_pose, new_w, new_h, new_indices)
 
     print("[6/9] encrypt new plaintext (deterministic k via owner_pk binding)")
-    new_r = deterministic_int(seed, b"new_r" + witness_label, GRUMPKIN_ORDER - 1) + 1
+    step_tag = f":step{step_index}".encode() if step_index > 0 else b""
+    new_r = deterministic_int(seed, b"new_r" + witness_label + step_tag, GRUMPKIN_ORDER - 1) + 1
     new_c1, new_c2, new_k = ecies_encrypt_v2(new_plaintext, owner_pk, new_r)
     new_state_commit = sponge_39(new_plaintext)
     new_ct_commit = sponge_39(new_c2)
@@ -159,6 +211,10 @@ def build_witness(seed: bytes, slot_idx: int = 3, witness_label: bytes = b"") ->
         "new_chain_tip": new_chain_tip,
         "prev_mutation_count": old_count,
         "new_mutation_count": new_count,
+        # Chain-step outputs needed by `prev_state` of a follow-on mutation:
+        "new_count": new_count,                  # alias of new_mutation_count for prev_state lookup
+        "new_state_commit": new_state_commit,
+        "new_k": new_k,
 
         # witness
         "old_plaintext": old_plaintext,
@@ -170,7 +226,7 @@ def build_witness(seed: bytes, slot_idx: int = 3, witness_label: bytes = b"") ->
         "old_count": old_count,
         "old_chain_tip": old_chain_tip,
         "old_k": old_k,
-        "new_k": new_k,
+        # "new_k" already emitted above for prev_state continuity.
         "new_r": new_r,
         "owner_sk": owner_sk,
         "w_new": new_w,

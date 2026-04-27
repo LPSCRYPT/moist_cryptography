@@ -1,5 +1,5 @@
-shadow_id = "0x2421e322b4dd3d1fb954b05d5509838ea061863cd0e6b457a632c6b6e6c474ee"
+shadow_id = "0x1288e8d3590c28f4aa21b0b69895ffcbb358ca46ace55b139caf84f55234e01"
 z_index_commit = "0x0"
-new_t10_hi = "0x2c0084787604a8d9ee1312125af80886"
-new_t10_lo = "0xbb43686c5d161ebcd40c3a1fa0af6bf9"
-live_state_hash = ["0x0", "0x0", "0x0", "0x8ca5d05996b10dd1353171236bb42bbc74159dabfceec424de5bb3cad45d987", "0x0", "0x3d73e679c95cd1ea792fa1d3eabac3373a2d155e49e5b6fec3d07ce6362e38d", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0"]
+new_t10_hi = "0x1a70e2d3e0d59622ad654899d1759d48"
+new_t10_lo = "0xfa4bf0707e6d3877e2141ea3c1e5b1b"
+live_state_hash = ["0x0", "0x0", "0x0", "0x2fd677c0df2bcb2694b418c467602c21edfcf1ce584783cea02b9302d6c127a4", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0"]
