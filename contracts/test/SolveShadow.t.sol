@@ -193,6 +193,7 @@ contract SolveShadowE2ETest is Test {
         args.plaintexts = plaintextBytes;
         args.zPermPacked = zPermPacked;
         args.zPerm = zPerm;
+        args.stateCommits = stateCommits;
     }
 
     function test_solve_success_freezes_shadow_and_extracts_carriers() public {
@@ -268,14 +269,24 @@ contract SolveShadowE2ETest is Test {
         st.solve(args);
     }
 
-    function test_solve_reverts_when_plaintext_tampered() public {
+    /// v2-gas: plaintexts is ADVISORY (not sponge-checked). Tamper plaintext
+    /// alone -> no revert. Tamper args.stateCommits -> InvalidProof.
+    function test_solve_reverts_when_stateCommits_tampered() public {
         ShadowToken.SolveArgs memory args = _buildArgs();
-        // Flip a byte in the first occupied slot's plaintext.
         uint8 sIdx = occupiedIdxs[0];
-        args.plaintexts[sIdx][100] = bytes1(uint8(args.plaintexts[sIdx][100]) ^ 1);
+        args.stateCommits[sIdx] = bytes32(uint256(args.stateCommits[sIdx]) ^ 1);
         vm.prank(alice);
         vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.solve(args);
+    }
+
+    function test_solve_plaintext_tamper_does_not_revert() public {
+        ShadowToken.SolveArgs memory args = _buildArgs();
+        uint8 sIdx = occupiedIdxs[0];
+        args.plaintexts[sIdx][100] = bytes1(uint8(args.plaintexts[sIdx][100]) ^ 1);
+        vm.prank(alice);
+        st.solve(args);
+        // No revert. Off-chain consumers verify plaintext via ECIES decrypt.
     }
 
     // ============== Edge cases the spec called out ==============
@@ -341,6 +352,7 @@ contract SolveShadowE2ETest is Test {
         uint256 gasBefore = gasleft();
         st.solve(args);
         uint256 used = gasBefore - gasleft();
-        assertLt(used, 14_000_000, "solve gas regressed");
+        // v2-gas: ~6M for 4-occ post-sponge-drop. Budget 8M.
+        assertLt(used, 8_000_000, "solve gas regressed");
     }
 }

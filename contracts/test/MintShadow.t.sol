@@ -66,6 +66,7 @@ contract MintShadowE2ETest is Test {
     bytes32[8] internal chainTips;
     bytes32[8] internal paletteCommits;
     bytes32[8] internal originFaceIds;
+    bytes32[8] internal ctCommits;          // sponge_39(c2[i]) per slot, from fixture
 
     function setUp() public {
         sponge = new Poseidon2YulSponge();
@@ -129,6 +130,7 @@ contract MintShadowE2ETest is Test {
             chainTips[i]      = j.readBytes32(string.concat(".chain_tips[", idx, "]"));
             paletteCommits[i] = j.readBytes32(string.concat(".palette_commits[", idx, "]"));
             originFaceIds[i]  = j.readBytes32(string.concat(".origin_face_ids[", idx, "]"));
+            ctCommits[i]      = j.readBytes32(string.concat(".ct_commits[", idx, "]"));
         }
     }
 
@@ -140,6 +142,7 @@ contract MintShadowE2ETest is Test {
         args.chainTips          = chainTips;
         args.paletteCommits     = paletteCommits;
         args.originFaceIds      = originFaceIds;
+        args.ctCommits          = ctCommits;
 
         // Per-slot c2 (39 fields = 1248 bytes), pulled from meta.json.
         bytes[] memory c2s = new bytes[](8);
@@ -266,15 +269,24 @@ contract MintShadowE2ETest is Test {
         st.mintShadow(args);
     }
 
-    function test_mintShadow_reverts_when_c2_tampered() public {
+    /// v2-gas: c2 calldata is ADVISORY (not sponge-checked on chain).
+    /// Tampering with c2 alone does not revert. To trigger InvalidProof, tamper
+    /// args.ctCommits (which IS bound to PI[5] via sponge_8_pad16).
+    function test_mintShadow_reverts_when_ctCommits_tampered() public {
         ShadowToken.MintShadowArgs memory args = _buildArgs();
-        // Flip a byte in the first c2 slot. Re-spongeing yields a different
-        // ct_commits_root, so PI[5] mismatches and the proof verifier rejects.
-        // The contract checks the proof first, so we expect InvalidProof.
-        args.c2s[0][7] = bytes1(uint8(args.c2s[0][7]) ^ 0x80);
+        args.ctCommits[0] = bytes32(uint256(args.ctCommits[0]) ^ 1);
         vm.prank(alice);
         vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.mintShadow(args);
+    }
+
+    function test_mintShadow_c2_tamper_does_not_revert() public {
+        ShadowToken.MintShadowArgs memory args = _buildArgs();
+        args.c2s[0][7] = bytes1(uint8(args.c2s[0][7]) ^ 0x80);
+        vm.prank(alice);
+        st.mintShadow(args);
+        // No revert. Off-chain consumers detect the tampered c2 via
+        // ECIES decrypt failure against the proof-bound ctCommits[0].
     }
 
     /// Gas-pin: mintShadow is the heaviest single tx (8 carrier mints +
@@ -289,6 +301,9 @@ contract MintShadowE2ETest is Test {
         st.mintShadow(args);
         uint256 used = gasBefore - gasleft();
         // Budget: 25M. Real-world block gas is 30M (Ethereum) / 60M (Base).
-        assertLt(used, 25_000_000, "mintShadow gas regressed");
+        // v2-gas: post-sponge_39 drop, real internal cost ~12M (was 17.7M).
+        // Budget 14M leaves ~16% margin. Real-chain calldata adds ~0.5M.
+        // Total tx well under the ~16M public RPC anti-DoS ceiling.
+        assertLt(used, 14_000_000, "mintShadow gas regressed");
     }
 }

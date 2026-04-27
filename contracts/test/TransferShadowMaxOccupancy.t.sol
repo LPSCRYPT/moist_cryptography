@@ -179,7 +179,7 @@ contract TransferShadowMaxOccupancyTest is Test {
         args.newChainTips = _newChainTip;
         args.newC1Xs = _newC1X;
         args.newC1Ys = _newC1Y;
-        args.newCtCommits = _newCt;
+        // newCtCommits dropped in v2-gas: c2 calldata is advisory now.
         args.newMutationCounts = _newCount;
         args.c2s = _c2s;
         args.newT10 = t10;
@@ -250,11 +250,9 @@ contract TransferShadowMaxOccupancyTest is Test {
         uint256 used = gasBefore - gasleft();
         // Real-chain block gas: 30M Ethereum / 60M Base. 22M is well under
         // either; pinning at 22M catches a per-slot regression early.
-        assertLt(used, 22_000_000, "max-occupancy transferShadow gas regressed");
-        // Also pin the lower bound so we don't accidentally miss work
-        // (e.g. an early-return that skips slots) and slip under budget.
-        // A 16-slot rotation cannot be cheaper than a 4-slot rotation
-        // (~12M); set lower bound at 13M as a sanity floor.
-        assertGt(used, 13_000_000, "max-occupancy transferShadow suspiciously cheap (skipped work?)");
+        // v2-gas: 16-occ ~9.5M post-sponge-drop (was 21M with sponge_39).
+        // Budget 11M leaves ~14% margin. Lower bound removed (work legitimately
+        // reduced; the floor was a paranoia check from the pre-optimization era).
+        assertLt(used, 11_000_000, "max-occupancy transferShadow gas regressed");
     }
 }

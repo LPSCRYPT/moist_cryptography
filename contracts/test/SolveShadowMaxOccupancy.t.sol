@@ -55,6 +55,7 @@ contract SolveShadowMaxOccupancyTest is Test {
     bytes32[16] internal prevLsh;
     uint8[16] internal zPerm;
     bytes[16] internal plaintextBytes;
+    bytes32[16] internal stateCommits;
 
     function setUp() public {
         sponge = new Poseidon2YulSponge();
@@ -97,6 +98,7 @@ contract SolveShadowMaxOccupancyTest is Test {
             string memory idx = vm.toString(i);
             prevLsh[i] = j.readBytes32(string.concat(".prev_lsh[", idx, "]"));
             zPerm[i]   = uint8(j.readUint(string.concat(".z_perm[", idx, "]")));
+            stateCommits[i] = j.readBytes32(string.concat(".state_commits[", idx, "]"));
         }
         uint256[] memory occ = j.readUintArray(".occupied_idxs");
         require(occ.length == 16, "fixture must have 16 occupied slots");
@@ -149,6 +151,7 @@ contract SolveShadowMaxOccupancyTest is Test {
         args.shadowId = shadowId;
         args.proof = proofSolve;
         args.plaintexts = plaintextBytes;
+        args.stateCommits = stateCommits;
         args.zPermPacked = zPermPacked;
         args.zPerm = zPerm;
     }
@@ -200,8 +203,8 @@ contract SolveShadowMaxOccupancyTest is Test {
         uint256 gasBefore = gasleft();
         st.solve(args);
         uint256 used = gasBefore - gasleft();
-        assertLt(used, 22_000_000, "max-occupancy solve gas regressed");
-        // Sanity floor: cannot be cheaper than 4-occupancy baseline.
-        assertGt(used, 12_000_000, "max-occupancy solve suspiciously cheap (skipped work?)");
+        // v2-gas: 16-occ ~5M post-sponge-drop. Budget 7M leaves ~40% margin.
+        // Lower bound dropped: with sponge_39 removed, work IS legitimately reduced.
+        assertLt(used, 7_000_000, "max-occupancy solve gas regressed");
     }
 }

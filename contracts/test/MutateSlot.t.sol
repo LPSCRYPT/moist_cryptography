@@ -236,15 +236,28 @@ contract MutateSlotE2ETest is Test {
         st.mutateSlot(args);
     }
 
-    function test_mutateSlot_reverts_when_c2_sponge_mismatch() public {
+    /// v2-gas: c2 calldata is ADVISORY (not sponge-checked on chain).
+    /// Tampering with c2 in calldata silently succeeds; chain state's lsh
+    /// stays proof-bound. Off-chain consumers detect the tampered c2 via
+    /// ECIES decrypt failure (their plaintext won't match the lsh's
+    /// embedded state_commit).
+    function test_mutateSlot_c2_tamper_does_not_revert_chain_lsh_correct() public {
         ShadowToken.MutateSlotArgs memory args = _buildArgs();
-        // Flip a byte deep in c2; sponge will mismatch the proof's
-        // committed new_ct_commit.
         bytes memory tampered = bytes.concat(args.c2);
         tampered[64] = bytes1(uint8(tampered[64]) ^ 0x01);
         args.c2 = tampered;
         vm.prank(alice);
-        vm.expectRevert();   // CtCommitMismatch with specific args; just expect any revert
+        st.mutateSlot(args);
+        // Chain state advanced to the witnessed new_lsh, NOT to a derived-from-tampered-c2 value.
+        assertEq(st.slotOf(shadowId, slotIdx).liveStateHash, newLsh, "lsh = witness new_lsh (proof-bound)");
+    }
+
+    /// Tampering with args.newCtCommit DOES revert (it's part of the proof's PI).
+    function test_mutateSlot_reverts_when_newCtCommit_tampered() public {
+        ShadowToken.MutateSlotArgs memory args = _buildArgs();
+        args.newCtCommit = bytes32(uint256(args.newCtCommit) ^ 1);
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.mutateSlot(args);
     }
 
@@ -288,6 +301,7 @@ contract MutateSlotE2ETest is Test {
         uint256 gasBefore = gasleft();
         st.mutateSlot(args);
         uint256 used = gasBefore - gasleft();
-        assertLt(used, 8_000_000, "mutateSlot gas regressed");
+        // v2-gas: ~5M post-sponge-drop. Budget 6M.
+        assertLt(used, 6_000_000, "mutateSlot gas regressed");
     }
 }

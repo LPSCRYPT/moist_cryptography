@@ -179,7 +179,7 @@ contract TransferShadowE2ETest is Test {
         args.newChainTips = newChainTip;
         args.newC1Xs = newC1X;
         args.newC1Ys = newC1Y;
-        args.newCtCommits = newCt;
+        // newCtCommits dropped in v2-gas: c2 calldata is advisory now.
         args.newMutationCounts = newCount;
 
         // Per-slot c2 (39 fields = 1248 bytes) for occupied; empty bytes for empty.
@@ -296,6 +296,7 @@ contract TransferShadowE2ETest is Test {
         uint256 gasBefore = gasleft();
         st.transferShadow(args);
         uint256 used = gasBefore - gasleft();
-        assertLt(used, 14_000_000, "transferShadow gas regressed");
+        // v2-gas: 4-occ ~6.2M post-sponge-drop. Budget 7M.
+        assertLt(used, 7_000_000, "transferShadow gas regressed");
     }
 }

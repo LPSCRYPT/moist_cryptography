@@ -268,22 +268,17 @@ contract MutateBatchE2ETest is Test {
         assertEq(st.slotOf(shadowId, slotBIdx).liveStateHash, piB[6], "slot B unchanged");
     }
 
-    function test_mutateBatch_reverts_when_c2_tampered() public {
+    /// v2-gas: c2 calldata is ADVISORY. Tampering with one entry's c2 does
+    /// not revert; chain state advances to the proof-bound new_lsh values.
+    /// Off-chain consumers detect the corrupt c2 via decrypt failure.
+    function test_mutateBatch_c2_tamper_does_not_revert_chain_lshes_correct() public {
         ShadowToken.MutateBatchArgs memory args = _buildArgs();
-        // Flip a byte in entry[0]'s c2. Sponge_39 produces a different
-        // root; the contract's CtCommitMismatch fires on entry[0].
         args.entries[0].c2[7] = bytes1(uint8(args.entries[0].c2[7]) ^ 0x80);
         vm.prank(alice);
-        // CtCommitMismatch is checked AFTER proof verify; proof's PI[8]
-        // (newCtCommit) was witnessed by the prover with the original c2.
-        // Since c2 changed but newCtCommit didn't, the proof still
-        // verifies; the contract's sponge over the tampered c2 mismatches
-        // and reverts CtCommitMismatch.
-        vm.expectRevert();   // CtCommitMismatch with two bytes32 args
         st.mutateBatch(args);
-        // State unchanged.
-        assertEq(st.slotOf(shadowId, slotAIdx).liveStateHash, piA[6]);
-        assertEq(st.slotOf(shadowId, slotBIdx).liveStateHash, piB[6]);
+        // Both slots advanced to the witnessed new_lsh values.
+        assertEq(st.slotOf(shadowId, slotAIdx).liveStateHash, piA[7], "slot A: lsh = witness new_lsh");
+        assertEq(st.slotOf(shadowId, slotBIdx).liveStateHash, piB[7], "slot B: lsh = witness new_lsh");
     }
 
     function test_mutateBatch_reverts_when_t10_proof_tampered() public {

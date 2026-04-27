@@ -358,7 +358,7 @@ contract ReplayTransferShadowTest is Test {
         args.newChainTips = _newChainTip;
         args.newC1Xs = _newC1X;
         args.newC1Ys = _newC1Y;
-        args.newCtCommits = _newCt;
+        // newCtCommits dropped in v2-gas: c2 calldata is advisory now.
         args.newMutationCounts = _newCount;
         args.c2s = _c2s;
         args.newT10 = t10;

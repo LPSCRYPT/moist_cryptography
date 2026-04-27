@@ -289,7 +289,13 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes        proofMint;
         bytes        proofDisc;
         bytes32      imageCommit;
-        bytes[]      c2s;                   // 8 entries; each MAX_PLAINTEXT_FIELDS_PER_SLOT * 32 bytes
+        bytes[]      c2s;                   // 8 entries; each MAX_PLAINTEXT_FIELDS_PER_SLOT * 32 bytes;
+                                            //   ADVISORY (emitted in events for indexers; NOT sponge-checked on chain)
+        bytes32[8]   ctCommits;             // 8 entries; sponge_39(c2[i]) per slot, computed off-chain by prover.
+                                            //   The contract sponge_8_pad16's these and feeds the result into the
+                                            //   mint proof's PI[5]. The proof binds the witness's actual c2 -> ctCommit,
+                                            //   so a lying caller can't satisfy the proof while passing tampered ctCommits.
+                                            //   The c2 calldata bytes are emitted as advisory data only (see comment on c2s).
         bytes32[8]   liveStateHashInits;    // 8 entries; sponge_8_pad16 -> lsh_inits_root (PI[4])
         bytes32[8]   chainTips;             // 8 entries; sponge_8_pad16 -> chain_tips_root (PI[6])
         bytes32[8]   paletteCommits;        // 8 entries; stored on each FeatureNFT (no proof binding)
@@ -318,6 +324,7 @@ contract ShadowToken is ERC721, PausableMixin {
         if (yulSponge == address(0)) revert VerifierNotSet();
         if (yulSponge16 == address(0)) revert VerifierNotSet();
         if (args.c2s.length != N_MINT_ATOMS) revert BadArrayLen(args.c2s.length, N_MINT_ATOMS);
+        _validateMintC2Lengths(args.c2s);
 
         bytes32 imageCommit = args.imageCommit;
         if (mintedOrigins[imageCommit]) revert AlreadyMinted(imageCommit);
@@ -367,22 +374,21 @@ contract ShadowToken is ERC721, PausableMixin {
         piMint[2] = ownerPkX;
         piMint[3] = ownerPkY;
         piMint[4] = _sponge8Pad16BytesArr(args.liveStateHashInits);
-        piMint[5] = _ctCommitsRoot(args.c2s);
+        piMint[5] = _sponge8Pad16BytesArr(args.ctCommits);
         piMint[6] = _sponge8Pad16BytesArr(args.chainTips);
         _verifyOrRevert(mintShadowVerifier, args.proofMint, piMint);
     }
 
-    /// Compute ct_commits_root = sponge_8_pad16(sponge_39(c2s[i])).
-    /// Each c2 entry MUST be exactly MAX_PLAINTEXT_FIELDS_PER_SLOT * 32
-    /// bytes; reverts BadC2Length otherwise.
-    function _ctCommitsRoot(bytes[] calldata c2s) internal view returns (bytes32) {
-        bytes32[8] memory ctCommits;
+    /// Validate calldata c2 lengths only. The actual sponge_39 of each c2 is
+    /// witnessed off-chain by the prover; the contract trusts args.ctCommits[i]
+    /// because the proof's PI[5] = sponge_8_pad16(args.ctCommits) MUST match the
+    /// witness ct_commits_root. A caller passing tampered ctCommits cannot
+    /// satisfy the proof. (See security note on mutateSlot for c2 advisoriness.)
+    function _validateMintC2Lengths(bytes[] calldata c2s) internal pure {
         uint256 expected = MAX_PLAINTEXT_FIELDS_PER_SLOT * 32;
         for (uint256 i = 0; i < N_MINT_ATOMS; i++) {
             if (c2s[i].length != expected) revert BadC2Length(c2s[i].length, expected);
-            ctCommits[i] = bytes32(_sponge(c2s[i]));
         }
-        return _sponge8Pad16BytesArrMem(ctCommits);
     }
 
     /// Calldata variant: feed 8-field array + 8 zero fields to yulSponge16.
@@ -534,13 +540,18 @@ contract ShadowToken is ERC721, PausableMixin {
         }));
         _verifyOrRevert(mutateSlotVerifier, args.proofMutate, piMut);
 
-        // ---- 2. bind c2 calldata via on-chain Yul Poseidon2 sponge_39 ----
-        // The proof's PI[8] (new_ct_commit) is sponge_39 of the new c2
-        // computed in-circuit. We sponge the calldata locally and require equality.
-        bytes32 chainCtCommit = bytes32(_sponge(args.c2));
-        if (chainCtCommit != piMut[8]) {
-            revert CtCommitMismatch(chainCtCommit, piMut[8]);
-        }
+        // ---- 2. c2 calldata is ADVISORY (emitted in event for indexers) ----
+        // The proof binds args.newCtCommit (PI[8]) to the witness c2's sponge_39.
+        // We do NOT sponge_39 calldata c2 on chain (~735K gas, structural cost).
+        // If caller's calldata c2 mismatches their witness c2:
+        //   - chain state (lsh) stays correct (proof-bound transitively via
+        //     new_lsh = LSH(state_commit, ct_commit, c1, count, chainTip))
+        //   - emitted c2 in event will not decrypt to the witness plaintext
+        //   - indexers / consumers detect via decrypt failure or off-chain
+        //     sponge_39(emitted c2) != newCtCommit
+        // For self-ops (mutateSlot/mintShadow/solve) the caller IS the owner,
+        // so lying is self-harm. For transferShadow the recipient detects via
+        // ECIES decrypt failure (see security note in transferShadow).
 
         // ---- 3. apply state change ----
         bytes32 prevLSH = m.liveStateHash;
@@ -769,12 +780,7 @@ contract ShadowToken is ERC721, PausableMixin {
         }));
         _verifyOrRevert(mutateSlotVerifier, e.proofMutate, piMut);
 
-        // Bind c2 calldata via on-chain Yul Poseidon2 sponge_39 ==
-        // PI[8] (new_ct_commit). Same invariant as mutateSlot.
-        bytes32 chainCtCommit = bytes32(_sponge(e.c2));
-        if (chainCtCommit != piMut[8]) {
-            revert CtCommitMismatch(chainCtCommit, piMut[8]);
-        }
+        // c2 calldata is ADVISORY (see security note on mutateSlot).
 
         // Apply state: write new LSH; manifest's other fields
         // (kind/featureId) are unchanged by mutation.
@@ -886,11 +892,7 @@ contract ShadowToken is ERC721, PausableMixin {
         // dodges stack-too-deep on the entry point) + return PI for events ----
         bytes32[] memory piMut = _verifyInsertProof(args, fn);
 
-        // ---- 2. bind c2 calldata via on-chain sponge ----
-        bytes32 chainCtCommit = bytes32(_sponge(args.c2));
-        if (chainCtCommit != piMut[8]) {
-            revert CtCommitMismatch(chainCtCommit, piMut[8]);
-        }
+        // c2 calldata is ADVISORY (see security note on mutateSlot).
 
         // ---- 3. apply: slot OCCUPIED, carrier inserted ----
         m.kind = SlotKind.OCCUPIED;
@@ -957,7 +959,8 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes32[16] newChainTips;           // post-rotation per-slot chain tips (committed in proof)
         uint256[16] newC1Xs;                // per-slot fresh ECIES ephemeral c1.x
         uint256[16] newC1Ys;                // per-slot fresh ECIES ephemeral c1.y
-        bytes32[16] newCtCommits;           // per-slot sponge_39 of new c2 (for events)
+        // newCtCommits removed in v2-gas: sponge_39 verification dropped on chain;
+        // proof's PI binds new_lsh which embeds ct_commit transitively.
         uint16[16]  newMutationCounts;      // == prev + 1 for occupied; 0 for empty
         bytes[]     c2s;                    // 16 entries; empty bytes for empty slots
         bytes32[2]  newT10;                 // post-rotation T10 (hi, lo)
@@ -1028,10 +1031,9 @@ contract ShadowToken is ERC721, PausableMixin {
                 if (args.c2s[i].length != MAX_PLAINTEXT_FIELDS_PER_SLOT * 32) {
                     revert BadC2Length(args.c2s[i].length, MAX_PLAINTEXT_FIELDS_PER_SLOT * 32);
                 }
-                bytes32 chainCt = bytes32(_sponge(args.c2s[i]));
-                if (chainCt != args.newCtCommits[i]) {
-                    revert CtCommitMismatch(chainCt, args.newCtCommits[i]);
-                }
+                // c2 calldata is ADVISORY (see security note on mutateSlot).
+                // Recipient detects sender-corrupted c2 via ECIES decrypt failure
+                // off-chain. Chain state's new_lsh is proof-bound either way.
             } else {
                 if (args.c2s[i].length != 0) {
                     revert BadC2Length(args.c2s[i].length, 0);
@@ -1166,7 +1168,11 @@ contract ShadowToken is ERC721, PausableMixin {
     struct SolveArgs {
         uint256   shadowId;
         bytes     proof;            // solve_shadow_v2 proof
-        bytes[16] plaintexts;       // per-slot 39-field plaintext (1248 B each); empty for unused
+        bytes[16] plaintexts;       // per-slot 39-field plaintext (1248 B each); empty for unused.
+                                    //   ADVISORY (emitted post-solve for indexers; NOT sponge-checked on chain)
+        bytes32[16] stateCommits;   // per-slot sponge_39(plaintext[i]) for OCCUPIED slots; 0 for EMPTY.
+                                    //   Contract sponge_16(stateCommits) -> PI[1]. Proof binds the witness's
+                                    //   actual plaintext -> stateCommit, so a lying caller cannot satisfy proof.
         bytes32   zPermPacked;      // 16 nibbles, base-16 little-endian
         uint8[16] zPerm;            // explicit per-position values (decoded from packed)
     }
@@ -1203,21 +1209,24 @@ contract ShadowToken is ERC721, PausableMixin {
         ManifestEntry[16] storage manifest = _manifests[args.shadowId];
         for (uint256 i = 0; i < N_SLOTS; i++) {
             if (manifest[i].kind == SlotKind.OCCUPIED) {
+                // Length sanity only. plaintext is ADVISORY; not sponge-checked.
                 if (args.plaintexts[i].length != MAX_PLAINTEXT_FIELDS_PER_SLOT * 32) {
                     revert BadC2Length(args.plaintexts[i].length, MAX_PLAINTEXT_FIELDS_PER_SLOT * 32);
                 }
-                stateCommits[i] = bytes32(_sponge(args.plaintexts[i]));
             } else {
                 if (args.plaintexts[i].length != 0) {
                     revert BadC2Length(args.plaintexts[i].length, 0);
                 }
-                stateCommits[i] = bytes32(0);
+                // Caller MUST claim 0 stateCommit for EMPTY slots; proof witness is 0.
+                if (args.stateCommits[i] != bytes32(0)) {
+                    revert BadC2Length(uint256(uint8(1)), 0);  // reuse error; non-zero claim for empty
+                }
             }
         }
 
         bytes32[] memory piS = new bytes32[](SOLVE_SHADOW_PI_LEN);
         piS[0] = bytes32(args.shadowId);
-        piS[1] = _sponge16BytesArrMem(stateCommits);
+        piS[1] = _sponge16BytesArr(args.stateCommits);
         piS[2] = args.zPermPacked;
         piS[3] = s.zIndexCommit;
         piS[4] = _sponge16Manifest(manifest);
