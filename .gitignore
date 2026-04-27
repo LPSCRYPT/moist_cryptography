@@ -41,6 +41,9 @@ tools/test_keys.json
 # Local-only refactor planning workspace; never pushed
 STAGING_REFACTOR/
 
+# Local-only omp coding-agent project tooling (extensions, dry-run logs)
+.omp/
+
 # Helper Prover.toml files are transient dispatch buffers, rewritten on each
 # poseidon2_state / keystream call. Track only `*.example` files for these.
 circuits/_poseidon2_state_helper/Prover.toml
