@@ -16,9 +16,15 @@ plus the on-chain operations executed against it.
 | One real `solve` (auto-extracts remaining 7 carriers) | ✅ done — block 40,765,120 |
 | One real `insertFeature` into a different shadow B | ✅ done — block 40,766,987 |
 | One real `transferShadow` to a fresh recipient | ✅ done — block 40,767,400 |
+| One real `mutateBatch` (recipient owns the shadow) | ✅ done — block 40,769,858 |
+| Recipient lifecycle on B (extract / setZIndex / solve from new owner) | ✅ done — blocks 40,769,968 / 40,770,095 / 40,770,295 |
+| ECIES decrypt visualizer (real on-chain c2 → sprite) | ✅ done — `tools/render_onchain_shadow.py` (chain-decrypt mode) |
 
 **Lifecycle is now fully closed on chain.** Every state-changing entry
-point of the v2 protocol has been exercised against the live deployment.
+point of the v2 protocol has been exercised against the live deployment
+from BOTH the original deployer and a recipient EOA, including the
+multi-slot batch path. The visualizer now decrypts real on-chain c2
+events under the owner's secret key.
 
 ---
 
@@ -161,18 +167,23 @@ write_vk + bb prove + bb verify, single-process).
 | 10 | `KeyRegistry.register` (recipient) | [`0x1f6d878c...`](https://sepolia.basescan.org/tx/0x1f6d878c405e241046766b1f0831b715af100cf146aacb102d67b80970d746e9) | 40,767,131 | 2026-04-27 15:09:10 |     68,578 | 15.93M | n/a | n/a | n/a |
 | 11 | `insertFeature`        | [`0x054dad4e...`](https://sepolia.basescan.org/tx/0x054dad4e3df64c81f1f433c80dc3b035a8a7cb8686e907022fd8653d794d9767) | 40,766,987 | 2026-04-27 15:04:22 |  7,254,742 |  8.75M | ins 8.00K + T10 6.85K | 512 + 640 B | ~17 s |
 | 12 | `transferShadow`       | [`0xc3231bec...`](https://sepolia.basescan.org/tx/0xc3231bec05d18285d422221acc196fae5c0478f5319d38bd8bcafea3e052c711) | 40,767,400 | 2026-04-27 15:18:08 |  9,163,063 |  6.84M | xfer 9.15K + T10 6.85K | 256 + 640 B | ~4 min (transfer\_shadow\_v2 dominates) |
+| 13 | `mutateBatch` (recipient on B[0,1]) | [`0xc367fa25...`](https://sepolia.basescan.org/tx/0xc367fa25ca6b56193078ac302639556ef00a5df82693b811571fd2cdfb2a8cc6) | 40,769,858 | 2026-04-27 16:32:30 | 10,801,616 |  5.20M | 2x mut 8.00K + T10 6.85K | 2x 512 + 640 B | ~5 min |
+| 14 | `extractSlot` (recipient on B[2]) | [`0x577a2a60...`](https://sepolia.basescan.org/tx/0x577a2a60be8d85f801b2da21bd49b17d0f16dcc7a696197f716104e7a687f2e1) | 40,769,968 | 2026-04-27 16:36:10 |  3,435,423 | 12.56M | T10 only 6.85K | 640 B | ~0.5 s |
+| 15 | `setZIndexCommit` (recipient on B) | [`0xe2ea5fce...`](https://sepolia.basescan.org/tx/0xe2ea5fcefc41436242c059f72f9a41e339a9b8be85397da98422374c7f2bbc96) | 40,770,095 | 2026-04-27 16:40:24 |  6,953,399 |  9.05M | z 7.62K + T10 6.85K | 64 + 640 B | ~2 s |
+| 16 | `solve` (recipient on B) | [`0x2df9e58f...`](https://sepolia.basescan.org/tx/0x2df9e58f6c734545c17509c669f63ed97bcc61c70edcd5023f9b095655fe4b03) | 40,770,295 | 2026-04-27 16:47:04 |  4,831,280 | 11.17M | solve 8.77K | 224 B | ~5 s |
 
-Aggregate gas across all 12 entry-point txs against the live deployment:
-**70,189,925 gas**. At Base Sepolia gas price ~0.011 gwei observed at
-broadcast time, total cost ≈ **0.00077 Sepolia ETH** for the entire
-lifecycle including a second shadow B mint, an insertFeature, and a
-transferShadow (≈ $0 mainnet-equivalent on testnet).
+Aggregate gas across all 16 entry-point txs against the live deployment:
+**96,211,643 gas**. At Base Sepolia gas price ~0.011 gwei observed at
+broadcast time, total cost ≈ **0.00106 Sepolia ETH** for the entire
+lifecycle including: A's full lifecycle, B's mint + insert + transfer,
+and the recipient's full lifecycle on B (mutateBatch + extract + setZIndex + solve).
 
 Every entry point clears the 16M sequencer cap with healthy headroom.
 Tightest margins:
-  * `solve` 11.21M (4.79M used)
   * `mintShadow` 4.96-5.03M (still > 4M headroom even with 8 ECIES bundles + T10)
+  * `mutateBatch` 5.20M (2 mutate proofs + T10 in one tx, recipient-side)
   * `transferShadow` 6.84M (16-slot rotation + 9 carrier ERC-721 rotations + T10)
+  * `solve` 11.17–11.21M (4.79–4.83M used)
 
 ### Chained-fixture builders (`tools/build_*_onchain.py`)
 
