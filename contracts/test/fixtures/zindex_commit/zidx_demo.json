@@ -1,0 +1,23 @@
+{
+  "circuit": "zindex_commit",
+  "shadow_id": "0x2ebc98d0579a6a9bd1ba658ae509cca6d4efe13f9a65d8b033f850713b88134f",
+  "z_commit": "0x9fd58db2215d6d88d5445c3b9f770889b3dd1e4515aadb7366e2d7ca0369112",
+  "perm": [
+    1,
+    7,
+    3,
+    5,
+    15,
+    10,
+    9,
+    4,
+    6,
+    2,
+    0,
+    14,
+    11,
+    12,
+    13,
+    8
+  ]
+}
