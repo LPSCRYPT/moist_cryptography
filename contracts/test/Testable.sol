@@ -86,6 +86,22 @@ contract TestableFeatureNFT is FeatureNFT {
 contract TestableShadowToken is ShadowToken {
     constructor(address yulSpongeAddr) ShadowToken(yulSpongeAddr) {}
 
+    /// Synthetic mint without touching any manifest entry. Used by tests
+    /// that need an empty manifest (e.g. insertFeature into a fresh shadow).
+    function seedShadowOnly(
+        uint256 shadowId,
+        address to,
+        bytes32 ecdhPubX,
+        bytes32 ecdhPubY
+    ) external {
+        Shadow storage s = _shadowsStorage(shadowId);
+        s.ecdhPubX = ecdhPubX;
+        s.ecdhPubY = ecdhPubY;
+        s.mintIdx = 1;
+        s.mintedAt = uint64(block.number);
+        _mint(to, shadowId);
+    }
+
     /// Synthetic mint: claim ownership of `shadowId` for `to`, set owner pk,
     /// install slot[slotIdx] as OCCUPIED with `(featureId, lsh)`. Slots
     /// outside `slotIdx` remain EMPTY (default-zero). Test only.

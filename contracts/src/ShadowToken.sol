@@ -580,14 +580,109 @@ contract ShadowToken is ERC721, PausableMixin {
         uint256    newC1X;
         uint256    newC1Y;
         bytes32    newLiveStateHash;
+        bytes32    newCtCommit;
         uint16     c2FieldCount;
         bytes      c2;
+        bytes32    prevChainTip;       // == carrier's checkpoint chain tip
+        bytes32    newChainTip;
+        uint16     prevMutationCount;
+        uint16     newMutationCount;
         bytes32[2] newT10;
         bytes      proofT10;
     }
 
-    function insertFeature(InsertFeatureArgs calldata /*args*/) external whenNotPaused {
-        revert NotImplementedYet();
+    function insertFeature(InsertFeatureArgs calldata args) external whenNotPaused {
+        if (_ownerOf(args.shadowId) != msg.sender) revert NotShadowOwner();
+        Shadow storage s = _shadows[args.shadowId];
+        if (s.solved) revert AlreadySolved();
+        if (args.slotIdx >= N_SLOTS) revert SlotOutOfRange(args.slotIdx);
+        if (address(featureNFT) == address(0)) revert FeatureNFTNotSet();
+
+        IFeatureNFT fn = featureNFT;
+        if (fn.ownerOfFeature(args.featureId) != msg.sender) {
+            revert FeatureNotOwned(args.featureId);
+        }
+        if (fn.isInserted(args.featureId)) {
+            revert FeatureAlreadyInserted(args.featureId);
+        }
+
+        ManifestEntry storage m = _manifests[args.shadowId][args.slotIdx];
+        if (m.kind != SlotKind.EMPTY) revert SlotOccupied(args.slotIdx);
+
+        uint256 expectedC2Bytes = uint256(args.c2FieldCount) * 32;
+        if (args.c2.length != expectedC2Bytes) {
+            revert BadC2Length(args.c2.length, expectedC2Bytes);
+        }
+
+        // ---- 1. mutate_slot proof (reused for insert per spec Open Q2) ----
+        // The proof's old_liveStateHash binds the carrier's checkpoint,
+        // not a chain manifest entry. Build PI from chain state + carrier.
+        bytes32[] memory piMut = _buildInsertPI(args);
+        IVerifier vMut = mutateSlotVerifier;
+        if (address(vMut) == address(0)) revert VerifierNotSet();
+        try vMut.verify(args.proofInsert, piMut) returns (bool ok) {
+            if (!ok) revert InvalidProof();
+        } catch {
+            revert InvalidProof();
+        }
+
+        // ---- 2. bind c2 calldata via on-chain sponge ----
+        bytes32 chainCtCommit = bytes32(_sponge(args.c2));
+        if (chainCtCommit != piMut[8]) {
+            revert CtCommitMismatch(chainCtCommit, piMut[8]);
+        }
+
+        // ---- 3. apply: slot OCCUPIED, carrier inserted ----
+        m.kind = SlotKind.OCCUPIED;
+        m.featureId = args.featureId;
+        m.liveStateHash = args.newLiveStateHash;
+        fn.insertIntoShadow(args.featureId, args.shadowId, args.slotIdx);
+
+        // ---- 4. atomic T10 refresh ----
+        _refreshT10Atomically(args.shadowId, args.newT10, args.proofT10);
+
+        // ---- 5. events ----
+        emit ShadowFeatureInserted(args.shadowId, args.slotIdx, args.featureId);
+        emit ShadowSlotMutated(
+            args.shadowId,
+            args.slotIdx,
+            piMut[4],                              // origin_face_id from PI
+            args.featureId,
+            args.newMutationCount,
+            args.prevChainTip,
+            args.newChainTip,
+            args.c2
+        );
+    }
+
+    /// Build the 16-field PI for mutate_slot reused on the insert path.
+    /// Differences from `_buildMutatePI`:
+    ///   - PI[2] (feature_id) sourced from args (not from manifest, since
+    ///     manifest is EMPTY pre-insert).
+    ///   - PI[6] (old_lsh) sourced from the carrier's
+    ///     liveStateHashCheckpoint, not chain manifest.
+    ///   - PI[3..5] (immutables) read from FeatureNFT's stored values.
+    function _buildInsertPI(InsertFeatureArgs calldata args)
+        internal view returns (bytes32[] memory pi)
+    {
+        pi = new bytes32[](MUTATE_SLOT_PI_LEN);
+        IFeatureNFT fn = featureNFT;
+        pi[0]  = bytes32(args.shadowId);
+        pi[1]  = bytes32(uint256(args.slotIdx));
+        pi[2]  = bytes32(args.featureId);
+        pi[3]  = bytes32(uint256(fn.typeIdxOf(args.featureId)));
+        pi[4]  = fn.originFaceIdOf(args.featureId);
+        pi[5]  = fn.paletteCommitOf(args.featureId);
+        pi[6]  = fn.liveStateHashCheckpointOf(args.featureId);
+        pi[7]  = args.newLiveStateHash;
+        pi[8]  = args.newCtCommit;
+        pi[9]  = bytes32(uint256(args.c2FieldCount));
+        pi[10] = _shadows[args.shadowId].ecdhPubX;
+        pi[11] = _shadows[args.shadowId].ecdhPubY;
+        pi[12] = args.prevChainTip;
+        pi[13] = args.newChainTip;
+        pi[14] = bytes32(uint256(args.prevMutationCount));
+        pi[15] = bytes32(uint256(args.newMutationCount));
     }
 
     // ============== transferShadow (STUB) ==============
