@@ -156,6 +156,14 @@ contract TestableShadowToken is ShadowToken {
         _mint(to, shadowId);
     }
 
+    /// Test-only setter for a shadow's `zIndexCommit` field. Used by tests
+    /// that seed a shadow into a state where setZIndexCommit has been
+    /// previously called (e.g. solve real-proof tests).
+    function setShadowZIndexCommitForTest(uint256 shadowId, bytes32 commit) external {
+        Shadow storage s = _shadowsStorage(shadowId);
+        s.zIndexCommit = commit;
+    }
+
     /// Pinned storage slot of `ShadowToken._shadows` mapping. Derived from
     /// `forge inspect ShadowToken storageLayout`.
     uint256 private constant _SHADOWS_SLOT = 19;
