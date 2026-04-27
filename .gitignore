@@ -45,3 +45,4 @@ circuits/_ecies_keystream_helper/Prover.toml
 circuits/*/target/
 circuits/mutate_slot/Prover.toml
 circuits/zindex_commit/Prover.toml
+circuits/shadow_t10/Prover.toml
