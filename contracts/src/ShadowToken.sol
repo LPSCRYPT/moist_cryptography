@@ -142,6 +142,11 @@ contract ShadowToken is ERC721, PausableMixin {
     /// stable indexer ordering.
     uint64 public mintCounter;
 
+    /// Set of `imageCommit`s that have passed `face_disc` verification
+    /// via `registerImage`. `mintShadow` requires the imageCommit be
+    /// in this set before it'll mint a shadow against it.
+    mapping(bytes32 => bool) public registeredImages;
+
     // ============== events ==============
 
     event ShadowMinted(
@@ -191,6 +196,7 @@ contract ShadowToken is ERC721, PausableMixin {
         address solver,
         uint64  zIndexRevealed
     );
+    event ImageRegistered(bytes32 indexed imageCommit);
 
     /// Single event covers initial set + subsequent rotation. Replaces
     /// 7 individual setter events to save runtime bytecode.
@@ -204,6 +210,8 @@ contract ShadowToken is ERC721, PausableMixin {
     error NotDeployer();
     error NotShadowOwner();
     error AlreadyMinted(bytes32 imageCommit);
+    error ImageNotRegistered(bytes32 imageCommit);
+    error ImageAlreadyRegistered(bytes32 imageCommit);
     error AlreadySolved();
     error InvalidProof();
     error BadPILen(uint256 got, uint256 want);
@@ -274,9 +282,34 @@ contract ShadowToken is ERC721, PausableMixin {
         emit VerifierSet(slotId, v);
     }
 
+    // ============== registerImage ==============
+
+    /// Verify a `face_disc` proof binding `imageCommit` to a valid
+    /// face descriptor and mark `imageCommit` as eligible for
+    /// `mintShadow`. Split out of `mintShadow` (where it used to live
+    /// as a bundled second proof) so the mint tx fits comfortably under
+    /// public-RPC gas-LIMIT caps. Anyone may register any imageCommit;
+    /// the proof itself is the credential. Ownership of the matching
+    /// descriptor key is enforced inside `mintShadow` via the mint
+    /// proof's `ownerPk` PI binding to `KeyRegistry.pkOf(msg.sender)`.
+    function registerImage(bytes32 imageCommit, bytes calldata proofDisc)
+        external
+        whenNotPaused
+    {
+        if (address(faceDiscVerifier) == address(0)) revert VerifierNotSet();
+        if (registeredImages[imageCommit]) revert ImageAlreadyRegistered(imageCommit);
+
+        bytes32[] memory piDisc = new bytes32[](FACE_DISC_PI_LEN);
+        piDisc[0] = imageCommit;
+        _verifyOrRevert(faceDiscVerifier, proofDisc, piDisc);
+
+        registeredImages[imageCommit] = true;
+        emit ImageRegistered(imageCommit);
+    }
+
     // ============== mintShadow ==============
 
-    /// Atomically: verify mint + face_disc proofs, derive 8 originFaceIds
+    /// Atomically: verify mint proof, derive 8 originFaceIds
     /// from imageCommit, mint 8 carriers via FeatureNFT.mintAtShadowMint,
     /// install them into slots 0..7, mint the shadow ERC-721 to caller,
     /// refresh T10.
@@ -287,7 +320,6 @@ contract ShadowToken is ERC721, PausableMixin {
     /// circuit's `sponge_8_pad16` so PI[4..6] match.
     struct MintShadowArgs {
         bytes        proofMint;
-        bytes        proofDisc;
         bytes32      imageCommit;
         bytes[]      c2s;                   // 8 entries; each MAX_PLAINTEXT_FIELDS_PER_SLOT * 32 bytes;
                                             //   ADVISORY (emitted in events for indexers; NOT sponge-checked on chain)
@@ -320,7 +352,6 @@ contract ShadowToken is ERC721, PausableMixin {
         if (address(featureNFT) == address(0)) revert FeatureNFTNotSet();
         if (address(keyRegistry) == address(0)) revert VerifierNotSet();
         if (address(mintShadowVerifier) == address(0)) revert VerifierNotSet();
-        if (address(faceDiscVerifier) == address(0)) revert VerifierNotSet();
         if (yulSponge == address(0)) revert VerifierNotSet();
         if (yulSponge16 == address(0)) revert VerifierNotSet();
         if (args.c2s.length != N_MINT_ATOMS) revert BadArrayLen(args.c2s.length, N_MINT_ATOMS);
@@ -328,6 +359,7 @@ contract ShadowToken is ERC721, PausableMixin {
 
         bytes32 imageCommit = args.imageCommit;
         if (mintedOrigins[imageCommit]) revert AlreadyMinted(imageCommit);
+        if (!registeredImages[imageCommit]) revert ImageNotRegistered(imageCommit);
         mintedOrigins[imageCommit] = true;
 
         // Deterministic shadowId from imageCommit. Each imageCommit can
@@ -338,7 +370,7 @@ contract ShadowToken is ERC721, PausableMixin {
         // Owner pk from KeyRegistry (caller must be registered).
         (bytes32 ownerPkX, bytes32 ownerPkY) = keyRegistry.pkOf(msg.sender);
 
-        // ---- 1. verify both proofs (helpers dodge stack-too-deep) ----
+        // ---- 1. verify mint proof (helper dodges stack-too-deep) ----
         _verifyMintProofs(args, shadowId, imageCommit, ownerPkX, ownerPkY);
 
         // ---- 2. apply state (mint 8 carriers + install slots + record shadow + ERC-721 mint) ----
@@ -351,8 +383,8 @@ contract ShadowToken is ERC721, PausableMixin {
         emit ShadowMinted(shadowId, msg.sender, idx, imageCommit);
     }
 
-    /// Verify both the mint proof and the face_disc proof. The two
-    /// proofs are bound at the contract level via shared imageCommit.
+    /// Verify the mint proof. face_disc is verified separately via
+    /// `registerImage`; `mintShadow` gates on `registeredImages[imageCommit]`.
     /// Reconstructs PI for mint via on-chain sponge_8_pad16 over per-slot
     /// hashed c2s, lshInits, chainTips.
     function _verifyMintProofs(
@@ -362,11 +394,6 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes32 ownerPkX,
         bytes32 ownerPkY
     ) internal view {
-        // ---- face_disc: PI = [imageCommit] ----
-        bytes32[] memory piDisc = new bytes32[](FACE_DISC_PI_LEN);
-        piDisc[0] = imageCommit;
-        _verifyOrRevert(faceDiscVerifier, args.proofDisc, piDisc);
-
         // ---- mint proof: build PI ----
         bytes32[] memory piMint = new bytes32[](MINT_SHADOW_PI_LEN);
         piMint[0] = bytes32(shadowId);

@@ -14,17 +14,21 @@ import {Poseidon2YulSponge} from "../src/Poseidon2YulSponge.sol";
 import {Poseidon2YulSponge16} from "../src/Poseidon2YulSponge16.sol";
 import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 
-/// @notice Real-proof e2e test for `ShadowToken.mintShadow`.
+/// @notice Real-proof e2e test for `ShadowToken.registerImage` + `mintShadow`.
 ///
 /// Loads the linked atomic_mint fixture (8 origin slots + face_disc proof
-/// for image alice0 + atomic shadow_t10), then calls mintShadow as alice
-/// and asserts:
+/// for image alice0 + atomic shadow_t10), then exercises the v2-gas split:
+///   1. registerImage(imageCommit, proofDisc)  — face_disc verified once.
+///   2. mintShadow(args)                       — gates on registeredImages.
+///
+/// Asserts:
+///   - registeredImages[imageCommit] = true after registerImage
 ///   - shadow's ERC-721 minted to alice with deterministic shadowId
 ///   - 8 FeatureNFT carriers minted into slots 0..7, each owned by alice
 ///   - 8 manifest entries OCCUPIED with the proof's lsh_init values
 ///   - shadowT10 reflects the post-mint manifest hash
 ///   - mintedOrigins[imageCommit] = true (anti-replay armed)
-///   - ShadowMinted + 8x ShadowSlotMutated + ShadowT10Updated emitted
+///   - ImageRegistered + ShadowMinted + 8x ShadowSlotMutated + ShadowT10Updated emitted
 ///
 /// Fixture: contracts/test/fixtures/atomic_mint/atomic_mint_demo (built
 /// via tools/build_atomic_mint_fixture.py; ~3s wall-clock end-to-end).
@@ -109,6 +113,13 @@ contract MintShadowE2ETest is Test {
         kr.register(ownerPkX, ownerPkY);
     }
 
+    /// Helper: register the fixture's imageCommit. Tests that exercise
+    /// registerImage failure paths (or want to verify mintShadow's
+    /// `ImageNotRegistered` gate) do NOT call this.
+    function _registerImage() internal {
+        st.registerImage(imageCommit, proofDisc);
+    }
+
     function _loadFields(string memory path, uint256 expectedLen)
         internal returns (bytes32[] memory out)
     {
@@ -136,7 +147,6 @@ contract MintShadowE2ETest is Test {
 
     function _buildArgs() internal returns (ShadowToken.MintShadowArgs memory args) {
         args.proofMint   = proofMint;
-        args.proofDisc   = proofDisc;
         args.imageCommit = imageCommit;
         args.liveStateHashInits = lshInits;
         args.chainTips          = chainTips;
@@ -166,7 +176,52 @@ contract MintShadowE2ETest is Test {
         args.proofT10 = proofT10;
     }
 
+    // ============== registerImage ==============
+
+    function test_registerImage_succeeds_and_emits_event() public {
+        assertFalse(st.registeredImages(imageCommit), "imageCommit not yet registered");
+        vm.recordLogs();
+        _registerImage();
+        assertTrue(st.registeredImages(imageCommit), "registered after call");
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sigReg = keccak256("ImageRegistered(bytes32)");
+        bool sawReg = false;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(st) && logs[i].topics[0] == sigReg) {
+                assertEq(logs[i].topics[1], imageCommit, "indexed imageCommit matches");
+                sawReg = true;
+            }
+        }
+        assertTrue(sawReg, "ImageRegistered emitted");
+    }
+
+    function test_registerImage_reverts_when_already_registered() public {
+        _registerImage();
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.ImageAlreadyRegistered.selector, imageCommit));
+        _registerImage();
+    }
+
+    function test_registerImage_reverts_when_proof_tampered() public {
+        // Flip a byte in the middle of the face_disc proof.
+        proofDisc[256] = bytes1(uint8(proofDisc[256]) ^ 0x40);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.registerImage(imageCommit, proofDisc);
+    }
+
+    /// Gas-pin: registerImage is a single-proof tx (face_disc). Local
+    /// budget 4M; on-chain extrapolation ~5M. Trivially under 16M.
+    function test_registerImage_gas_under_budget() public {
+        uint256 gasBefore = gasleft();
+        st.registerImage(imageCommit, proofDisc);
+        uint256 used = gasBefore - gasleft();
+        assertLt(used, 4_000_000, "registerImage gas regressed");
+    }
+
+    // ============== mintShadow ==============
+
     function test_mintShadow_success_creates_shadow_and_8_carriers() public {
+        _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
 
         // Pre-state: shadow doesn't exist; mintedOrigins clean.
@@ -240,7 +295,16 @@ contract MintShadowE2ETest is Test {
         assertEq(sawSlotMutated, 8, "8 ShadowSlotMutated emitted (one per origin slot)");
     }
 
+    function test_mintShadow_reverts_when_image_not_registered() public {
+        // No _registerImage() call. mintShadow MUST refuse.
+        ShadowToken.MintShadowArgs memory args = _buildArgs();
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.ImageNotRegistered.selector, imageCommit));
+        st.mintShadow(args);
+    }
+
     function test_mintShadow_reverts_when_already_minted() public {
+        _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
         vm.prank(alice);
         st.mintShadow(args);
@@ -252,18 +316,10 @@ contract MintShadowE2ETest is Test {
     }
 
     function test_mintShadow_reverts_when_mint_proof_tampered() public {
+        _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
         // Flip a byte in the middle of the mint proof.
         args.proofMint[256] = bytes1(uint8(args.proofMint[256]) ^ 0x40);
-        vm.prank(alice);
-        vm.expectRevert(ShadowToken.InvalidProof.selector);
-        st.mintShadow(args);
-    }
-
-    function test_mintShadow_reverts_when_face_disc_tampered() public {
-        ShadowToken.MintShadowArgs memory args = _buildArgs();
-        // Flip a byte in the middle of the face_disc proof.
-        args.proofDisc[256] = bytes1(uint8(args.proofDisc[256]) ^ 0x40);
         vm.prank(alice);
         vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.mintShadow(args);
@@ -273,6 +329,7 @@ contract MintShadowE2ETest is Test {
     /// Tampering with c2 alone does not revert. To trigger InvalidProof, tamper
     /// args.ctCommits (which IS bound to PI[5] via sponge_8_pad16).
     function test_mintShadow_reverts_when_ctCommits_tampered() public {
+        _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
         args.ctCommits[0] = bytes32(uint256(args.ctCommits[0]) ^ 1);
         vm.prank(alice);
@@ -281,6 +338,7 @@ contract MintShadowE2ETest is Test {
     }
 
     function test_mintShadow_c2_tamper_does_not_revert() public {
+        _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
         args.c2s[0][7] = bytes1(uint8(args.c2s[0][7]) ^ 0x80);
         vm.prank(alice);
@@ -289,21 +347,17 @@ contract MintShadowE2ETest is Test {
         // ECIES decrypt failure against the proof-bound ctCommits[0].
     }
 
-    /// Gas-pin: mintShadow is the heaviest single tx (8 carrier mints +
-    /// 3 ZK proofs + T10 refresh). Budget: 25M -- ~12% above current
-    /// ~22.3M baseline, tight enough to catch a 3M+ regression. If this
-    /// fails, profile via `forge test --match-test test_mintShadow_gas
-    /// --gas-report` before bumping the budget.
+    /// Gas-pin: mintShadow body now excludes face_disc verification
+    /// (moved to registerImage). Post-split internal cost ~9-10M local;
+    /// on-chain extrapolation ~12M, comfortably under the 16M public RPC
+    /// gas-LIMIT cap. Budget 11M leaves regression-detection headroom.
     function test_mintShadow_gas_under_block_budget() public {
+        _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
         vm.prank(alice);
         uint256 gasBefore = gasleft();
         st.mintShadow(args);
         uint256 used = gasBefore - gasleft();
-        // Budget: 25M. Real-world block gas is 30M (Ethereum) / 60M (Base).
-        // v2-gas: post-sponge_39 drop, real internal cost ~12M (was 17.7M).
-        // Budget 14M leaves ~16% margin. Real-chain calldata adds ~0.5M.
-        // Total tx well under the ~16M public RPC anti-DoS ceiling.
-        assertLt(used, 14_000_000, "mintShadow gas regressed");
+        assertLt(used, 11_000_000, "mintShadow gas regressed");
     }
 }
