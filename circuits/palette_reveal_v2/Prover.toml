@@ -1,5 +1,5 @@
-feature_id = "0x14f5296b359c0b01d21883becc7234a673bf074a4dde27d346713915b3c14800"
-palette_commit = "0x2facbb402a641559c0e972c4316b3fd79b188644e035bd61f417fd60f2251082"
-palette_packed = ["0x60aaeb593eba", "0xdc295faf93dd", "0x734799df2881", "0x3bcef31fc867", "0x3243db51bd29", "0xdc0173f9f919", "0x19b94c3c9981", "0x2b0c8b908c5e"]
-palette = ["0x593eba", "0x60aaeb", "0xaf93dd", "0xdc295f", "0xdf2881", "0x734799", "0x1fc867", "0x3bcef3", "0x51bd29", "0x3243db", "0xf9f919", "0xdc0173", "0x3c9981", "0x19b94c", "0x908c5e", "0x2b0c8b"]
-palette_salt = "0x14b32b60527d2a5539b5e5f5f06358bc12cdd939da2fb57b0db232b141509ea0"
+feature_id = "0xc15f2ea81c8059e738955fb74952af865537bc8481227c7d2526ecf3c030a84"
+palette_commit = "0x21b70fce1d68897518e1370e52b4576f1e05848c8d6a971968f76dc1af79d30d"
+palette_packed = ["0x855713baa74f", "0xc69ed6ab9ee8", "0x8ccdef88e30", "0xb83ced066e4f", "0xc98e5004110d", "0x7f7cd7324962", "0x7cb8cb1023a3", "0xa7f5a7e13720"]
+palette = ["0xbaa74f", "0x855713", "0xab9ee8", "0xc69ed6", "0xf88e30", "0x8ccde", "0x66e4f", "0xb83ced", "0x4110d", "0xc98e50", "0x324962", "0x7f7cd7", "0x1023a3", "0x7cb8cb", "0xe13720", "0xa7f5a7"]
+palette_salt = "0x2f8160f1bc0be1ebedabfa0eebb90e00c9c70a4a54977fa7918fba15d1c15cbd"

@@ -98,6 +98,11 @@ CANVAS_SIZE = 48
 # if the event signature ever changes.
 SLOT_MUTATED_TOPIC0 = "0xaae30d030d528f20bdc7ca6fb59934e5b9fbddc5eea1976668b4ee518b8755e6"
 
+# keccak256("FeaturePaletteRevealed(uint256,bytes32,bytes)")
+# Re-derive with `cast keccak "FeaturePaletteRevealed(uint256,bytes32,bytes)"`
+# if the event signature ever changes.
+PALETTE_REVEALED_TOPIC0 = "0xab2d50af1f432d428a788e90bfd3bdb85a1228883a22c743d48f5f763b17ee58"
+
 
 def _http_post(url: str, payload: dict) -> dict:
     """Tiny stdlib JSON-RPC POST; no requests dependency."""
@@ -118,9 +123,10 @@ def _eth_call(rpc: str, method: str, params: list) -> dict:
 
 
 def fetch_latest_c2_per_slot(rpc: str, st_addr: str, shadow_id: int,
-                             from_block: int = 0) -> dict[int, bytes]:
-    """Return {slot_idx: c2_bytes} from the latest ShadowSlotMutated
-    event per slot for the given shadowId.
+                             from_block: int = 0
+                             ) -> tuple[dict[int, bytes], dict[int, int]]:
+    """Return ({slot_idx: c2_bytes}, {slot_idx: feature_id_int}) from the
+    latest ShadowSlotMutated event per slot for the given shadowId.
 
     Uses topic0 + topic1 (= shadowId) filters server-side so the RPC
     payload is small. Topic2 is slotIdx; we keep only the latest
@@ -140,7 +146,7 @@ def fetch_latest_c2_per_slot(rpc: str, st_addr: str, shadow_id: int,
     print(f"[fetch] got {len(logs)} matching events")
 
     # Per slot, pick the latest by (blockNumber, logIndex).
-    by_slot: dict[int, tuple[int, int, bytes]] = {}
+    by_slot: dict[int, tuple[int, int, bytes, int]] = {}
     for ev in logs:
         slot = int(ev["topics"][2], 16)
         bn = int(ev["blockNumber"], 16)
@@ -149,6 +155,7 @@ def fetch_latest_c2_per_slot(rpc: str, st_addr: str, shadow_id: int,
         # ABI: featureId(uint256), mutationCount(uint16), prevChainTip(bytes32),
         #      newChainTip(bytes32), c2(bytes)
         data = bytes.fromhex(ev["data"][2:])
+        feature_id = int.from_bytes(data[0:32], "big")
         # offsets: 0..32 featureId, 32..64 mutationCount (padded), 64..96 prev,
         # 96..128 new, 128..160 offset_to_c2_bytes (160 always for one dynamic
         # arg), 160..192 c2.length, 192..192+ceil32(len) c2 (right-padded).
@@ -156,8 +163,48 @@ def fetch_latest_c2_per_slot(rpc: str, st_addr: str, shadow_id: int,
         c2 = data[192:192 + c2_len]
         prev = (bn, li)
         if slot not in by_slot or prev > by_slot[slot][:2]:
-            by_slot[slot] = (bn, li, c2)
-    return {slot: payload[2] for slot, payload in sorted(by_slot.items())}
+            by_slot[slot] = (bn, li, c2, feature_id)
+    c2_map  = {slot: payload[2] for slot, payload in sorted(by_slot.items())}
+    fid_map = {slot: payload[3] for slot, payload in sorted(by_slot.items())}
+    return c2_map, fid_map
+
+
+def fetch_revealed_palettes(rpc: str, fn_addr: str, from_block: int = 0
+                            ) -> dict[int, list[tuple[int, int, int]]]:
+    """Return {feature_id_int: [16 (R, G, B)]} from FeaturePaletteRevealed
+    events on FeatureNFT. Latest event per featureId wins (single-shot in
+    practice -- the contract reverts on second reveal -- but be defensive).
+    """
+    topic0 = PALETTE_REVEALED_TOPIC0
+    print(f"[palette] querying FeaturePaletteRevealed logs for fn={fn_addr}")
+    logs = _eth_call(rpc, "eth_getLogs", [{
+        "fromBlock": hex(from_block),
+        "toBlock":   "latest",
+        "address":   fn_addr,
+        "topics":    [topic0],
+    }])
+    print(f"[palette] got {len(logs)} reveal events")
+    by_fid: dict[int, tuple[int, int, list[tuple[int, int, int]]]] = {}
+    for ev in logs:
+        fid = int(ev["topics"][1], 16)
+        bn = int(ev["blockNumber"], 16)
+        li = int(ev["logIndex"], 16)
+        # Data layout: paletteCommit(32) | offset(32, =0x40) | len(32, =0x30) | rgb_bytes(48)
+        data = bytes.fromhex(ev["data"][2:])
+        rgb_len = int.from_bytes(data[64:96], "big")
+        if rgb_len != 48:
+            print(f"  fid {hex(fid)[:18]}: unexpected paletteRGB length {rgb_len}; skipping")
+            continue
+        rgb_bytes = data[96:96 + 48]
+        palette = []
+        for i in range(16):
+            r = rgb_bytes[3 * i + 0]
+            g = rgb_bytes[3 * i + 1]
+            b = rgb_bytes[3 * i + 2]
+            palette.append((r, g, b))
+        if fid not in by_fid or (bn, li) > by_fid[fid][:2]:
+            by_fid[fid] = (bn, li, palette)
+    return {fid: payload[2] for fid, payload in by_fid.items()}
 
 
 # ---------------------------------------------------------------------
@@ -243,13 +290,18 @@ def unpack_pose_xy(pose: int) -> tuple[int, int]:
     return pose & 0x3F, (pose >> 6) & 0x3F
 
 
-def render_sprite(w: int, h: int, indices: list[int]
+def render_sprite(w: int, h: int, indices: list[int],
+                  palette: Optional[list[tuple[int, int, int]]] = None
                   ) -> list[list[tuple[int, int, int]]]:
+    """Render a sprite. If `palette` is supplied (16 entries from a
+    PaletteRevealed event), use it; otherwise fall back to the module's
+    default PALETTE. Indices outside the 16-entry palette range raise."""
+    pal = palette if palette is not None else PALETTE
     grid = [[(0, 0, 0)] * w for _ in range(h)]
     for j, idx in enumerate(indices):
-        if idx < 0 or idx >= len(PALETTE):
+        if idx < 0 or idx >= len(pal):
             raise ValueError(f"palette index out of range: {idx}")
-        grid[j // w][j % w] = PALETTE[idx]
+        grid[j // w][j % w] = pal[idx]
     return grid
 
 
@@ -288,13 +340,15 @@ def write_png(path: Path, grid: list[list[tuple[int, int, int]]]) -> None:
         f.write(chunk(b"IEND", b""))
 
 
-def compose(slots: dict[int, tuple[int, int, int, list[int]]]
+def compose(slots: dict[int, tuple[int, int, int, list[int]]],
+            slot_palettes: Optional[dict[int, list[tuple[int, int, int]]]] = None
             ) -> list[list[tuple[int, int, int]]]:
     canvas = [[(20, 20, 24)] * CANVAS_SIZE for _ in range(CANVAS_SIZE)]
     for i in sorted(slots.keys()):
         pose, w_dim, h_dim, indices = slots[i]
         x0, y0 = unpack_pose_xy(pose)
-        sprite = render_sprite(w_dim, h_dim, indices)
+        pal = slot_palettes.get(i) if slot_palettes else None
+        sprite = render_sprite(w_dim, h_dim, indices, palette=pal)
         for sy in range(h_dim):
             for sx in range(w_dim):
                 cx = x0 + sx; cy = y0 + sy
@@ -303,7 +357,8 @@ def compose(slots: dict[int, tuple[int, int, int, list[int]]]
     return canvas
 
 
-def strip(slots: dict[int, tuple[int, int, int, list[int]]]
+def strip(slots: dict[int, tuple[int, int, int, list[int]]],
+          slot_palettes: Optional[dict[int, list[tuple[int, int, int]]]] = None
           ) -> list[list[tuple[int, int, int]]]:
     if not slots:
         return [[(40, 40, 48)]]
@@ -316,7 +371,8 @@ def strip(slots: dict[int, tuple[int, int, int, list[int]]]
     out = [[(40, 40, 48)] * (cell_w * len(keys)) for _ in range(cell_h)]
     for col, k in enumerate(keys):
         pose, w_dim, h_dim, indices = slots[k]
-        sprite = render_sprite(w_dim, h_dim, indices)
+        pal = slot_palettes.get(k) if slot_palettes else None
+        sprite = render_sprite(w_dim, h_dim, indices, palette=pal)
         x0 = col * cell_w + pad; y0 = pad
         for sy in range(h_dim):
             for sx in range(w_dim):
@@ -353,6 +409,8 @@ def main() -> None:
     ap.add_argument("--shadow-id", help="hex shadowId (chain mode)")
     ap.add_argument("--rpc", help="JSON-RPC URL (chain mode)")
     ap.add_argument("--st", help="ShadowToken contract address (chain mode)")
+    ap.add_argument("--fn", help="FeatureNFT contract address (chain mode; "
+                                  "required to fetch revealed palettes)")
     ap.add_argument("--sk", help="owner secret key, hex (chain mode)")
     ap.add_argument("--c1-sidecar", help="path to a meta.json with per-slot c1 "
                                           "values (chain mode)")
@@ -377,9 +435,9 @@ def main() -> None:
     if chain_mode:
         shadow_id = _h(args.shadow_id)
         sk = _h(args.sk)
-        # 1. Pull on-chain c2 per slot.
-        chain_c2 = fetch_latest_c2_per_slot(args.rpc, args.st, shadow_id,
-                                            args.from_block)
+        # 1. Pull on-chain c2 per slot + slot->featureId map.
+        chain_c2, fid_map = fetch_latest_c2_per_slot(
+            args.rpc, args.st, shadow_id, args.from_block)
         print(f"[chain] occupied slots (chain): {sorted(chain_c2.keys())}")
 
         # 2. Load c1 from sidecar(s).
@@ -388,7 +446,23 @@ def main() -> None:
             c1_map.update(load_c1_sidecar(Path(ovl)))
         print(f"[c1] sidecar slots: {sorted(c1_map.keys())}")
 
-        # 3. Per-slot decrypt and decode.
+        # 3. Optionally fetch revealed palettes (best-effort; --fn required).
+        revealed_palettes: dict[int, list[tuple[int, int, int]]] = {}
+        slot_palettes: dict[int, list[tuple[int, int, int]]] = {}
+        if args.fn:
+            revealed_palettes = fetch_revealed_palettes(
+                args.rpc, args.fn, args.from_block)
+            for slot, fid in fid_map.items():
+                if fid in revealed_palettes:
+                    slot_palettes[slot] = revealed_palettes[fid]
+            if slot_palettes:
+                print(f"[palette] revealed for slots: {sorted(slot_palettes.keys())}")
+            else:
+                print("[palette] no revealed palettes for any slot; using default")
+        else:
+            print("[palette] --fn not provided; skipping reveal lookup (default palette)")
+
+        # 4. Per-slot decrypt and decode.
         slots: dict[int, tuple[int, int, int, list[int]]] = {}
         for slot, c2 in chain_c2.items():
             if slot not in c1_map:
@@ -399,13 +473,15 @@ def main() -> None:
                 pose, w, h, indices = decode_plaintext_v2(pt)
                 slots[slot] = (pose, w, h, indices)
                 x0, y0 = unpack_pose_xy(pose)
-                print(f"  slot {slot:2d}: decrypted -> {w}x{h} sprite at ({x0:2d},{y0:2d})")
+                pal_tag = "revealed" if slot in slot_palettes else "default"
+                print(f"  slot {slot:2d}: decrypted -> {w}x{h} sprite at ({x0:2d},{y0:2d}) [palette: {pal_tag}]")
             except Exception as e:
                 print(f"  slot {slot:2d}: decrypt failed: {e}")
         label = "chain-decrypt"
     elif args.seed:
         print(f"[legacy] seed-derived mode for seed={args.seed!r}")
         slots = reconstruct_seed_params(args.seed)
+        slot_palettes = {}
         label = "seed-derived"
     else:
         sys.exit("Must provide either chain-mode flags "
@@ -415,18 +491,22 @@ def main() -> None:
     # ---- write per-slot PNGs ----
     print(f"\n[render] {label}, upscale={args.upscale}x -> {out}")
     for i, (pose, w_dim, h_dim, indices) in slots.items():
-        sprite = render_sprite(w_dim, h_dim, indices)
+        pal = slot_palettes.get(i) if chain_mode else None
+        sprite = render_sprite(w_dim, h_dim, indices, palette=pal)
         big = upscale(sprite, args.upscale)
         path = out / f"slot_{i}.png"
         write_png(path, big)
         x0, y0 = unpack_pose_xy(pose)
-        print(f"  slot {i:2d}: {w_dim}x{h_dim} at ({x0:2d},{y0:2d}) -> {path}")
+        pal_tag = "revealed" if (chain_mode and i in slot_palettes) else "default"
+        print(f"  slot {i:2d}: {w_dim}x{h_dim} at ({x0:2d},{y0:2d}) -> {path} [palette: {pal_tag}]")
 
-    canvas = compose(slots)
+    palette_arg = slot_palettes if chain_mode else None
+    canvas = compose(slots, slot_palettes=palette_arg)
     write_png(out / "composite.png", upscale(canvas, args.upscale))
     print(f"  composite ({CANVAS_SIZE}x{CANVAS_SIZE}, all slots layered) "
           f"-> {out}/composite.png")
-    write_png(out / "sprite_strip.png", upscale(strip(slots), args.upscale))
+    write_png(out / "sprite_strip.png",
+              upscale(strip(slots, slot_palettes=palette_arg), args.upscale))
     print(f"  strip -> {out}/sprite_strip.png")
 
     if chain_mode:

@@ -198,6 +198,59 @@ Tightest margins:
   * `transferShadow` 6.84M (16-slot rotation + 9 carrier ERC-721 rotations + T10)
   * `solve` 11.17–11.21M (4.79–4.83M used)
 
+### Pipeline #4 (palette-reveal-enabled, fresh on 2026-04-28)
+
+The `revealPalette` ABI required a fresh pipeline cutover (the existing
+FeatureNFT at `0x82cd...` predates the new ABI). Pipeline #4 is the
+first deployment that exercises end-to-end palette reveal:
+
+| Contract | Address |
+|---|---|
+| ShadowToken              | `0xe5089e09D7B8393fE37bC2e53E6a44CCD534Ef88` |
+| FeatureNFT               | `0x578eda36Dc4750c35c29E5F12a0789DaD35e2072` |
+| KeyRegistry              | `0x402DCD8f6C615f89D9C34fb6928F4D69e39b3Aa1` |
+| Poseidon2YulSponge       | `0x36E5A53dd45eB318C3373486ABe854e80b7451CD` |
+| Poseidon2YulSponge16     | `0x44c498f8B871B8F6ADbEfD28E25EE96748d8258a` |
+| MintShadowVerifier       | `0x983831dFB2bF827c8689aD2e3bEa202Bc26Fd969` |
+| FaceDiscVerifier         | `0xd00E4a5e45A770EA54A295b4748e40F9D5539965` |
+| MutateSlotVerifier       | `0x9C879431001Fa90CaD81d0342d61c12D298C0aD8` |
+| T10ShadowVerifier        | `0x1f559689D500b91e07a05432318F1eBBF0637112` |
+| ZIndexCommitVerifier     | `0x47E1ACF2131De8c68d2940773ceC946d1F707f10` |
+| TransferShadowVerifier   | `0x3240377E7C2947E7A3a1b6f62f0575cea111157e` |
+| SolveShadowVerifier      | `0x87371A7C174fDB97215778CF0EFAcd27CA0812F6` |
+| TransferFeatureV2Verifier| `0xa85eCAcD44D6A6a0659DdcA9d9f3901a2BB4C291` |
+| **PaletteRevealV2Verifier**  | **`0x4ef46EFa1484d4981498Fa99e3eE1a580f4EF3D8`** |
+
+Pipeline #4 deploy: 27 txs in blocks 40,780,061 - 40,780,064, total gas
+**68,022,941** (~0.000748 Sepolia ETH at 0.011 gwei).
+
+Live palette-reveal demo on pipeline #4:
+
+| # | Action | tx | block | gas | budget |
+|---|---|---|---|---|---|
+| 1 | `mintShadow` (fresh shadow A' with real palette envelopes) | [`0x4ff2056f...`](https://sepolia.basescan.org/tx/0x4ff2056fe2b011dc0dc5a8d66fcc3ded5afd23a27d6b05c1f0e7986d3a86e255) | 40,780,219 | 11,069,551 | 4.93M |
+| 2 | `revealPalette` (slot-0 carrier `0x0c15f2ea...`) | [`0x36d3ab8f...`](https://sepolia.basescan.org/tx/0x36d3ab8fd358c0dfcaeae651d51a32b54f45f4758cab0bb404d83e3d61f90f8b) | 40,780,277 | 3,294,874 | 12.71M |
+
+**End-to-end ZK-bound palette reveal verified live**:
+
+1. mint commits `paletteCommit_i = sponge_palette_salt(palette_i, salt_i)`
+   per slot and emits `FeaturePaletteSaltEnvelope(featureId, saltCt, c1.x, c1.y)`
+   for the owner to ECIES-decrypt off-chain.
+2. owner decrypts the envelope under `KeyRegistry.pkOf(owner)`'s sk to
+   recover `palette_salt`.
+3. owner calls `revealPalette(featureId, proof, pi)`. Proof binds:
+   - `sponge_palette_salt(palette, salt) == paletteCommit (PI[1])` -> chain checks vs storage,
+   - `palette_packed[i] == palette[2i] + palette[2i+1] * 2^24`.
+4. `FeaturePaletteRevealed(featureId, paletteCommit, bytes paletteRGB)` emits
+   the 48 raw RGB bytes; `f.paletteRevealed = true` (anti-replay).
+5. `tools/render_onchain_shadow.py --fn 0x578eda36...` reads the event and
+   renders the slot with the actual color table; off-chain palette colors
+   match on-chain RGB byte-for-byte.
+
+Verifier sizes (real-chain confirmed):
+  * PaletteRevealV2Verifier: **24,337 B** runtime (239 B under EIP-170).
+
+
 ### Chained-fixture builders (`tools/build_*_onchain.py`)
 
 These produce per-op fixtures whose ZK witnesses are bound to the
