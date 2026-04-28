@@ -8,7 +8,7 @@ on:
 
 jobs:
   forge:
-    name: Forge tests (111/111)
+    name: Forge tests (159/159)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -60,8 +60,24 @@ jobs:
 
       - name: Install Python deps
         run: pip install -r requirements.txt
-
       - name: validate_pixels.py
         run: |
           export PATH="$HOME/.nargo/bin:$HOME/.bb:$PATH"
           python3 validate_pixels.py
+
+  python-toolchain:
+    name: Python toolchain round-trip tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools
+    needs: forge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+      - name: test_slot_state.py
+        run: python3 test_slot_state.py
