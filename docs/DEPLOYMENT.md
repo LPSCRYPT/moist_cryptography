@@ -107,13 +107,48 @@ Shadow A' on pipeline #5 has `shadowId =
 (deterministic from the `face_disc/alice0` fixture; collides with #3
 and #4's shadow A by design -- different deployments, same math).
 
+**Shadow A' (full reveal):**
+
 | # | Action | Tx | Block | Gas |
 |---|---|---|---:|---:|
 | 1 | `KeyRegistry.register` (deployer) | (run-latest.json) | -- | -- |
-| 2 | `registerImage` | (run-latest.json) | -- | -- |
-| 3 | `mintShadow` (1 shadow + 8 carriers, real palette + salt envelopes) | (run-latest.json) | -- | -- |
-| 4 | `setZIndexCommit` | (run-latest.json) | -- | -- |
-| 5 | **`solve`** (palette + plaintext atomic reveal) | [`0xea461ee9...`](https://sepolia.basescan.org/tx/0xea461ee94e8e41b5ed47e71589524050ea2c7545883eaeef946d211813ce1394) | 40,783,890 | **8,137,657** |
+| 2 | `registerImage` (image A) | (run-latest.json) | -- | -- |
+| 3 | `mintShadow` A' (1 shadow + 8 carriers, real palette + salt envelopes) | (run-latest.json) | -- | -- |
+| 4 | `setZIndexCommit` A' | (run-latest.json) | -- | -- |
+| 5 | **`solve`** A' (palette + plaintext atomic reveal) | [`0xea461ee9...`](https://sepolia.basescan.org/tx/0xea461ee94e8e41b5ed47e71589524050ea2c7545883eaeef946d211813ce1394) | 40,783,890 | **8,137,657** |
+| 6 | `transferFrom` A' deployer → PK2 (post-solve plain ERC721 unlocked) | [`0xd91dbfb6...`](https://sepolia.basescan.org/tx/0xd91dbfb6c26c628e51af1623d01214767eb98272de043a373db74e1a716c7529) | 40,786,056 | 57,882 |
+| 7 | `transferFrom` A' PK2 → deployer (round trip) | [`0x95e8fa3f...`](https://sepolia.basescan.org/tx/0x95e8fa3f7128472dea1cfff52f7be2f6f2bac86b5941b49a61611410e9905f92) | 40,786,058 | 57,882 |
+
+**Shadow B' (mint demo, second shadow on #5):**
+
+Minted 2026-04-28 to demonstrate that pipeline #5 supports multiple
+shadows under one ShadowToken. Image is `face_disc/bob0`, mint seed is
+`atomic_mint_demo_b`. Mint sender is PK2 (`0xFD90Bd22...`), so PK2 is
+now the second registered EOA on KeyRegistry on #5.
+
+Shadow B' shadowId =
+`0x2c6f0a0b412f403a6d080b2fa2fa3c4375cef9a5567f3c46df177ede9b74014d`.
+Owned by PK2; unsolved.
+
+| # | Action | Tx | Block | Gas |
+|---|---|---|---:|---:|
+| B1 | `KeyRegistry.register` (PK2) | [`0xdfc420a7...`](https://sepolia.basescan.org/tx/0xdfc420a7ea6863413c603fa9402c25572f77f08f61889898f875128719d1aa60) | 40,786,288 | 68,566 |
+| B2 | `registerImage` (image B) | [`0x5827e802...`](https://sepolia.basescan.org/tx/0x5827e8021996c64456bea8ef3fbb50d67ad7f7e997c5f108fecaf613de0a873b) | 40,786,288 | 4,661,224 |
+| B3 | `mintShadow` B' (1 shadow + 8 carriers, mintCounter 9..16) | [`0xab50a7ad...`](https://sepolia.basescan.org/tx/0xab50a7ad3834fb009df189c328ccd44c65870c7fd6979d51a6cb21584683ba53) | 40,786,288 | 11,025,823 |
+
+**Lifecycle ops not yet broadcast on #5:**
+`mutateSlot`, `mutateBatch`, `extractSlot`, `insertFeature`,
+proof-bound `transferShadow`, `transferFeature` V2, and bridge L2-leg.
+These were demonstrated on pipeline #3 (see below). Replaying them on
+#5 requires either:
+ (a) regenerating the chained fixture set (the existing pipeline-#3
+     fixtures are tightly bound to a specific shadow-A mint state on
+     #3 and do not replay cleanly to #5; on shadow B' the per-slot
+     synthesis algorithm in `tools/build_mutate_slot_onchain.py` has
+     drifted from what `atomic_mint_demo_b` was generated under), or
+ (b) deploying a parallel `ShadowBridgeL2` wired to #5's ShadowToken
+     for the bridge leg specifically (current `ShadowBridgeL2` at
+     `0x8892b6EB...` points at pipeline #3's ShadowToken).
 
 Solve emits per occupied slot:
   * `FeaturePaletteRevealed(featureId, paletteCommit, bytes paletteRGB_48)`
