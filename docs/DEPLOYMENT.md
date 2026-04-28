@@ -73,7 +73,9 @@ Deployed 2026-04-28.
 | `TransferShadowVerifier` | [`0x6Bc27317aCcc5ce53B78e4Ac2377683974154089`](https://sepolia.basescan.org/address/0x6Bc27317aCcc5ce53B78e4Ac2377683974154089) |
 | `SolveShadowVerifier` | [`0x3c9aE7A736003e19De09BAF645f0C175344476b5`](https://sepolia.basescan.org/address/0x3c9aE7A736003e19De09BAF645f0C175344476b5) |
 | `TransferFeatureV2Verifier` | [`0x3656b49d2F9A642A7c9d212b42e87495570B9560`](https://sepolia.basescan.org/address/0x3656b49d2F9A642A7c9d212b42e87495570B9560) |
-| `ShadowBridgeL2` (deployed 2026-04-28, post-lifecycle; `l1Mirror` set to historical `0x89dB0113...`) | [`0x9Ef3f7a3340454BffD618099Ae5645218b4924CC`](https://sepolia.basescan.org/address/0x9Ef3f7a3340454BffD618099Ae5645218b4924CC) |
+| `ShadowBridgeL2` (deployed 2026-04-28, **broken-wire**: `l1Mirror` set to historical `0x89dB0113`) | [`0x9Ef3f7a3340454BffD618099Ae5645218b4924CC`](https://sepolia.basescan.org/address/0x9Ef3f7a3340454BffD618099Ae5645218b4924CC) |
+| `ShadowBridgeL2` **#5b** (deployed 2026-04-28, fresh pair; canonical) | [`0x49A8d60114C4869D2f0422c8e5b1f9442f5e4529`](https://sepolia.basescan.org/address/0x49A8d60114C4869D2f0422c8e5b1f9442f5e4529) |
+| `ShadowMirrorL1` (Eth Sepolia, paired with #5b) | [`0xe9B8b1DddaEC95C165B0c4aE55Ea13FeAAC79042`](https://sepolia.etherscan.io/address/0xe9B8b1DddaEC95C165B0c4aE55Ea13FeAAC79042) |
 
 **No** `PaletteRevealV2Verifier` -- replaced by the on-chain
 `Poseidon2YulSpongePaletteSalt` (sponge_17). Soundness flows from the
@@ -151,14 +153,53 @@ Cumulative pipeline-#5 gas (deploy + lifecycle): ~177M.
 Wall-clock: ~6 hours real time across multiple sessions including proof
 regeneration after the fixture-vs-builder reconcile (see commit history).
 
-**ShadowBridgeL2 #5 (deployed 2026-04-28):**
-Address `0x9Ef3f7a3340454BffD618099Ae5645218b4924CC`. Constructor wired
-to ShadowToken `0xbf9f3FC1...` and FeatureNFT `0x414606aB...`.
-`l1Mirror` set to the existing `0x89dB0113...` mirror (Eth Sepolia) -- the
-L1 mirror is wired to pipeline #3's bridge, so `bridgeShadow`'s L1
-finalize from #5 is not exercisable; only the L2-leg is broadcast.
-Deploying a fresh L1 mirror is the next step if a full L1 finalize on
-#5's bridge becomes a goal.
+**Bridge wiring (pipeline #5):**
+
+Two L2 bridges exist on chain. Only the second is canonical:
+
+| Bridge | Address | `l1Mirror` | Status |
+|---|---|---|---|
+| #5 (first attempt) | `0x9Ef3f7a3340454BffD618099Ae5645218b4924CC` | `0x89dB0113...` (pipeline #3 mirror) | **stranded** -- holds A'; L1 finalize not deliverable because the pipeline-#3 L1 mirror's `l2Bridge` is fixed to pipeline #3's L2 bridge |
+| #5b (canonical) | `0x49A8d60114C4869D2f0422c8e5b1f9442f5e4529` | `0xe9B8b1DddaEC95C165B0c4aE55Ea13FeAAC79042` (pipeline #5 mirror, fresh deploy) | **live** -- holds shadow C; clean L1-finalize candidate after the OP-Stack 7-day window |
+
+Why two: `ShadowBridgeL2.setL1Mirror` and `ShadowMirrorL1.setL2Bridge`
+are both one-shot (revert if already set). Once the first L2 bridge
+was wired to the historical L1 mirror, redirecting it to a new
+mirror was impossible -- only a fresh PAIR works. The existing L2
+bridge `0x9Ef3f7a3` retains custody of A' permanently; the message
+it dispatched references the wrong L1 mirror and is undeliverable.
+
+Fresh-pair deploy txs:
+  * `ShadowMirrorL1` deploy (Eth Sepolia): [`0xd0b6cdcd...`](https://sepolia.etherscan.io/tx/0xd0b6cdcd0c06ed0863f8dea48a864438374765257ae18a2d8bd6d303bac6ab72), block 10,747,~273
+  * `ShadowBridgeL2` deploy (Base Sepolia): [`0x90918ade...`](https://sepolia.basescan.org/tx/0x90918ade70c45f66624769ba3f616fd625ea35505c277a5c6d5861bae331b753)
+  * `setL2Bridge` on L1 mirror: [`0xa27ca617...`](https://sepolia.etherscan.io/tx/0xa27ca617a44cc8902b9b653e2738b05b34eefffb38a395f05c2b5575a7da32d4), block 10,747,281
+  * `setL1Mirror` on L2 bridge: [`0xa5f466a3...`](https://sepolia.basescan.org/tx/0xa5f466a37b7f6cc374971d5dc83fab19744c8fc08091a7fe47446a032e59b319), block 40,793,510
+
+**Shadow C' (clean mint -> solve -> bridge through fresh L2 bridge #5b):**
+
+Minted 2026-04-28 by deployer to demonstrate the fresh L2 bridge
+wiring works end-to-end for a clean L1-finalize candidate. Image is
+synthetic `grid_48/s100_smile_+3.png` registered as `face_disc/carol0`
+(disc score 16.4, face_disc proof generated locally on M3 in ~3 min).
+Mint seed `solve_demo_c` with owner_seed `palette_reveal_live` so the
+owner_pk matches the deployer's KeyRegistry registration.
+Shadow C' shadowId =
+`0x0c923942a9a2e9c8a4178a12ade300472d62ce1ff3c2b4281a465ca827dbea3c`.
+
+| # | Action | Tx | Block | Gas |
+|---|---|---|---:|---:|
+| C1 | `registerImage` (image C = carol0) | [`0x0193400d...`](https://sepolia.basescan.org/tx/0x0193400d430a37dab6bff5ed0097fcef1e18a1dba5b0c845f6d2fa3602a60a8c) | 40,794,257 | -- |
+| C2 | `mintShadow` C' (8 carriers, mintCounter 17..24) | [`0x876157cf...`](https://sepolia.basescan.org/tx/0x876157cf7f963149ab41b085d7f12cd98522520850484df088fb080105da8994) | 40,794,258 | ~10.5M |
+| C3 | `setZIndexCommit` C' | [`0xa8f8fe52...`](https://sepolia.basescan.org/tx/0xa8f8fe521039410011381dbe1f804e9e667e266c5d84ce73aabb02af680b5779) | 40,794,393 | -- |
+| C4 | **`solve`** C' (palette + plaintext atomic reveal; 8+8 events; auto-extracts 8 carriers) | [`0xfd58fb3d...`](https://sepolia.basescan.org/tx/0xfd58fb3d6dd835d0ad3082f6d32d3691a476c3eb7ca5775e083454ed69f47b39) | 40,794,657 | ~8.1M |
+| C5 | **`bridgeShadow`** C' (custody to ShadowBridgeL2 **#5b** `0x49A8d6...`; emits L2->L1 withdrawal to fresh L1 mirror) | [`0xdd7306cb...`](https://sepolia.basescan.org/tx/0xdd7306cb78277646befa8283f36443aa7672a2477b0259cbb53b78be4db79a31) | -- | ~0.4M |
+
+C' is **the clean L1-finalize candidate**. After the OP-Stack output
+proposal lands and the 7-day challenge window passes (~2026-05-05),
+anyone can call `proveWithdrawalTransaction` then
+`finalizeWithdrawalTransaction` on Eth Sepolia against L1 mirror
+`0xe9B8b1Dd...` to mirror C' onto L1.
+
 
 Solve emits per occupied slot:
   * `FeaturePaletteRevealed(featureId, paletteCommit, bytes paletteRGB_48)`

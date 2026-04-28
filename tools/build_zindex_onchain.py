@@ -63,9 +63,13 @@ def parse_hex(s: str) -> int:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mint-fixture", required=True)
+    ap.add_argument("--mint-fixture", required=True,
+                    help="atomic_mint fixture (provides image_commit + shadow_id)")
     ap.add_argument("--slot0-new-lsh", default=None,
-                    help="post-mutate slot 0 lsh; if omitted, uses mint lsh_inits[0]")
+                    help="DEPRECATED legacy flag for slot-0 mutate; use --lsh-array instead")
+    ap.add_argument("--lsh-array", default=None,
+                    help="JSON list of 16 hex strings; the FULL post-state lsh array "
+                         "(empty slots = '0x0'). Overrides --slot0-new-lsh entirely.")
     ap.add_argument("--seed", default="zidx_onchain_demo")
     ap.add_argument("--out-seed", default=None)
     args = ap.parse_args()
@@ -75,18 +79,25 @@ def main() -> None:
         mint_meta = json.load(f)
     image_commit = int(mint_meta["image_commit"], 16)
     shadow_id = image_commit % P
-    mint_lsh_inits = [int(x, 16) for x in mint_meta["lsh_inits"]]
-    assert len(mint_lsh_inits) == 8
 
     # Build current lsh array.
-    lsh_array = list(mint_lsh_inits) + [0] * 8
-    if args.slot0_new_lsh is not None:
-        lsh_array[0] = parse_hex(args.slot0_new_lsh)
-
-    print(f"[onchain_zindex] seed={args.seed!r}")
+    if args.lsh_array is not None:
+        lsh_in = json.loads(args.lsh_array)
+        if not (isinstance(lsh_in, list) and len(lsh_in) == 16):
+            sys.exit("--lsh-array must be a 16-element JSON list of hex strings")
+        lsh_array = [parse_hex(s) if isinstance(s, str) else int(s) for s in lsh_in]
+        print(f"[onchain_zindex] seed={args.seed!r}  (lsh-array supplied)")
+    else:
+        mint_lsh_inits = [int(x, 16) for x in mint_meta["lsh_inits"]]
+        assert len(mint_lsh_inits) == 8
+        lsh_array = list(mint_lsh_inits) + [0] * 8
+        if args.slot0_new_lsh is not None:
+            lsh_array[0] = parse_hex(args.slot0_new_lsh)
+        print(f"[onchain_zindex] seed={args.seed!r}  (mint-state baseline)")
     print(f"  shadow_id     = {hex(shadow_id)[:18]}...")
-    print(f"  lsh[0]        = {hex(lsh_array[0])[:18]}{'  (post-mutate)' if args.slot0_new_lsh else '  (mint init)'}")
-
+    for i, v in enumerate(lsh_array):
+        if v != 0:
+            print(f"  lsh[{i:2d}]       = {hex(v)[:18]}...")
     # ---- z-commit proof ----
     seed_bytes = args.seed.encode()
     perm = deterministic_perm(seed_bytes)

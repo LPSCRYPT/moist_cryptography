@@ -134,7 +134,14 @@ def reconstruct_mint_slot(seed: bytes, image_commit: int, slot_idx: int,
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mint-fixture", required=True)
-    ap.add_argument("--seed", default="atomic_mint_demo")
+    ap.add_argument("--seed", default="atomic_mint_demo",
+                    help="Drives r_i (envelope nonce) + per-slot palette derivation. "
+                         "Must equal the seed used at mint time.")
+    ap.add_argument("--owner-seed", default=None,
+                    help="Drives owner_sk; defaults to --seed. Pass the SAME owner_seed "
+                         "that was passed to build_atomic_mint_fixture for this shadow. "
+                         "Without this flag, the witness's owner_pk won't match the chain's "
+                         "stored ecdhPub and the proof reverts InvalidProof.")
     ap.add_argument("--extracted-slots", default="0",
                     help="comma-separated slot indices that are EMPTY post-extract")
     ap.add_argument("--z-perm", required=True,
@@ -148,6 +155,7 @@ def main() -> None:
     image_commit = int(mint_meta["image_commit"], 16)
     shadow_id = image_commit % P
     seed = args.seed.encode()
+    owner_seed = (args.owner_seed or args.seed).encode()
 
     extracted = set()
     if args.extracted_slots.strip():
@@ -166,7 +174,7 @@ def main() -> None:
     print(f"  z_index_commit = {hex(z_index_commit)[:18]}...")
 
     # ---- keygen + per-slot reconstruction ----
-    owner_sk = deterministic_int_mint(seed, b"owner_sk", GRUMPKIN_ORDER - 1) + 1
+    owner_sk = deterministic_int_mint(owner_seed, b"owner_sk", GRUMPKIN_ORDER - 1) + 1
     owner_pk = ec_mul(G, owner_sk)
     assert owner_pk is not None
     owner_pk_x, owner_pk_y = owner_pk

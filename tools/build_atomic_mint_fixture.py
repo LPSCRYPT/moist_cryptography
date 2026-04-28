@@ -175,6 +175,20 @@ def build_witness(seed: bytes, image_commit: int, owner_seed: bytes | None = Non
         salt_c1_xs.append(c1_salt[0])
         salt_c1_ys.append(c1_salt[1])
 
+    # CONSISTENCY: every emitted palette_commit MUST open via sponge_palette_salt
+    # to the published palettes/palette_salts. Without this, ShadowToken.solve will
+    # revert at FeatureNFT.revealPaletteAtSolve. Old fixtures (atomic_mint_demo,
+    # atomic_mint_demo_b) violated this and stranded their on-chain shadows
+    # un-solvable -- assertion blocks any future drift.
+    for i in range(N_MINT):
+        recomputed = sponge_palette_salt(palettes[i], palette_salts[i])
+        if recomputed != palette_commits[i]:
+            raise AssertionError(
+                f"slot {i}: sponge_palette_salt({palettes[i]}, {hex(palette_salts[i])}) = "
+                f"{hex(recomputed)} != fixture palette_commit {hex(palette_commits[i])}"
+            )
+    print("      [palette_commit consistency] all 8 slots open via sponge_palette_salt")
+
     lsh_inits_root = sponge_8_pad16(lsh_inits)
     ct_commits_root = sponge_8_pad16(ct_commits)
     chain_tips_root = sponge_8_pad16(chain_tips)
