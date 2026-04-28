@@ -237,6 +237,7 @@ contract SolveShadowE2ETest is Test {
         args.plaintexts = plaintextBytes;
         args.zPermPacked = zPermPacked;
         args.zPerm = zPerm;
+        args.stateCommits = stateCommits;
         args.palettes = palettes;
         args.paletteSalts = paletteSalts;
     }
@@ -314,16 +315,17 @@ contract SolveShadowE2ETest is Test {
         st.solve(args);
     }
 
-    /// reveal-update: plaintext is now BOUND on chain via sponge_39 ==
-    /// stateCommit. Tampering plaintext changes the derived stateCommit,
-    /// which feeds PI[1], breaking proof verification.
-    function test_solve_reverts_when_plaintext_tampered() public {
+    /// reveal-update Option B: plaintext is ADVISORY at the chain layer.
+    /// Tampering args.plaintexts does NOT change args.stateCommits (which
+    /// is what the proof binds via PI[1]), so on-chain solve still passes.
+    /// Off-chain indexers MUST verify sponge_39(plaintext) == stateCommit
+    /// before trusting the FeatureSlotRevealed event payload.
+    function test_solve_plaintext_tamper_does_not_revert() public {
         ShadowToken.SolveArgs memory args = _buildArgs();
         uint8 sIdx = occupiedIdxs[0];
         args.plaintexts[sIdx][100] = bytes1(uint8(args.plaintexts[sIdx][100]) ^ 1);
         vm.prank(alice);
-        vm.expectRevert(ShadowToken.InvalidProof.selector);
-        st.solve(args);
+        st.solve(args);  // chain accepts; emit is advisory only
     }
 
     /// reveal-update: tampering a palette color makes sponge_palette_salt

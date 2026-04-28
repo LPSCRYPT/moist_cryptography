@@ -43,7 +43,7 @@ sys.path.insert(0, str(REPO))
 from secret_inbox import G, GRUMPKIN_ORDER, ec_mul  # noqa: E402
 from v2_circuit_helpers import (  # noqa: E402
     P, PLAINTEXT_FIELDS,
-    sponge_39, sponge_16,
+    sponge_39, sponge_16, sponge_palette_salt,
     poseidon2_hash_2,
     encode_plaintext_v2, pack_pose,
     ecies_encrypt_v2,
@@ -198,6 +198,22 @@ def main() -> None:
         prev_lsh_arr[i] = s["lsh"]
         state_commits[i] = s["state_commit"]
 
+    # Per-slot palette + salt: deterministic from same seed used at mint
+    # (reveal-update spec; ShadowToken.solve verifies sponge_palette_salt
+    # over (palette[16], salt) opens the chain-stored paletteCommit).
+    palettes: list[list[int]] = [[0] * 16 for _ in range(16)]
+    palette_salts = [0] * 16
+    palette_commits = [0] * 16
+    for i in occupied_slots:
+        pal = []
+        for j in range(16):
+            d = hashlib.sha256(seed + f":palette:{i}:{j}".encode()).digest()
+            pal.append(int.from_bytes(d[:3], "big") & 0xFFFFFF)
+        salt = deterministic_int_mint(seed, f"palette_salt_{i}".encode(), P)
+        palettes[i] = pal
+        palette_salts[i] = salt
+        palette_commits[i] = sponge_palette_salt(pal, salt)
+
     state_commits_root = sponge_16(state_commits)
     lsh_root = sponge_16(prev_lsh_arr)
     print(f"  state_commits_root = {hex(state_commits_root)[:18]}...")
@@ -286,6 +302,10 @@ def main() -> None:
         "owner_pk_x": bx32(owner_pk_x),
         "owner_pk_y": bx32(owner_pk_y),
         "state_commits": [bx32(v) for v in state_commits],
+        "prev_lsh_array": [bx32(v) for v in prev_lsh_arr],
+        "palettes": [[bx32(v) for v in palettes[i]] for i in range(16)],
+        "palette_salts": [bx32(v) for v in palette_salts],
+        "palette_commits": [bx32(v) for v in palette_commits],
         "prev_lsh_array": [bx32(v) for v in prev_lsh_arr],
     }
     (fix_dir / "meta.json").write_text(json.dumps(meta, indent=2))

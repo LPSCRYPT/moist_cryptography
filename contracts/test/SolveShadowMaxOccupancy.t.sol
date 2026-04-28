@@ -186,6 +186,7 @@ contract SolveShadowMaxOccupancyTest is Test {
         args.shadowId = shadowId;
         args.proof = proofSolve;
         args.plaintexts = plaintextBytes;
+        args.stateCommits = stateCommits;
         args.palettes = palettes;
         args.paletteSalts = paletteSalts;
         args.zPermPacked = zPermPacked;

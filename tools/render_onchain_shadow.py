@@ -105,6 +105,16 @@ SLOT_MUTATED_TOPIC0 = "0xaae30d030d528f20bdc7ca6fb59934e5b9fbddc5eea1976668b4ee5
 # if the event signature ever changes.
 PALETTE_REVEALED_TOPIC0 = "0xab2d50af1f432d428a788e90bfd3bdb85a1228883a22c743d48f5f763b17ee58"
 
+# keccak256("FeatureSlotRevealed(uint256,uint256,uint8,bytes)")
+# Emitted at solve when palette+plaintext are revealed atomically. The
+# event carries the 39-field plaintext (1248 bytes); indexers can render
+# the canonical NFT image WITHOUT any owner secret key, just by decoding
+# this event + the FeaturePaletteRevealed RGB.
+# Plaintext is ADVISORY at the chain layer; off-chain consumers MUST
+# verify by recomputing sponge_39(plaintext) and matching against the
+# bound stateCommit (chain-readable from the proof's PI[1] reconstruction).
+SLOT_REVEALED_TOPIC0 = "0xbede24c9a95917e60eb52a811beafa40f2319a66788254e0222abff12bb827c2"
+
 
 def _http_post(url: str, payload: dict) -> dict:
     """Tiny stdlib JSON-RPC POST; no requests dependency."""
@@ -207,6 +217,44 @@ def fetch_revealed_palettes(rpc: str, fn_addr: str, from_block: int = 0
         if fid not in by_fid or (bn, li) > by_fid[fid][:2]:
             by_fid[fid] = (bn, li, palette)
     return {fid: payload[2] for fid, payload in by_fid.items()}
+
+
+def fetch_revealed_slots(rpc: str, fn_addr: str, shadow_id: int,
+                         from_block: int = 0
+                         ) -> dict[int, bytes]:
+    """Return {slot_idx: plaintext_bytes} from FeatureSlotRevealed events
+    on FeatureNFT for the given shadowId. Each occupied slot at solve time
+    emits one event with the 39-field plaintext (1248 bytes).
+
+    The event payload is ADVISORY at the chain layer (see solve doc).
+    Indexers SHOULD verify sponge_39(plaintext) against the bound
+    stateCommit before trusting; this loader does not enforce.
+    """
+    topic0 = SLOT_REVEALED_TOPIC0
+    topic2 = "0x" + format(shadow_id, "064x")
+    print(f"[slot-reveal] querying FeatureSlotRevealed logs for shadow={hex(shadow_id)[:18]}...")
+    logs = _eth_call(rpc, "eth_getLogs", [{
+        "fromBlock": hex(from_block),
+        "toBlock":   "latest",
+        "address":   fn_addr,
+        "topics":    [topic0, None, topic2],  # any featureId, this shadow
+    }])
+    print(f"[slot-reveal] got {len(logs)} reveal events")
+    by_slot: dict[int, tuple[int, int, bytes]] = {}
+    for ev in logs:
+        slot = int(ev["topics"][3], 16) & 0xFF
+        bn = int(ev["blockNumber"], 16)
+        li = int(ev["logIndex"], 16)
+        # Data layout: offset(32, =0x20) | length(32) | plaintext_bytes(length)
+        data = bytes.fromhex(ev["data"][2:])
+        pt_len = int.from_bytes(data[32:64], "big")
+        if pt_len != PLAINTEXT_FIELDS * 32:
+            print(f"  slot {slot}: unexpected plaintext length {pt_len}; skipping")
+            continue
+        plaintext = data[64:64 + pt_len]
+        if slot not in by_slot or (bn, li) > by_slot[slot][:2]:
+            by_slot[slot] = (bn, li, plaintext)
+    return {slot: payload[2] for slot, payload in by_slot.items()}
 
 
 # ---------------------------------------------------------------------
@@ -431,26 +479,35 @@ def main() -> None:
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    chain_mode = bool(args.shadow_id and args.rpc and args.st and args.sk
-                      and args.c1_sidecar)
+    # Chain mode: needs at least shadow-id + rpc + st. sk + c1-sidecar are
+    # only required for slots not present in FeatureSlotRevealed events.
+    # For a fully solved shadow (event-decoded plaintext path), --fn is the
+    # only auxiliary requirement.
+    chain_mode = bool(args.shadow_id and args.rpc and args.st)
 
     if chain_mode:
         shadow_id = _h(args.shadow_id)
-        sk = _h(args.sk)
+        sk = _h(args.sk) if args.sk else 0
         # 1. Pull on-chain c2 per slot + slot->featureId map.
         chain_c2, fid_map = fetch_latest_c2_per_slot(
             args.rpc, args.st, shadow_id, args.from_block)
         print(f"[chain] occupied slots (chain): {sorted(chain_c2.keys())}")
 
-        # 2. Load c1 from sidecar(s).
-        c1_map = load_c1_sidecar(Path(args.c1_sidecar))
-        for ovl in args.c1_sidecar_overlay:
-            c1_map.update(load_c1_sidecar(Path(ovl)))
-        print(f"[c1] sidecar slots: {sorted(c1_map.keys())}")
+        # 2. Load c1 from sidecar(s) -- only needed for the ECIES fallback
+        #    on slots not yet event-revealed via FeatureSlotRevealed.
+        c1_map: dict[int, tuple[int, int]] = {}
+        if args.c1_sidecar:
+            c1_map = load_c1_sidecar(Path(args.c1_sidecar))
+            for ovl in args.c1_sidecar_overlay:
+                c1_map.update(load_c1_sidecar(Path(ovl)))
+            print(f"[c1] sidecar slots: {sorted(c1_map.keys())}")
+        else:
+            print("[c1] no sidecar; ECIES fallback unavailable (event-only render)")
 
-        # 3. Optionally fetch revealed palettes (best-effort; --fn required).
+        # 3. Optionally fetch revealed palettes + plaintexts (--fn required).
         revealed_palettes: dict[int, list[tuple[int, int, int]]] = {}
         slot_palettes: dict[int, list[tuple[int, int, int]]] = {}
+        revealed_slots: dict[int, bytes] = {}
         if args.fn:
             revealed_palettes = fetch_revealed_palettes(
                 args.rpc, args.fn, args.from_block)
@@ -461,24 +518,42 @@ def main() -> None:
                 print(f"[palette] revealed for slots: {sorted(slot_palettes.keys())}")
             else:
                 print("[palette] no revealed palettes for any slot; using default")
+            revealed_slots = fetch_revealed_slots(
+                args.rpc, args.fn, shadow_id, args.from_block)
+            if revealed_slots:
+                print(f"[slot-reveal] event-decoded plaintexts for slots: {sorted(revealed_slots.keys())}")
         else:
             print("[palette] --fn not provided; skipping reveal lookup (default palette)")
 
-        # 4. Per-slot decrypt and decode.
+        # 4. Per-slot decode -- prefer event plaintext if revealed (no sk
+        #    needed), else fall back to ECIES decrypt of on-chain c2.
         slots: dict[int, tuple[int, int, int, list[int]]] = {}
-        for slot, c2 in chain_c2.items():
-            if slot not in c1_map:
-                print(f"  slot {slot}: no c1 in sidecar; skipping")
-                continue
+        # Iterate the union of slots seen in either source.
+        all_slots = set(chain_c2.keys()) | set(revealed_slots.keys())
+        for slot in sorted(all_slots):
             try:
-                pt = decrypt_c2(c1_map[slot], c2, sk)
-                pose, w, h, indices = decode_plaintext_v2(pt)
+                if slot in revealed_slots:
+                    # No sk required: events are already public.
+                    pt_bytes = revealed_slots[slot]
+                    pt_fields = [int.from_bytes(pt_bytes[i * 32:(i + 1) * 32], "big")
+                                 for i in range(PLAINTEXT_FIELDS)]
+                    pose, w, h, indices = decode_plaintext_v2(pt_fields)
+                    src_tag = "event"
+                elif slot in chain_c2:
+                    if slot not in c1_map:
+                        print(f"  slot {slot}: no c1 in sidecar and not event-revealed; skipping")
+                        continue
+                    pt = decrypt_c2(c1_map[slot], chain_c2[slot], sk)
+                    pose, w, h, indices = decode_plaintext_v2(pt)
+                    src_tag = "ECIES"
+                else:
+                    continue
                 slots[slot] = (pose, w, h, indices)
                 x0, y0 = unpack_pose_xy(pose)
                 pal_tag = "revealed" if slot in slot_palettes else "default"
-                print(f"  slot {slot:2d}: decrypted -> {w}x{h} sprite at ({x0:2d},{y0:2d}) [palette: {pal_tag}]")
+                print(f"  slot {slot:2d}: {src_tag:6s} -> {w}x{h} sprite at ({x0:2d},{y0:2d}) [palette: {pal_tag}]")
             except Exception as e:
-                print(f"  slot {slot:2d}: decrypt failed: {e}")
+                print(f"  slot {slot:2d}: decode failed: {e}")
         label = "chain-decrypt"
     elif args.seed:
         print(f"[legacy] seed-derived mode for seed={args.seed!r}")
