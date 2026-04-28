@@ -173,6 +173,18 @@ pi[7]     prev_ct_commit        (sponge_42 of c2_feat -- must match chain)
 
 ### `solve_shadow`
 
+> **v2 / reveal-at-solve note (2026-04-28):** the solve flow now atomically
+> opens each occupied carrier's `paletteCommit` (16-color palette) AND
+> emits the per-slot plaintext at solve time, in addition to revealing the
+> z-permutation. The chain-bound check uses on-chain Yul Poseidon2
+> (`Poseidon2YulSpongePaletteSalt::sponge_17`), no per-carrier ZK proof.
+> Plaintext is advisory at the chain layer; off-chain indexers verify via
+> `sponge_39(plaintext) == stateCommit`. See
+> [`REVEAL_AT_SOLVE_DESIGN.md`](REVEAL_AT_SOLVE_DESIGN.md) for the full
+> design and [`DEPLOYMENT.md`](DEPLOYMENT.md) for live tx hashes on
+> pipeline #5. The historical text below describes the v1 solve circuit
+> shape and is preserved for archival continuity.
+
 > "I know the original face image and `caller_nonce`. The 8 region-slices,
 > recolored under `color`, sponge-hash to the 8 stateCommits stored at
 > mint, and `caller_nonce_commit = Poseidon2(caller_nonce)`."

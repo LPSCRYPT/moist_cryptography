@@ -67,14 +67,18 @@ contract SolveOnSepolia is Script {
         args.proof = proofSolve;
         args.zPermPacked = zPermPacked;
 
-        // Read per-slot palette + salt from meta.json. EMPTY slots get zeros.
-        // stateCommits removed -- contract derives them on chain via
-        // sponge_39(plaintext[i]).
+        // Read per-slot palette + salt + stateCommit from meta.json. EMPTY
+        // slots get zeros. stateCommits are caller-supplied (proof binds
+        // them via PI[1] = sponge_16(stateCommits)). Palettes + salts are
+        // chain-bound via sponge_palette_salt against the carrier's stored
+        // paletteCommit.
         string memory meta = vm.readFile(string.concat(fix, "/meta.json"));
         for (uint256 i = 0; i < N_SLOTS; i++) {
             ShadowToken.ManifestEntry memory mEntry =
                 st.slotOf(shadowId, uint8(i));
             if (mEntry.kind == ShadowToken.SlotKind.OCCUPIED) {
+                args.stateCommits[i] = meta.readBytes32(
+                    string.concat(".state_commits[", vm.toString(i), "]"));
                 for (uint256 c = 0; c < 16; c++) {
                     args.palettes[i][c] = meta.readBytes32(string.concat(
                         ".palettes[", vm.toString(i), "][", vm.toString(c), "]"));
@@ -82,7 +86,7 @@ contract SolveOnSepolia is Script {
                 args.paletteSalts[i] = meta.readBytes32(
                     string.concat(".palette_salts[", vm.toString(i), "]"));
             }
-            // EMPTY slots: palettes[i] and paletteSalts[i] stay zero.
+            // EMPTY slots: stateCommits[i], palettes[i], paletteSalts[i] all zero.
         }
 
         // z_perm: meta.json's perm is a JSON int array; readUint expects "0x..." or decimal.

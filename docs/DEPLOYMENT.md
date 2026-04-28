@@ -3,45 +3,46 @@
 This document records every Base Sepolia deploy of the v2 contract set
 plus the on-chain operations executed against it.
 
-**Canonical live deployment: pipeline #4** (palette-reveal-enabled).
-Pipeline #3 is preserved as historical reference; see "Historical
-pipelines" near the end of this document.
+**Canonical live deployment: pipeline #5** (full reveal at solve --
+palette + plaintext revealed atomically inside `solve()`, no separate
+verifier). Pipelines #3 and #4 preserved as historical references; see
+"Historical pipelines" near the end of this document.
 
-## Status (canonical = pipeline #4 + lifecycle exercises distributed across #3 and #4)
+## Status (canonical = pipeline #5)
 
 | Spec criterion | Pipeline | Status |
 |---|---|---|
-| Fresh contract set deployed (palette-reveal ABI) | **#4** | done -- 27 deploy txs, blocks 40,780,061-40,780,064 |
-| `registerImage` (face_disc proof) | #3 + #4 | done on both |
-| `mintShadow` (1 shadow + 8 carriers) | #3 + #4 | done on both |
-| `mutateSlot` (chained to live state) | #3 | done -- block 40,764,607 |
-| `mutateBatch` (recipient-side multi-slot) | #3 | done -- block 40,769,858 |
-| `setZIndexCommit` | #3 | done -- block 40,764,748 |
-| `extractSlot` | #3 | done -- block 40,764,834 |
-| `solve` (auto-extracts remaining carriers) | #3 | done -- block 40,765,120 |
-| `insertFeature` (cross-shadow) | #3 | done -- block 40,766,987 |
-| `transferShadow` to fresh recipient | #3 | done -- block 40,767,400 |
-| Recipient lifecycle on B (extract / setZIndex / solve from new owner) | #3 | done |
-| `transferFeature` (held-carrier rotation) | #3 | done -- block 40,772,596 |
-| `bridgeShadow` L2 leg | #3 | done -- block 40,772,843 |
+| Fresh contract set deployed (full-reveal-at-solve ABI) | **#5** | done -- 27 deploy txs, 99.7M gas |
+| `registerImage` (face_disc proof) | #5 | done |
+| `mintShadow` (1 shadow + 8 carriers, real palette + salt envelopes) | #5 | done |
+| `setZIndexCommit` | #5 | done |
+| **`solve` with palette + plaintext reveal** (item 5 spec, atomic) | **#5** | done -- tx [`0xea461ee9...`](https://sepolia.basescan.org/tx/0xea461ee94e8e41b5ed47e71589524050ea2c7545883eaeef946d211813ce1394), 8.14M gas, block 40,783,890. **8 `FeaturePaletteRevealed` + 8 `FeatureSlotRevealed` events** in single tx. |
+| Visualizer renders solved shadow WITHOUT sk | #5 | done -- `tools/render_onchain_shadow.py` decodes plaintexts from FeatureSlotRevealed events; palettes from FeaturePaletteRevealed events; canonical NFT image from chain alone |
+| `mutateSlot` (chained to live state) | #3 | done -- block 40,764,607 (legacy demo) |
+| `mutateBatch` (recipient-side multi-slot) | #3 | done -- block 40,769,858 (legacy) |
+| `extractSlot` | #3 | done -- block 40,764,834 (legacy) |
+| `insertFeature` (cross-shadow) | #3 | done -- block 40,766,987 (legacy) |
+| `transferShadow` to fresh recipient | #3 | done -- block 40,767,400 (legacy) |
+| Recipient lifecycle on B (extract / setZIndex / solve from new owner) | #3 | done (legacy) |
+| `transferFeature` (held-carrier rotation) | #3 | done -- block 40,772,596 (legacy) |
+| `bridgeShadow` L2 leg | #3 | done -- block 40,772,843 (legacy) |
 | `bridgeShadow` L1 finalize | n/a | calendar-bound (~7d OP Stack window) |
-| **`revealPalette`** (item 5) | **#4** | done -- block 40,780,277 |
-| ECIES decrypt visualizer | #3 + #4 | done -- `tools/render_onchain_shadow.py` (`--fn` for revealed palettes) |
 
-**Lifecycle exercise split**: pipeline #3 carries the rich behavioural
-history (16 entry-point txs covering the full mutation/transfer/bridge
-story), pipeline #4 carries the palette-reveal demonstration. Both are
-live; both work for what they support. The split exists because the
-palette-reveal ABI is a breaking change against the FeatureNFT at #3.
-
-**Open redesign work**: the current `revealPalette` implementation is a
-standalone owner-callable function. Per spec, palette reveal should be
-atomic with `solve` (one-time, one-way, simultaneous reveal +
-freeze + bridge-eligibility). Redesign would obsolete the standalone
-`revealPalette` + the `palette_reveal_v2` circuit/verifier and integrate
-palette commitment opening into the solve flow via on-chain Yul Poseidon2
-(no separate proof). That would require pipeline #5.
-
+**Reveal architecture** (pipeline #5):
+  * `FeatureNFT.revealPaletteAtSolve(featureId, shadowId, slotIdx, palette[16],
+    salt, plaintext)` -- ShadowToken-only. Verifies
+    `sponge_palette_salt(palette, salt) == storedPaletteCommit` via the
+    new `Poseidon2YulSpongePaletteSalt` Yul contract (no ZK proof needed;
+    soundness via Poseidon2 collision-resistance). Sets `paletteRevealed`,
+    emits `FeaturePaletteRevealed(fid, commit, rgb_48b)` +
+    `FeatureSlotRevealed(fid, shadowId, slotIdx, plaintext_1248b)`.
+  * `ShadowToken.solve()` calls `revealPaletteAtSolve` per occupied slot,
+    then auto-extracts. Plaintext is advisory at the chain layer
+    (off-chain indexers verify `sponge_39(plaintext) == stateCommit`,
+    where `stateCommit` is bound by the proof's PI[1]).
+  * Removed: `revealPalette()` standalone fn, `palette_reveal_v2`
+    circuit + verifier, `setPaletteRevealVerifier`. Replaced by the
+    on-chain Yul sponge_17 + per-slot reveal at solve.
 ---
 
 ## Network
@@ -52,33 +53,38 @@ palette commitment opening into the solve flow via on-chain Yul Poseidon2
   lower per-tx envelope caps)
 - Deployer EOA: `0x1b43AFe43afC74bF9D0EBd764787eFD7CCcC2B6F`
 
-## Contract addresses (canonical = pipeline #4)
+## Contract addresses (canonical = pipeline #5)
 
-Deploy commit: `c4674e6` -- `palette_reveal_v2: live on Base Sepolia (pipeline #4)`.
-Deployed 2026-04-28, blocks 40,780,061-40,780,064.
+Deploy commit: `3e08ad1` -- `reveal-update: Option B (cheap) + visualizer + tooling`.
+Deployed 2026-04-28.
 
 | Contract | Address |
 |---|---|
-| `Poseidon2YulSponge` (sponge_39) | [`0x36E5A53dd45eB318C3373486ABe854e80b7451CD`](https://sepolia.basescan.org/address/0x36E5A53dd45eB318C3373486ABe854e80b7451CD) |
-| `Poseidon2YulSponge16` (sponge_16) | [`0x44c498f8B871B8F6ADbEfD28E25EE96748d8258a`](https://sepolia.basescan.org/address/0x44c498f8B871B8F6ADbEfD28E25EE96748d8258a) |
-| `KeyRegistry` | [`0x402DCD8f6C615f89D9C34fb6928F4D69e39b3Aa1`](https://sepolia.basescan.org/address/0x402DCD8f6C615f89D9C34fb6928F4D69e39b3Aa1) |
-| `ShadowToken` | [`0xe5089e09D7B8393fE37bC2e53E6a44CCD534Ef88`](https://sepolia.basescan.org/address/0xe5089e09D7B8393fE37bC2e53E6a44CCD534Ef88) |
-| `FeatureNFT` | [`0x578eda36Dc4750c35c29E5F12a0789DaD35e2072`](https://sepolia.basescan.org/address/0x578eda36Dc4750c35c29E5F12a0789DaD35e2072) |
-| `MintShadowVerifier` | [`0x983831dFB2bF827c8689aD2e3bEa202Bc26Fd969`](https://sepolia.basescan.org/address/0x983831dFB2bF827c8689aD2e3bEa202Bc26Fd969) |
-| `FaceDiscVerifier` | [`0xd00E4a5e45A770EA54A295b4748e40F9D5539965`](https://sepolia.basescan.org/address/0xd00E4a5e45A770EA54A295b4748e40F9D5539965) |
-| `MutateSlotVerifier` | [`0x9C879431001Fa90CaD81d0342d61c12D298C0aD8`](https://sepolia.basescan.org/address/0x9C879431001Fa90CaD81d0342d61c12D298C0aD8) |
-| `T10ShadowVerifier` | [`0x1f559689D500b91e07a05432318F1eBBF0637112`](https://sepolia.basescan.org/address/0x1f559689D500b91e07a05432318F1eBBF0637112) |
-| `ZIndexCommitVerifier` | [`0x47E1ACF2131De8c68d2940773ceC946d1F707f10`](https://sepolia.basescan.org/address/0x47E1ACF2131De8c68d2940773ceC946d1F707f10) |
-| `TransferShadowVerifier` | [`0x3240377E7C2947E7A3a1b6f62f0575cea111157e`](https://sepolia.basescan.org/address/0x3240377E7C2947E7A3a1b6f62f0575cea111157e) |
-| `SolveShadowVerifier` | [`0x87371A7C174fDB97215778CF0EFAcd27CA0812F6`](https://sepolia.basescan.org/address/0x87371A7C174fDB97215778CF0EFAcd27CA0812F6) |
-| `TransferFeatureV2Verifier` | [`0xa85eCAcD44D6A6a0659DdcA9d9f3901a2BB4C291`](https://sepolia.basescan.org/address/0xa85eCAcD44D6A6a0659DdcA9d9f3901a2BB4C291) |
-| `PaletteRevealV2Verifier` | [`0x4ef46EFa1484d4981498Fa99e3eE1a580f4EF3D8`](https://sepolia.basescan.org/address/0x4ef46EFa1484d4981498Fa99e3eE1a580f4EF3D8) |
+| `Poseidon2YulSponge` (sponge_39) | [`0xe57AB0963Aa9eD22193910Ed24CeE188003126fA`](https://sepolia.basescan.org/address/0xe57AB0963Aa9eD22193910Ed24CeE188003126fA) |
+| `Poseidon2YulSponge16` (sponge_16) | [`0x43a58e82c7D2C3464299780512Ac9fB96971Ec68`](https://sepolia.basescan.org/address/0x43a58e82c7D2C3464299780512Ac9fB96971Ec68) |
+| **`Poseidon2YulSpongePaletteSalt`** (sponge_17, NEW) | [`0x3515BD5118d92513B4751051ed5bD9ed274330b8`](https://sepolia.basescan.org/address/0x3515BD5118d92513B4751051ed5bD9ed274330b8) |
+| `KeyRegistry` | [`0xA71143F4E5bB5a11C98e9A1eE8D02b4344f3a2eE`](https://sepolia.basescan.org/address/0xA71143F4E5bB5a11C98e9A1eE8D02b4344f3a2eE) |
+| `ShadowToken` | [`0xbf9f3FC142f497774986345F027d3eaCa7Eba810`](https://sepolia.basescan.org/address/0xbf9f3FC142f497774986345F027d3eaCa7Eba810) |
+| `FeatureNFT` | [`0x414606aBa41297a4Dc71F2603453177885499f16`](https://sepolia.basescan.org/address/0x414606aBa41297a4Dc71F2603453177885499f16) |
+| `MintShadowVerifier` | [`0xF22Cc89703CA4159928f50Ca9c490586A2cd2fc4`](https://sepolia.basescan.org/address/0xF22Cc89703CA4159928f50Ca9c490586A2cd2fc4) |
+| `FaceDiscVerifier` | [`0x96f6CfBc8526a1fc76827140d701A5D7B924d1e9`](https://sepolia.basescan.org/address/0x96f6CfBc8526a1fc76827140d701A5D7B924d1e9) |
+| `MutateSlotVerifier` | [`0xD513070B6E0A832efA4A4B79d63Ce8668f233Aa9`](https://sepolia.basescan.org/address/0xD513070B6E0A832efA4A4B79d63Ce8668f233Aa9) |
+| `T10ShadowVerifier` | [`0xaFFD93687B99A358A704A8caffeaAf57A59f5CBC`](https://sepolia.basescan.org/address/0xaFFD93687B99A358A704A8caffeaAf57A59f5CBC) |
+| `ZIndexCommitVerifier` | [`0x7AE1a5B0bCC92f504a3d1E0dB0465d6ebee67a24`](https://sepolia.basescan.org/address/0x7AE1a5B0bCC92f504a3d1E0dB0465d6ebee67a24) |
+| `TransferShadowVerifier` | [`0x6Bc27317aCcc5ce53B78e4Ac2377683974154089`](https://sepolia.basescan.org/address/0x6Bc27317aCcc5ce53B78e4Ac2377683974154089) |
+| `SolveShadowVerifier` | [`0x3c9aE7A736003e19De09BAF645f0C175344476b5`](https://sepolia.basescan.org/address/0x3c9aE7A736003e19De09BAF645f0C175344476b5) |
+| `TransferFeatureV2Verifier` | [`0x3656b49d2F9A642A7c9d212b42e87495570B9560`](https://sepolia.basescan.org/address/0x3656b49d2F9A642A7c9d212b42e87495570B9560) |
+
+**No** `PaletteRevealV2Verifier` -- replaced by the on-chain
+`Poseidon2YulSpongePaletteSalt` (sponge_17). Soundness flows from the
+chain-stored `paletteCommit` storage check + Poseidon2 collision-
+resistance, not from a per-carrier ZK proof.
 
 Wiring: every privileged setter is one-shot and locked after deploy.
-Pipeline #4's `DeployShadowPipeline.s.sol` deploys all 14 contracts and
+Pipeline #5's `DeployShadowPipeline.s.sol` deploys all 14 contracts and
 wires every verifier slot in a single broadcast.
 
-## Deploy run (pipeline #4)
+## Deploy run (pipeline #5)
 
 ```
 forge script script/DeployShadowPipeline.s.sol:DeployShadowPipeline \
@@ -86,11 +92,54 @@ forge script script/DeployShadowPipeline.s.sol:DeployShadowPipeline \
     --private-key $PRIVATE_KEY
 ```
 
-Total gas: 68,022,941 across 27 setup txs. Cost ~0.000748 Sepolia ETH.
+Total gas: 99,673,531 across 27 setup txs. Cost ~0.001 Sepolia ETH.
 No single tx exceeded EIP-170; per-tx CREATE never breaks the 16M cap.
 
 Broadcast artifact:
 `contracts/broadcast/DeployShadowPipeline.s.sol/84532/run-latest.json`
+
+---
+
+## Pipeline #5 lifecycle (canonical demo)
+
+Shadow A' on pipeline #5 has `shadowId =
+`0x011c687ec30b886164f6506b5ad3972fbe295f2e1da1047bd782d686c645d52a` 
+(deterministic from the `face_disc/alice0` fixture; collides with #3
+and #4's shadow A by design -- different deployments, same math).
+
+| # | Action | Tx | Block | Gas |
+|---|---|---|---:|---:|
+| 1 | `KeyRegistry.register` (deployer) | (run-latest.json) | -- | -- |
+| 2 | `registerImage` | (run-latest.json) | -- | -- |
+| 3 | `mintShadow` (1 shadow + 8 carriers, real palette + salt envelopes) | (run-latest.json) | -- | -- |
+| 4 | `setZIndexCommit` | (run-latest.json) | -- | -- |
+| 5 | **`solve`** (palette + plaintext atomic reveal) | [`0xea461ee9...`](https://sepolia.basescan.org/tx/0xea461ee94e8e41b5ed47e71589524050ea2c7545883eaeef946d211813ce1394) | 40,783,890 | **8,137,657** |
+
+Solve emits per occupied slot:
+  * `FeaturePaletteRevealed(featureId, paletteCommit, bytes paletteRGB_48)`
+  * `FeatureSlotRevealed(featureId, shadowId, slotIdx, bytes plaintext_1248)`
+
+8 occupied carriers → 8 of each event in one tx. Auto-extracts all
+carriers (manifest cleared, `paletteRevealed` flipped, `solved=true`,
+`zIndexRevealed` written).
+
+**Visualizer events-only path (no sk required):**
+
+```bash
+python3 tools/render_onchain_shadow.py \
+  --shadow-id 0x011c687ec30b886164f6506b5ad3972fbe295f2e1da1047bd782d686c645d52a \
+  --rpc https://base-sepolia.gateway.tenderly.co \
+  --st 0xbf9f3FC142f497774986345F027d3eaCa7Eba810 \
+  --fn 0x414606aBa41297a4Dc71F2603453177885499f16 \
+  --from-block 40780000 \
+  --out-dir /tmp/shadow_p5_render
+```
+
+Output: 8 sprite PNGs + composite + strip, all rendered with the actual
+16-color palettes from `FeaturePaletteRevealed` events and the actual
+plaintexts from `FeatureSlotRevealed` events. Confirms the canonical NFT
+image is fully derivable from chain state alone -- no owner cooperation,
+no off-chain decrypt key required.
 
 ---
 
