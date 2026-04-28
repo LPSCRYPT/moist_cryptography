@@ -35,96 +35,206 @@ Where the proofs come from, where they get verified, and how a solved
 shadow eventually mints a mirror NFT on L1.
 
 ```
-  ┌────────────────────────────────────────────────────────────────────────┐
-  │ EOAs    deployer 0x1b43AFe4···   ·   PK2 0xFD90Bd22···                 │
-  └────────────────────────────────────────────────────────────────────────┘
-       │ A. signs txs carrying ZK proofs
-       ▼
-  ┌────────────────────────────────────────────────────────────────────────┐
-  │ Off-chain prover toolchain                                             │
-  │   Python builders (build_*_onchain.py) + slot_state.py                 │
-  │     → Prover.toml                                                      │
-  │   Noir circuits (nargo) → bb UltraHonk(keccak), verifier_target=evm    │
-  │     → proof.bin + public_inputs.bin                                    │
-  │                                                                        │
-  │   face_disc · landmark_regions_v2 · mutate_slot / mutate_batch         │
-  │   extract_slot · insert_feature · transfer_shadow / transfer_feature_v2│
-  │   zindex_commit · shadow_t10 · solve_shadow_v2                         │
-  └────────────────────────────────────────────────────────────────────────┘
-       │ B. forge script broadcast (proof bytes + caller PI fields)
-       ▼
-  ┌────────────────────────────────────────────────────────────────────────┐
-  │ Base Sepolia (L2) — pipeline #5                                        │
-  │                                                                        │
-  │   KeyRegistry           ShadowToken            FeatureNFT              │
-  │    pkOf(EOA)      ───►   shadows[id]     ───►   ERC721 carriers        │
-  │    Grumpkin owner_pk     manifest[16]           paletteCommit          │
-  │    binds proof PI        isSolved               liveStateHash          │
-  │                          zCommit, T10                                  │
-  │                                │                    │                  │
-  │                                ▼                    ▼                  │
-  │                       8 Honk verifiers        Yul Poseidon2            │
-  │                       Mint, Mutate(+Batch),    sponge_16               │
-  │                       T10, ZIdx, Solve,        sponge_palette_salt(17) │
-  │                       TransferShadow,          (palette opens at solve │
-  │                       FaceDisc,                 via on-chain Poseidon2;│
-  │                       TransferFeatureV2          no ZK proof needed)   │
-  │                                │                                       │
-  │                                ▼                                       │
-  │                       ShadowBridgeL2 #5b                               │
-  │                        0x49A8d60114C4869D2f0422c8e5b1f9442f5e4529      │
-  │                        bridgeShadow(id, revealedPi):                   │
-  │                          custody-lock ERC721 +                         │
-  │                          L2 CDM sendMessage(L1Mirror, payload)         │
-  │                                                                        │
-  │   D. solve emits 8 × FeaturePaletteRevealed (palette + salt)           │
-  │               + 8 × FeatureSlotRevealed   (39-field plaintext)         │
-  └────────────────────────────────────────────────────────────────────────┘
-       │ C. OP-Stack L2→L1 message
-       │   output proposal (~1 h)
-       │   7-day challenge window
-       │   proveWithdrawal + finalizeWithdrawal
-       ▼
-  ┌────────────────────────────────────────────────────────────────────────┐
-  │ Eth Sepolia (L1)                                                       │
-  │                                                                        │
-  │   ShadowMirrorL1   0xe9B8b1DddaEC95C165B0c4aE55Ea13FeAAC79042          │
-  │     mintFromBridge(payload):                                           │
-  │       ERC721 mirror NFT to recipient                                   │
-  │       + per-slot lineage (typeIdx, originFaceId, paletteCommit)        │
-  │       + revealedPi blob (full solve PI; off-chain renders read this)   │
-  └────────────────────────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │ 1.  Actors                                                                   │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ deployer  0x1b43AFe43afC74bF9D0EBd764787eFD7CCcC2B6F   (Base + Eth Sepolia)  │
+  │ PK2       0xFD90Bd22EDA6f54EBA3587E6a3642AB3B5236Ca2                         │
+  │                                                                              │
+  │ Each EOA registers its Grumpkin pk in KeyRegistry once.                      │
+  │ After that, every state-mutating tx for that EOA carries a proof whose       │
+  │ PI[owner_pk_x, owner_pk_y] must equal pkOf(msg.sender).                      │
+  └──────────────────────────────────────────────────────────────────────────────┘
+         │  A. owner builds a fixture (witness + proof) off-chain
+         ▼
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │ 2.  Off-chain prover stack    (Python + Noir + bb UltraHonk)                 │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ Inputs                                                                       │
+  │   · 48×48 RGB face image           alice0, bob0, carol0, …                   │
+  │   · slot-spec JSON                 per-slot pre-state of the shadow          │
+  │   · seeds                          Grumpkin sk; ECIES nonces; palette        │
+  │                                                                              │
+  │ Pipeline                                                                     │
+  │   tools/slot_state.py        rebuilds per-slot state by kind                 │
+  │                              { mint, post-mutate-single,                     │
+  │                                post-mutate-batch, post-insert }              │
+  │   tools/build_*_onchain.py   emits Prover.toml for the right circuit         │
+  │   nargo execute              solves the witness                              │
+  │   bb prove                   emits proof.bin + public_inputs.bin             │
+  │                              (UltraHonk, oracle_hash=keccak,                 │
+  │                               verifier_target=evm)                           │
+  │                                                                              │
+  │ Eleven circuits, eight on-chain Honk verifiers                               │
+  │ (mutate_slot reused by mutate_batch; landmark_regions_v2 + face_disc         │
+  │ both verify at mintShadow + registerImage; rest are 1-to-1)                  │
+  │                                                                              │
+  │   face_disc                  → registerImage gate                            │
+  │   landmark_regions_v2        → mintShadow witness                            │
+  │   mutate_slot                → mutateSlot   (single)                         │
+  │                              → mutateBatch (called twice in same tx)         │
+  │   extract_slot               → extractSlot                                   │
+  │   insert_feature             → insertFeature                                 │
+  │   transfer_shadow            → transferShadow  (rotates all 16 slots)        │
+  │   transfer_feature_v2        → transferFeature (held-carrier rotation)       │
+  │   zindex_commit              → setZIndexCommit                               │
+  │   shadow_t10                 → bundled with mutate / setZIndex / solve       │
+  │   solve_shadow_v2            → solve  (PI + chain palette open + freeze)     │
+  └──────────────────────────────────────────────────────────────────────────────┘
+         │  B. forge script broadcasts tx; verifier reads PI from proof bytes
+         ▼
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │ 3.  Base Sepolia (L2)  —  pipeline #5  canonical                             │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ KeyRegistry            0xA71143F4E5bB5a11C98e9A1eE8D02b4344f3a2eE            │
+  │   pkOf(EOA) → (Grumpkin pk_x, pk_y);  one-shot register per EOA.             │
+  │   Every proof-bound entry point reads pkOf(msg.sender) and asserts           │
+  │   it matches the proof's owner_pk PI fields.                                 │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ ShadowToken    0xbf9f3FC142f497774986345F027d3eaCa7Eba810   ERC721           │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ shadows[id]    { ecdhPubX/Y, t10Hi/Lo, zIndexCommit, zIndexRevealed,         │
+  │                  solved }                                                    │
+  │ manifest[id][16]    ManifestEntry { kind, featureId, liveStateHash }         │
+  │ registeredImages[imageCommit]   set by registerImage (1-shot)                │
+  │ mintedOrigins[imageCommit]      set by mintShadow    (1-shot)                │
+  │                                                                              │
+  │ Entry points and the verifier each invokes:                                  │
+  │   registerImage       → FaceDiscVerifier                                     │
+  │   mintShadow          → MintShadowVerifier  + ShadowT10Verifier              │
+  │   mutateSlot          → MutateSlotVerifier  + ShadowT10Verifier              │
+  │   mutateBatch         → MutateSlotVerifier ×2  + ShadowT10Verifier           │
+  │   extractSlot         → ShadowT10Verifier   (FeatureNFT.mint side)           │
+  │   insertFeature       → ShadowT10Verifier   (lsh checkpoint check)           │
+  │   setZIndexCommit     → ZIndexCommitVerifier + ShadowT10Verifier             │
+  │   transferShadow      → TransferShadowVerifier + ShadowT10Verifier           │
+  │   solve               → SolveShadowVerifier + per-slot palette open          │
+  │   bridgeShadow        → no ZK (requires isSolved + ownership)                │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ FeatureNFT    0x414606aBa41297a4Dc71F2603453177885499f16   ERC721            │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ features[id]   { typeIdx, originFaceId, paletteCommit,                       │
+  │                  liveStateHashCheckpoint, paletteRevealed,                   │
+  │                  hostShadowId or 0  (custody-locked while inserted) }        │
+  │                                                                              │
+  │ paletteCommit  immutable, set at mint via mintAtShadowMint(...)              │
+  │                opened at solve via revealPaletteAtSolve(...)  which          │
+  │                recomputes sponge_palette_salt(palette,salt) on chain         │
+  │                and asserts == features[id].paletteCommit.                    │
+  │ ERC721 transferFrom is GATED — reverts while a carrier is inserted           │
+  │                in a shadow OR the host has not yet been solved.              │
+  │ transferFeature(id, args)  →  TransferFeatureV2Verifier  (ZK, rotates        │
+  │                ECIES of a held carrier to a fresh recipient pk).             │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ Yul Poseidon2 sponges    (Solidity-Yul, no ZK)                               │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ Poseidon2YulSponge16              sponge_16(field[16])                       │
+  │                                     → manifest LSH root                      │
+  │                                     → zIndexCommit (perm of [0..15])         │
+  │ Poseidon2YulSpongePaletteSalt     sponge_palette_salt(palette[16], salt)     │
+  │                                     → 17-input opener for paletteCommit      │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ ShadowBridgeL2 #5b    0x49A8d60114C4869D2f0422c8e5b1f9442f5e4529             │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ bridgeShadow(id, revealedPi):                                                │
+  │   require(isSolved(id) && ownerOf(id) == msg.sender)                         │
+  │   shadowToken.transferFrom(owner, bridge, id)        ── custody lock         │
+  │   L2CrossDomainMessenger(0x4200000…0007).sendMessage(                        │
+  │       l1Mirror = 0xe9B8b1Dd…,                                                │
+  │       abi.encode(mintFromBridge.selector, payload),                          │
+  │       DEFAULT_L1_GAS_LIMIT)                                                  │
+  │                                                                              │
+  │ payload = { shadowId, recipient, ecdhPub, t10, zIndex,                       │
+  │             manifest[16], typeIdxs[16], originFaceIds[16],                   │
+  │             paletteCommits[16], revealedPi (raw solve PI bytes) }            │
+  │                                                                              │
+  │ unbridgeShadow(id, l2Recipient)   incoming round-trip from L1                │
+  │   require(msg.sender == L2_MESSENGER &&                                      │
+  │           xDomainMessageSender() == l1Mirror)                                │
+  │   require(bridged[id] == OWNED_ON_L1)                                        │
+  │   shadowToken.transferFrom(bridge, l2Recipient, id)                          │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ Events emitted by the lifecycle (the indexer surface)                        │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ ImageRegistered(imageCommit)                                                 │
+  │ ShadowMinted(shadowId, owner, ecdhPub, t10)                                  │
+  │ ShadowSlotMutated(shadowId, slotIdx, ctCommit, c1, lsh, count)               │
+  │ SlotExtracted(shadowId, slotIdx, featureId, finalLsh)                        │
+  │ SlotInserted(shadowId, slotIdx, featureId, newLsh, newCount)                 │
+  │ ZIndexCommitSet(shadowId, newCommit)                                         │
+  │ ShadowTransferred(shadowId, fromOwner, toOwner, newEcdhPub, newT10)          │
+  │ ShadowSolved(shadowId, owner, zIndexRevealed)                                │
+  │ FeaturePaletteRevealed(featureId, paletteCommit, palette, salt)   × 8        │
+  │ FeatureSlotRevealed   (featureId, shadowId, slotIdx, plaintext)   × 8        │
+  │ ShadowBridged(shadowId, sender, messageHash)                                 │
+  └──────────────────────────────────────────────────────────────────────────────┘
+         │  C. solve emits 16 events per shadow (8 palette + 8 slot);
+         │     bridgeShadow custody-locks the ERC721 + dispatches an L2→L1 msg.
+         ▼
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │ 4.  OP-Stack L2→L1 withdrawal path                                           │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ L2 tx included in a Base Sepolia block                                       │
+  │         │                                                                    │
+  │         │  ~1 h     L2OutputOracle proposes L2 output root on L1             │
+  │         ▼                                                                    │
+  │ Withdrawal entered into the L1 OptimismPortal                                │
+  │         │                                                                    │
+  │         │  anyone   proveWithdrawalTransaction(...)                          │
+  │         ▼                                                                    │
+  │ Challenge window  (7 days on Sepolia)                                        │
+  │         │                                                                    │
+  │         │  anyone   finalizeWithdrawalTransaction(...)                       │
+  │         ▼                                                                    │
+  │ L1CrossDomainMessenger relays → ShadowMirrorL1.mintFromBridge                │
+  └──────────────────────────────────────────────────────────────────────────────┘
+         │  finalize delivers the bridge payload to L1
+         ▼
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │ 5.  Eth Sepolia (L1)                                                         │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ ShadowMirrorL1   0xe9B8b1DddaEC95C165B0c4aE55Ea13FeAAC79042   ERC721         │
+  │                                                                              │
+  │ mintFromBridge(payload):                                                     │
+  │   require(msg.sender == l1Messenger)                                         │
+  │   require(xDomainMessageSender() == l2Bridge)   // 0x49A8d6…                 │
+  │   require(!mintedFromBridge[shadowId])          // anti-replay               │
+  │   _mirrors[id] = MirrorState from payload                                    │
+  │   _revealedPi[id] = payload.revealedPi                                       │
+  │   _mint(payload.recipient, shadowId)            // ERC721 mirror NFT         │
+  │   emit ShadowMirrored(shadowId, recipient, t10Hi, t10Lo)                     │
+  │                                                                              │
+  │ burnAndUnbridge(id, l2Recipient):                                            │
+  │   require(ownerOf(id) == msg.sender)                                         │
+  │   _burn(id); delete state                                                    │
+  │   L1CrossDomainMessenger.sendMessage(l2Bridge,                               │
+  │       abi.encode("unbridgeShadow(uint256,address)", id, l2Recipient))        │
+  └──────────────────────────────────────────────────────────────────────────────┘
 
-  Off-chain consumers — anyone, no key required post-solve:
+  ───────────  off-chain consumers (parallel to the chain)  ───────────
 
-  ┌────────────────────────────────────────────────────────────────────────┐
-  │ Visualizer / indexer     tools/render_onchain_shadow.py                │
-  │   D. events → palette[16] + plaintext[39] per occupied slot            │
-  │   → 8 sprite PNGs + 48×48 composite     ──► E. EOA reads sprites       │
-  │                                                                        │
-  │   pre-solve:  needs owner --sk to decrypt ECIES envelope               │
-  │   post-solve: events alone are sufficient                              │
-  └────────────────────────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │ 6.  Visualizer / indexer    tools/render_onchain_shadow.py                   │
+  ├──────────────────────────────────────────────────────────────────────────────┤
+  │ Two render modes, distinguished by what events the chain has emitted:        │
+  │                                                                              │
+  │ POST-SOLVE  (canonical, anyone can render)                                   │
+  │   eth_getLogs → 8× FeaturePaletteRevealed   palette + salt                   │
+  │               + 8× FeatureSlotRevealed     39-field plaintext                │
+  │   → palette[16] + plaintext per occupied slot, no decryption needed          │
+  │                                                                              │
+  │ PRE-SOLVE   (owner-only)                                                     │
+  │   eth_getLogs → ShadowSlotMutated*          per-slot ECIES c2 history        │
+  │   + owner --sk + per-slot c1 sidecar from build_*_onchain meta               │
+  │   → ECDH(sk, c1) → AES key → decrypt c2 → plaintext                          │
+  │                                                                              │
+  │ Both modes pipe through decode_plaintext_v2 to render                        │
+  │   · 8 sprite PNGs  · 48×48 composite  · sprite strip                         │
+  └──────────────────────────────────────────────────────────────────────────────┘
+         │  D. anyone (post-solve) or the owner (pre-solve) reads the rendered art
+         ▼
 ```
 
-**Flow:**
-  - **A.** Owner builds a fixture (witness + proof) off-chain. Each
-    builder takes a slot-spec describing the shadow's per-slot state
-    (`mint`, `post-mutate-single/batch`, `post-insert`).
-  - **B.** A `forge script` broadcasts a single tx carrying the proof
-    bytes + caller-supplied PI fields (lsh array, palette + salt at
-    solve time, etc.).
-  - **C.** Solved shadows can `bridgeShadow` to L2 bridge #5b, which
-    custody-locks the ERC721 and fires an OP-Stack L2→L1 message.
-    After the 7-day challenge window, anyone can finalize on L1 to
-    mint the mirror NFT.
-  - **D.** Solve emits 8 `FeaturePaletteRevealed` + 8
-    `FeatureSlotRevealed` events in one tx. Together they carry the
-    full 16-color palette + 39-field plaintext per slot — enough for
-    an indexer to render the canonical 48×48 sprite with no owner
-    cooperation.
-  - **E.** Pre-solve, the owner uses their Grumpkin sk to decrypt the
-    chain-stored ECIES envelope; post-solve, the events are sufficient.
 
 ## What's in this repo
 
