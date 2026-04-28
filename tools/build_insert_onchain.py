@@ -262,33 +262,59 @@ def build_insert_witness(seed: bytes, src_state: dict, host_shadow_id: int,
     }
 
 
+def overrides_from_fixture(fix: Path) -> dict[int, int]:
+    """Return {slot: new_lsh} from a single-slot or batch mutate fixture."""
+    meta = json.loads((fix / "meta.json").read_text())
+    out: dict[int, int] = {}
+    kind = meta.get("kind", "")
+    if kind == "onchain_mutate":
+        out[meta["slot_idx"]] = int(meta["new_lsh"], 16)
+    elif kind in ("onchain_mutate_batch", "onchain_mutate_batch_b"):
+        for key in ("slot_a", "slot_b"):
+            entry = meta[key]
+            out[entry["slot_idx"]] = int(entry["new_lsh"], 16)
+    else:
+        sys.exit(f"unsupported fixture kind {kind!r} at {fix}")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--src-mint-fixture", required=True,
-                    help="Path to atomic_mint fixture for the carrier's source shadow A")
+                    help="Path to atomic_mint fixture for the carrier's source shadow")
     ap.add_argument("--host-mint-fixture", required=True,
-                    help="Path to atomic_mint fixture for the host shadow B (provides B's lsh_inits for T10)")
+                    help="Path to atomic_mint fixture for the host shadow (provides lsh_inits for T10).")
     ap.add_argument("--src-seed", default="atomic_mint_demo",
-                    help="Seed used to build src-mint-fixture (and to derive owner_sk/c1/c2)")
-    ap.add_argument("--src-slot", type=int, default=1,
-                    help="Carrier source slot in A (default 1; use slot 1..7 for never-mutated carriers)")
-    ap.add_argument("--host-target-slot", type=int, default=8,
-                    help="Target empty slot in B (default 8; valid 8..15 since B's mint occupies 0..7)")
+                    help="Seed used to build src-mint-fixture (drives r_i + palette_commit)")
+    ap.add_argument("--src-owner-seed", default=None,
+                    help="Owner-key seed for src; defaults to --src-seed.")
+    ap.add_argument("--src-mint-counter-base", type=int, default=0,
+                    help="Global FeatureNFT.mintCounter when src shadow's mint started.")
+    ap.add_argument("--src-slot", type=int, required=True,
+                    help="Source slot in src shadow (0..7) where the carrier originated. "
+                         "Carrier must have been at mint state when extracted.")
+    ap.add_argument("--host-target-slot", type=int, required=True,
+                    help="Empty target slot in host shadow (0..15).")
+    ap.add_argument("--host-pre-mutated-fixture", action="append", default=[],
+                    help="Single-slot or batch mutate fixture whose new_lsh "
+                         "overrides the corresponding host slot in the post-insert T10. "
+                         "Pass multiple times.")
+    ap.add_argument("--host-emptied-slots", default="",
+                    help="Comma-separated list of host slot indices that have been "
+                         "extracted (lsh=0 in post-insert T10).")
+    ap.add_argument("--host-z-commit", default="0",
+                    help="Host shadow's current zIndexCommit (hex; default 0).")
     ap.add_argument("--chain-id", type=int, default=84532)
     ap.add_argument("--carrier-checkpoint", default=None,
                     help="Optional 0x-hex of liveStateHashCheckpointOf(feature_id) read from chain. "
-                         "If supplied, asserted equal to the seed-reconstructed lsh at startup.")
+                         "If supplied, asserted equal to the seed-reconstructed lsh.")
     ap.add_argument("--out-seed", default=None)
     args = ap.parse_args()
 
-    if args.src_slot == 0:
-        sys.exit("--src-slot 0 unsupported: shadow A's slot 0 was mutated before extract; "
-                 "reconstruction logic here only handles never-mutated carriers (slots 1..7)")
-    if args.src_slot < 1 or args.src_slot > 7:
-        sys.exit(f"--src-slot must be in 1..7, got {args.src_slot}")
-    if args.host_target_slot < 8 or args.host_target_slot > 15:
-        sys.exit(f"--host-target-slot must be in 8..15 (B's slots 0..7 are minted occupied), "
-                 f"got {args.host_target_slot}")
+    if not (0 <= args.src_slot <= 7):
+        sys.exit(f"--src-slot must be in 0..7, got {args.src_slot}")
+    if not (0 <= args.host_target_slot <= 15):
+        sys.exit(f"--host-target-slot must be in 0..15, got {args.host_target_slot}")
 
     src_fix = Path(args.src_mint_fixture)
     host_fix = Path(args.host_mint_fixture)
@@ -300,29 +326,29 @@ def main() -> None:
     src_meta = json.loads((src_fix / "meta.json").read_text())
     host_meta = json.loads((host_fix / "meta.json").read_text())
     src_image_commit = int(src_meta["image_commit"], 16)
-    host_image_commit = int(host_meta["image_commit"], 16)
-    src_lsh_inits = [int(x, 16) for x in src_meta["lsh_inits"]]
     host_lsh_inits = [int(x, 16) for x in host_meta["lsh_inits"]]
     src_shadow_id = int(src_meta["shadow_id"], 16)
     host_shadow_id = int(host_meta["shadow_id"], 16)
-    assert len(src_lsh_inits) == len(host_lsh_inits) == 8
+    assert len(host_lsh_inits) == 8
 
     src_seed = args.src_seed.encode()
+    src_owner_seed = args.src_owner_seed.encode() if args.src_owner_seed else None
     print(f"[onchain_insert fixture] src_slot={args.src_slot} host_slot={args.host_target_slot}")
     print(f"  src shadow_id  = {hex(src_shadow_id)[:18]}...")
     print(f"  host shadow_id = {hex(host_shadow_id)[:18]}...")
+    if src_shadow_id == host_shadow_id:
+        print("  (cross-host insertion to SAME shadow -- carrier returns to home)")
 
     # ---- 1. Reconstruct carrier state from src seed ----
     print(f"[1/4] reconstruct carrier state from src slot {args.src_slot}")
     src_state = reconstruct_mint_slot_state(
-        src_seed, src_image_commit, args.src_slot, args.chain_id
+        src_seed, src_image_commit, args.src_slot, args.chain_id,
+        owner_seed=src_owner_seed,
+        mint_counter_base=args.src_mint_counter_base,
     )
-    assert src_state["lsh"] == src_lsh_inits[args.src_slot], \
-        f"reconstructed src lsh != src_meta.lsh_inits[{args.src_slot}]"
-    print(f"  reconstructed lsh matches src_meta")
-    print(f"  feature_id      = {hex(src_state['feature_id'])[:18]}...")
-    print(f"  type_idx        = {src_state['type_idx']}")
-    print(f"  origin_face_id  = {hex(src_state['origin_face_id'])[:18]}...")
+    print(f"  reconstructed lsh = {hex(src_state['lsh'])[:18]}...")
+    print(f"  feature_id        = {hex(src_state['feature_id'])[:18]}...")
+    print(f"  type_idx          = {src_state['type_idx']}")
 
     # Optional chain-state cross-check.
     if args.carrier_checkpoint is not None:
@@ -337,7 +363,7 @@ def main() -> None:
         print(f"  on-chain checkpoint matches reconstructed lsh")
 
     # ---- 2. Build insert witness + proof ----
-    print(f"[2/4] insert witness (host shadow {hex(host_shadow_id)[:18]}.., slot {args.host_target_slot})")
+    print(f"[2/4] insert witness (host {hex(host_shadow_id)[:18]}.., slot {args.host_target_slot})")
     w = build_insert_witness(src_seed, src_state, host_shadow_id, args.host_target_slot)
     write_mutate_prover_toml(w)
     print(f"  new_lsh         = {hex(w['new_lsh'])[:18]}...")
@@ -346,17 +372,31 @@ def main() -> None:
     print(f"[3/4] mutate_slot proof (insert path)")
     proof_ins, pi_ins = prove(MUT_DIR, "mutate_slot.json")
 
-    # ---- 3. T10 against POST-INSERT manifest of HOST shadow B ----
-    # Manifest layout:
-    #   slots 0..7 of B: B's mint lsh_inits (unchanged)
-    #   slot host_target_slot: new_lsh (post-insert)
-    #   other slots in 8..15: 0 (still EMPTY)
+    # ---- 3. T10 against POST-INSERT manifest of HOST shadow ----
     post_lsh = list(host_lsh_inits) + [0] * 8
-    assert post_lsh[args.host_target_slot] == 0, "target slot expected EMPTY pre-insert"
+
+    # Apply host pre-mutated overrides.
+    for fix_path in args.host_pre_mutated_fixture:
+        for slot, new_lsh in overrides_from_fixture(Path(fix_path)).items():
+            post_lsh[slot] = new_lsh
+            print(f"  host pre-mutated: slot {slot} lsh = {hex(new_lsh)[:18]}...")
+
+    # Apply host extracted-slots (zero them out).
+    for s in (s.strip() for s in args.host_emptied_slots.split(",") if s.strip()):
+        post_lsh[int(s)] = 0
+        print(f"  host emptied:     slot {s} lsh = 0")
+
+    # Now write the insert into the target slot. Must be empty (lsh==0) before insert.
+    if post_lsh[args.host_target_slot] != 0:
+        sys.exit(
+            f"target slot {args.host_target_slot} is not EMPTY in post-insert T10 "
+            f"computation -- expected lsh=0 before insert, got "
+            f"{hex(post_lsh[args.host_target_slot])}. Did you forget "
+            "--host-emptied-slots or pass a wrong target slot?"
+        )
     post_lsh[args.host_target_slot] = w["new_lsh"]
 
-    # B's z_index_commit is 0 (host has not done setZIndexCommit yet).
-    z_commit = 0
+    z_commit = int(args.host_z_commit, 16) if args.host_z_commit.startswith("0x") else int(args.host_z_commit)
     buf = [host_shadow_id, z_commit] + post_lsh
     acc = sponge_18(buf)
     hi, lo = split_128(acc)
@@ -387,6 +427,8 @@ def main() -> None:
     meta = {
         "kind": "onchain_insert",
         "src_seed": args.src_seed,
+        "src_owner_seed": args.src_owner_seed or args.src_seed,
+        "src_mint_counter_base": args.src_mint_counter_base,
         "src_slot": args.src_slot,
         "host_target_slot": args.host_target_slot,
         "chain_id": args.chain_id,
@@ -412,6 +454,8 @@ def main() -> None:
         "t10_hi": bx32(hi),
         "t10_lo": bx32(lo),
         "post_insert_lsh_array": [bx32(v) for v in post_lsh],
+        "host_pre_mutated_fixtures": args.host_pre_mutated_fixture,
+        "host_emptied_slots": args.host_emptied_slots,
         "new_plaintext_pose": w["new_plaintext"][0],
         "new_plaintext_w": w["w_new"],
         "new_plaintext_h": w["h_new"],

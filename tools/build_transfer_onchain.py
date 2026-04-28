@@ -347,141 +347,63 @@ def write_transfer_prover_toml(w: dict) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host-mint-fixture", required=True,
-                    help="atomic_mint fixture for host shadow B")
-    ap.add_argument("--host-mint-seed", default="atomic_mint_demo_b",
-                    help="seed used to build host-mint-fixture (drives plaintext/r/origin_face_id reconstruction)")
-    ap.add_argument("--owner-seed", default="atomic_mint_demo",
-                    help="seed used to derive owner_sk (must match what was passed to build_atomic_mint_fixture --owner-seed)")
-    ap.add_argument("--insert-src-mint-fixture", default=None,
-                    help="If host has a slot inserted from another shadow, atomic_mint fixture for that source shadow A")
-    ap.add_argument("--insert-src-seed", default=None,
-                    help="Seed used to build insert-src-mint-fixture")
-    ap.add_argument("--insert-src-slot", type=int, default=None,
-                    help="Source slot in A (1..7) used as the insert carrier")
-    ap.add_argument("--insert-host-slot", type=int, default=None,
-                    help="Host slot in B (8..15) the carrier was inserted into")
+    ap.add_argument("--slot-spec", required=True,
+                    help="Path to JSON describing each occupied slot's state "
+                         "source. See tools/slot_state.py module docstring.")
     ap.add_argument("--recipient-seed", required=True,
                     help="Seed deriving recipient's Grumpkin sk")
     ap.add_argument("--recipient-addr", required=True,
-                    help="Recipient's ETH address (lowercase 0x... hex)")
-    ap.add_argument("--chain-id", type=int, default=84532)
+                    help="Recipient's ETH address (0x... hex)")
     ap.add_argument("--out-seed", default=None)
     args = ap.parse_args()
 
-    host_fix = Path(args.host_mint_fixture)
-    host_meta = json.loads((host_fix / "meta.json").read_text())
-    host_shadow_id = int(host_meta["shadow_id"], 16)
-    host_image_commit = int(host_meta["image_commit"], 16)
-    host_lsh_inits = [int(x, 16) for x in host_meta["lsh_inits"]]
-
+    from slot_state import build_occupied_slots  # noqa: E402
+    spec, occupied = build_occupied_slots(Path(args.slot_spec))
+    host_shadow_id = int(spec["shadow_id"], 16)
     print(f"[onchain_transfer] host_shadow_id = {hex(host_shadow_id)[:18]}...")
+    print(f"[onchain_transfer] occupied slots: {sorted(occupied.keys())}")
 
-    # ---- 1. Reconstruct prev_owner key from --owner-seed (matches mint) ----
-    owner_sk = deterministic_int_mint(args.owner_seed.encode(), b"owner_sk", GRUMPKIN_ORDER - 1) + 1
+    # Prev-owner key from spec.owner_seed (matches mint).
+    owner_sk = deterministic_int_mint(spec["owner_seed"].encode(),
+                                       b"owner_sk", GRUMPKIN_ORDER - 1) + 1
     owner_pk = ec_mul(G, owner_sk)
     assert owner_pk is not None
+    # Sanity: every occupied slot's owner_pk must agree with this.
+    for i, st in occupied.items():
+        assert (st["owner_pk_x"], st["owner_pk_y"]) == owner_pk, \
+            f"slot {i} owner_pk mismatch with spec owner_seed"
     print(f"  prev_owner_pk_x = {hex(owner_pk[0])[:18]}...")
 
-    # ---- 2. Recipient key (deterministic Grumpkin) ----
+    # Each occupied slot must declare its prev_count_for_transfer.
+    for i, st in occupied.items():
+        st["prev_count_for_transfer"] = st["mutation_count"]
+
+    # Recipient key.
     recipient_sk = deterministic_int_mint(
         args.recipient_seed.encode(), b"owner_sk", GRUMPKIN_ORDER - 1
     ) + 1
     recipient_pk = ec_mul(G, recipient_sk)
     assert recipient_pk is not None
     print(f"  recipient_pk_x  = {hex(recipient_pk[0])[:18]}...")
-    print(f"  recipient_pk_y  = {hex(recipient_pk[1])[:18]}...")
-    print(f"  recipient_addr  = {args.recipient_addr}")
 
-    # ---- 3. Reconstruct host's per-slot occupied state ----
-    occupied: dict[int, dict] = {}
-
-    # Slots 0..7: B's mint state (under args.host_mint_seed + host face_disc).
-    print("[1/4] reconstruct B mint state slots 0..7")
-    for i in range(8):
-        st = reconstruct_mint_slot_state(
-            args.host_mint_seed.encode(), host_image_commit, i, args.chain_id
-        )
-        # Owner pk must match what was registered for B's mint -- which was
-        # also derived from --owner-seed. The reconstruct_mint_slot_state
-        # uses host_mint_seed for owner_sk, which is wrong for our case
-        # (we passed a separate --owner-seed to atomic_mint_fixture).
-        # Override owner-derived fields with the correct owner_sk-derived
-        # ones; recompute ECIES under the correct owner pk.
-        # NOTE: build_atomic_mint_fixture's per-slot encryption uses
-        # owner_pk derived from --owner-seed, NOT --seed. We must re-encrypt
-        # using the same owner_pk to match what's on chain.
-        if (st["owner_pk_x"], st["owner_pk_y"]) != owner_pk:
-            # Re-encrypt using the correct owner_pk.
-            from v2_circuit_helpers import poseidon2_hash_2  # noqa
-            r_i = deterministic_int_mint(
-                args.host_mint_seed.encode(), f"r_{i}".encode(),
-                GRUMPKIN_ORDER - 1,
-            ) + 1
-            c1, c2, k = ecies_encrypt_v2(st["plaintext"], owner_pk, r_i)
-            from v2_circuit_helpers import mint_chain_step
-            ofi = st["origin_face_id"]
-            chain_tip = mint_chain_step(ofi, owner_pk[0], owner_pk[1])
-            lsh = live_state_hash(
-                sponge_39(st["plaintext"]),
-                sponge_39(c2),
-                c1[0], c1[1], 0, chain_tip,
-            )
-            st["owner_sk"] = owner_sk
-            st["owner_pk_x"] = owner_pk[0]
-            st["owner_pk_y"] = owner_pk[1]
-            st["c1_x"], st["c1_y"] = c1
-            st["c2"] = c2
-            st["k"] = k
-            st["ct_commit"] = sponge_39(c2)
-            st["chain_tip"] = chain_tip
-            st["lsh"] = lsh
-        # Sanity vs on-chain meta.
-        assert st["lsh"] == host_lsh_inits[i], (
-            f"slot {i}: reconstructed lsh {hex(st['lsh'])} != host_meta {hex(host_lsh_inits[i])}"
-        )
-        st["prev_count_for_transfer"] = 0
-        occupied[i] = st
-    print("  reconstructed lshs match host_meta for slots 0..7")
-
-    # Slot --insert-host-slot: post-insert state if requested.
-    if args.insert_host_slot is not None:
-        if args.insert_src_mint_fixture is None or args.insert_src_seed is None or args.insert_src_slot is None:
-            sys.exit("--insert-host-slot requires --insert-src-mint-fixture, --insert-src-seed, --insert-src-slot")
-        src_fix = Path(args.insert_src_mint_fixture)
-        src_meta = json.loads((src_fix / "meta.json").read_text())
-        src_image_commit = int(src_meta["image_commit"], 16)
-        src_seed = args.insert_src_seed.encode()
-        print(f"[2/4] reconstruct B post-insert state slot {args.insert_host_slot}")
-        st_ins = reconstruct_post_insert_slot_state(
-            src_seed, src_image_commit, args.insert_src_slot,
-            host_shadow_id, args.insert_host_slot, args.chain_id,
-        )
-        occupied[args.insert_host_slot] = st_ins
-        print(f"  insert prev_count_for_transfer={st_ins['prev_count_for_transfer']}")
-        print(f"  insert lsh = {hex(st_ins['lsh'])[:18]}...")
-
-    # ---- 4. Build transfer witness ----
-    print(f"[3/4] transfer witness ({len(occupied)} occupied slots)")
+    # Build transfer witness + prove.
+    print(f"[transfer witness] {len(occupied)} occupied slots")
     seed = args.recipient_seed.encode()
     w = build_transfer_witness(
         seed, host_shadow_id, occupied,
         owner_sk, owner_pk, recipient_sk, recipient_pk,
     )
     write_transfer_prover_toml(w)
-
-    # ---- 5. Prove transfer ----
-    print(f"[4/4] transfer_shadow_v2 proof")
+    print(f"[transfer_shadow_v2 proof]")
     proof, pi = prove(TRANSFER_DIR, "transfer_shadow_v2.json")
 
-    # ---- 6. Bundle T10 against POST-TRANSFER manifest ----
-    # post-transfer lsh array: occupied slots get new_lsh, empty stay 0.
-    post_lsh = list(w["new_lsh"])  # already 16-element with empty=0
-    z_commit = 0  # B has not done setZIndexCommit yet
+    # T10 against POST-TRANSFER manifest (occupied slots = new_lsh, empty = 0).
+    post_lsh = list(w["new_lsh"])
+    z_commit = int(spec.get("z_index_commit", "0x0"), 16) if isinstance(spec.get("z_index_commit"), str) else 0
     buf = [host_shadow_id, z_commit] + post_lsh
     acc = sponge_18(buf)
     hi, lo = split_128(acc)
-    print(f"  T10: post-transfer  hi={hex(hi)[:18]}... lo={hex(lo)[:18]}...")
+    print(f"[T10] post-transfer  hi={hex(hi)[:18]}... lo={hex(lo)[:18]}...")
 
     (T10_DIR / "Prover.toml").write_text(
         f"shadow_id = {fhex(host_shadow_id)}\n"
@@ -492,7 +414,7 @@ def main() -> None:
     )
     proof_t10, pi_t10 = prove(T10_DIR, "shadow_t10.json")
 
-    # ---- 7. Write fixture ----
+    # Write fixture.
     out_seed = args.out_seed or f"onchain_transfer_{args.recipient_seed}"
     fix_dir = FIXTURE_ROOT / out_seed
     fix_dir.mkdir(parents=True, exist_ok=True)
@@ -501,7 +423,6 @@ def main() -> None:
     (fix_dir / "proof_t10.bin").write_bytes(proof_t10)
     (fix_dir / "public_inputs_t10.bin").write_bytes(pi_t10)
 
-    # Per-slot c2 calldata for forge consumption (16 entries; empty=0-byte).
     c2_per_slot: list[list[str]] = []
     for i in range(16):
         if i in occupied:
@@ -511,39 +432,33 @@ def main() -> None:
 
     meta = {
         "kind": "onchain_transfer",
-        "host_mint_seed": args.host_mint_seed,
-        "owner_seed": args.owner_seed,
+        "slot_spec":      args.slot_spec,
         "recipient_seed": args.recipient_seed,
         "recipient_addr": args.recipient_addr,
-        "chain_id": args.chain_id,
         "host_shadow_id": bx32(host_shadow_id),
-        "occupied_idxs": w["occupied_idxs"],
+        "occupied_idxs":  w["occupied_idxs"],
         "recipient_pk_x": bx32(recipient_pk[0]),
         "recipient_pk_y": bx32(recipient_pk[1]),
         "prev_owner_pk_x": bx32(owner_pk[0]),
         "prev_owner_pk_y": bx32(owner_pk[1]),
-        "prev_lsh_root":   bx32(w["prev_lsh_root"]),
-        "new_lsh_root":    bx32(w["new_lsh_root"]),
+        "prev_lsh_root":  bx32(w["prev_lsh_root"]),
+        "new_lsh_root":   bx32(w["new_lsh_root"]),
         "new_chain_tips_root": bx32(w["new_chain_tips_root"]),
-        "new_lsh":             [bx32(v) for v in w["new_lsh"]],
-        "new_c1_x":            [bx32(v) for v in w["new_c1_x"]],
-        "new_c1_y":            [bx32(v) for v in w["new_c1_y"]],
-        "new_ct_commit":       [bx32(v) for v in w["new_ct_commit"]],
-        "new_chain_tip":       [bx32(v) for v in w["new_chain_tip"]],
-        "new_mutation_count":  w["new_mutation_count"],
-        "c2_per_slot":         c2_per_slot,
-        "z_index_commit":      bx32(z_commit),
-        "t10_hi":              bx32(hi),
-        "t10_lo":              bx32(lo),
+        "new_lsh":        [bx32(v) for v in w["new_lsh"]],
+        "new_c1_x":       [bx32(v) for v in w["new_c1_x"]],
+        "new_c1_y":       [bx32(v) for v in w["new_c1_y"]],
+        "new_ct_commit":  [bx32(v) for v in w["new_ct_commit"]],
+        "new_chain_tip":  [bx32(v) for v in w["new_chain_tip"]],
+        "new_mutation_count": w["new_mutation_count"],
+        "c2_per_slot":    c2_per_slot,
+        "z_index_commit": bx32(z_commit),
+        "t10_hi":         bx32(hi),
+        "t10_lo":         bx32(lo),
         "post_transfer_lsh_array": [bx32(v) for v in post_lsh],
-        # recipient_sk side-car so verify_onchain_transfer.py can decrypt
-        # without re-deriving (gitignored anyway under fixtures).
-        "recipient_sk": hex(recipient_sk),
+        "recipient_sk":   hex(recipient_sk),
     }
     (fix_dir / "meta.json").write_text(json.dumps(meta, indent=2))
 
-    # plaintexts side-car: each occupied slot's pre-rotation plaintext, for
-    # the on-chain decrypt verifier to compare against.
     plaintexts_per_slot: list[list[str]] = []
     for i in range(16):
         if i in occupied:

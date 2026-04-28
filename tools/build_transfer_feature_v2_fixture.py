@@ -72,26 +72,55 @@ def deterministic_int_transfer(seed: bytes, label: bytes, mod: int) -> int:
 
 
 def build_transfer_witness(seed: bytes, slot_idx: int, image_commit: int,
-                           chain_id: int, recipient_pk: tuple[int, int]) -> dict:
+                           chain_id: int, recipient_pk: tuple[int, int],
+                           owner_seed: bytes | None = None,
+                           mint_counter_base: int = 0,
+                           source_state: str = "post-mutate",
+                           mint_fixture_path: str | None = None) -> dict:
     """Reconstruct the carrier's current state (mint -> mutate) and
     build the transfer rotation witness."""
     # 1. Mint state (slot lsh_init).
-    mint = reconstruct_mint_slot_state(seed, image_commit, slot_idx, chain_id)
-
-    # 2. Post-mutate state — this is what the carrier holds now.
-    mut = build_mutate_witness(seed, mint)
-    old_plaintext      = mut["new_plaintext"]
-    old_state_commit   = sponge_39(old_plaintext)
-    old_ct_commit      = mut["new_ct_commit"]
-    old_c1_x, old_c1_y = mut["new_c1_x"], mut["new_c1_y"]
-    old_count          = mut["new_mutation_count"]
-    old_chain_tip      = mut["new_chain_tip"]
-    old_k              = mut["new_k"]
-    old_lsh_recomp     = live_state_hash(
-        old_state_commit, old_ct_commit, old_c1_x, old_c1_y,
-        old_count, old_chain_tip,
-    )
-    assert old_lsh_recomp == mut["new_lsh"], "post-mutate lsh self-check"
+    mint = reconstruct_mint_slot_state(seed, image_commit, slot_idx, chain_id,
+                                       owner_seed=owner_seed,
+                                       mint_counter_base=mint_counter_base)
+    # palette_commit formula has historically varied (deterministic_int label
+    # vs sponge_palette_salt). The on-chain value is what was stored at mint
+    # via the live atomic_mint fixture's meta.json -- override here.
+    if mint_fixture_path is not None:
+        import json as _json
+        from pathlib import Path as _Path
+        meta = _json.loads((_Path(mint_fixture_path) / "meta.json").read_text())
+        mint["palette_commit"] = int(meta["palette_commits"][slot_idx], 16)
+    # 2. Pre-transfer carrier state. The carrier may be held in different
+    # post-states; the transfer rotation only needs:
+    #   plaintext, c1, c2, k, count, chain_tip, lsh.
+    if source_state == "mint":
+        old_plaintext      = mint["plaintext"]
+        old_state_commit   = mint["state_commit"]
+        old_ct_commit      = mint["ct_commit"]
+        old_c1_x, old_c1_y = mint["c1_x"], mint["c1_y"]
+        old_count          = 0
+        old_chain_tip      = mint["chain_tip"]
+        old_k              = mint["k"]
+        old_lsh_recomp     = mint["lsh"]
+    elif source_state == "post-mutate":
+        # mint -> single mutateSlot -> held. count 0 -> 1.
+        mut = build_mutate_witness(seed, mint)
+        old_plaintext      = mut["new_plaintext"]
+        old_state_commit   = sponge_39(old_plaintext)
+        old_ct_commit      = mut["new_ct_commit"]
+        old_c1_x, old_c1_y = mut["new_c1_x"], mut["new_c1_y"]
+        old_count          = mut["new_mutation_count"]
+        old_chain_tip      = mut["new_chain_tip"]
+        old_k              = mut["new_k"]
+        old_lsh_recomp     = live_state_hash(
+            old_state_commit, old_ct_commit, old_c1_x, old_c1_y,
+            old_count, old_chain_tip,
+        )
+        assert old_lsh_recomp == mut["new_lsh"], "post-mutate lsh self-check"
+    else:
+        sys.exit(f"unsupported --source-state {source_state!r} "
+                 "(supported: mint, post-mutate)")
 
     # 3. Transfer envelope.
     new_r = deterministic_int_transfer(seed, f"new_r_slot{slot_idx}".encode(),
@@ -152,6 +181,8 @@ def build_transfer_witness(seed: bytes, slot_idx: int, image_commit: int,
         "old_chain_tip":     old_chain_tip,
         "old_k":             old_k,
         "owner_sk":          mint["owner_sk"],
+        "from_owner_pk_x":   mint["owner_pk_x"],
+        "from_owner_pk_y":   mint["owner_pk_y"],
         "new_k":             new_k,
         "new_r":             new_r,
 
@@ -209,9 +240,21 @@ def run(cmd: list, cwd: Path, timeout: int = 600) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mint-seed", default="atomic_mint_demo")
+    ap.add_argument("--mint-seed", default="atomic_mint_demo",
+                    help="Fixture seed (drives r_i + palette_commit at mint)")
+    ap.add_argument("--owner-seed", default=None,
+                    help="Owner-key seed (drives owner_sk). Defaults to --mint-seed.")
+    ap.add_argument("--mint-counter-base", type=int, default=0,
+                    help="Global FeatureNFT.mintCounter when this carrier's host shadow was minted.")
+    ap.add_argument("--source-state", default="post-mutate",
+                    choices=["mint", "post-mutate"],
+                    help="Pre-transfer state: mint (count 0; for solve-auto-extracted carriers) "
+                         "or post-mutate (count 1; for mutate-then-extract carriers).")
     ap.add_argument("--shadow-id", default="0x011c687ec30b886164f6506b5ad3972fbe295f2e1da1047bd782d686c645d52a",
                     help="image_commit / shadow_id of the host shadow at carrier mint time")
+    ap.add_argument("--mint-fixture", default=None,
+                    help="Path to atomic_mint fixture dir; if set, palette_commit is read "
+                         "from its meta.json instead of reconstructed.")
     ap.add_argument("--slot", type=int, default=0,
                     help="original slot index in the host shadow (= type_idx)")
     ap.add_argument("--chain-id", type=int, default=84532)
@@ -232,7 +275,12 @@ def main() -> None:
     expected_lsh = parse_int_arg(args.carrier_checkpoint)
 
     print(f"[1/6] reconstruct mint+mutate state for slot {args.slot}")
-    w = build_transfer_witness(seed, args.slot, image_commit, args.chain_id, recipient_pk)
+    owner_seed = args.owner_seed.encode() if args.owner_seed else None
+    w = build_transfer_witness(seed, args.slot, image_commit, args.chain_id, recipient_pk,
+                                owner_seed=owner_seed,
+                                mint_counter_base=args.mint_counter_base,
+                                source_state=args.source_state,
+                                mint_fixture_path=args.mint_fixture)
 
     print(f"[2/6] sanity: old_lsh == carrier on-chain checkpoint")
     if w["old_lsh"] != expected_lsh:
@@ -316,8 +364,8 @@ def main() -> None:
         "type_idx": w["type_idx"],
         "origin_face_id": bx32(w["origin_face_id"]),
         "palette_commit": bx32(w["palette_commit"]),
-        "from_owner_pk_x": bx32(parse_int_arg("0x2a7c1c25515800ddd075f0fe63fdd258b52dae6b9650ee8a4f76711dcb9f06fa")),
-        "from_owner_pk_y": bx32(parse_int_arg("0x25e1af764e74e33cb4318eb470da2144efea7e1f20a14c11a4be43e09aefa1e1")),
+        "from_owner_pk_x": bx32(w["from_owner_pk_x"]),
+        "from_owner_pk_y": bx32(w["from_owner_pk_y"]),
         "to_addr": args.recipient,
         "to_pk_x": bx32(recipient_pk[0]),
         "to_pk_y": bx32(recipient_pk[1]),

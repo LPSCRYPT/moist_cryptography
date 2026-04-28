@@ -146,12 +146,21 @@ def derive_feature_id(chain_id: int, shadow_id: int, slot_idx: int,
 
 
 def reconstruct_mint_slot_state(seed: bytes, image_commit: int, slot_idx: int,
-                                chain_id: int) -> dict:
+                                chain_id: int,
+                                owner_seed: bytes | None = None,
+                                mint_counter_base: int = 0) -> dict:
     """Recompute slot_idx's full mint state byte-for-byte from seed.
+
+    `seed` drives r_i (envelope nonce) and palette_commit. `owner_seed`
+    drives owner_sk; defaults to `seed`. The split mirrors
+    build_atomic_mint_fixture.py::build_witness, where a single owner key
+    can mint multiple shadows under different fixture seeds.
+
     Returns: dict with keys for plaintext, c1, c2, k, state_commit, ct_commit,
              chain_tip, lsh, origin_face_id, palette_commit, feature_id,
              type_idx, owner_pk_x, owner_pk_y, owner_sk."""
-    owner_sk = deterministic_int_mint(seed, b"owner_sk", GRUMPKIN_ORDER - 1) + 1
+    osd = owner_seed if owner_seed is not None else seed
+    owner_sk = deterministic_int_mint(osd, b"owner_sk", GRUMPKIN_ORDER - 1) + 1
     owner_pk = ec_mul(G, owner_sk)
     assert owner_pk is not None
     pk_x, pk_y = owner_pk
@@ -183,7 +192,8 @@ def reconstruct_mint_slot_state(seed: bytes, image_commit: int, slot_idx: int,
     assert decoded == plaintext
     assert dk == k
 
-    feature_id = derive_feature_id(chain_id, shadow_id, slot_idx, slot_idx + 1)
+    mint_counter = mint_counter_base + slot_idx + 1
+    feature_id = derive_feature_id(chain_id, shadow_id, slot_idx, mint_counter)
     type_idx = slot_idx  # ShadowToken._mintOneAtom: typeIdx = slot index
 
     return {
@@ -205,7 +215,7 @@ def reconstruct_mint_slot_state(seed: bytes, image_commit: int, slot_idx: int,
         "lsh": lsh,
         "feature_id": feature_id,
         "type_idx": type_idx,
-        "mint_counter": slot_idx + 1,
+        "mint_counter": mint_counter,
     }
 
 
@@ -383,7 +393,15 @@ def main() -> None:
                     help="Path to atomic_mint fixture dir (provides "
                          "image_commit + per-slot lsh_inits for T10 binding)")
     ap.add_argument("--seed", default="atomic_mint_demo",
-                    help="Seed used to build the mint fixture")
+                    help="Fixture seed (drives r_i + palette_commit)")
+    ap.add_argument("--owner-seed", default=None,
+                    help="Owner-key seed (drives owner_sk). Defaults to --seed. "
+                         "Use a different value when one owner mints multiple shadows.")
+    ap.add_argument("--mint-counter-base", type=int, default=0,
+                    help="Global FeatureNFT.mintCounter at the moment THIS shadow's "
+                         "mint started. 0 if this is the first shadow on the chain. "
+                         "For the second shadow on a chain where the first minted 8 "
+                         "carriers, pass --mint-counter-base 8.")
     ap.add_argument("--slot", type=int, default=0)
     ap.add_argument("--chain-id", type=int, default=84532,
                     help="L2 chain id (Base Sepolia = 84532)")
@@ -407,7 +425,10 @@ def main() -> None:
 
     # ---- Step 1: reconstruct mint state for target slot ----
     print(f"[1/4] reconstruct mint state slot {args.slot}")
-    mint_state = reconstruct_mint_slot_state(seed, image_commit, args.slot, args.chain_id)
+    owner_seed = args.owner_seed.encode() if args.owner_seed else None
+    mint_state = reconstruct_mint_slot_state(seed, image_commit, args.slot, args.chain_id,
+                                             owner_seed=owner_seed,
+                                             mint_counter_base=args.mint_counter_base)
     # Sanity: lsh from reconstruction byte-equals fixture's lsh_inits[slot].
     assert mint_state["lsh"] == mint_lsh_inits[args.slot], \
         f"lsh mismatch: reconstructed={hex(mint_state['lsh'])} " \
