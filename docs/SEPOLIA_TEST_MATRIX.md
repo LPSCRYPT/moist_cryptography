@@ -162,6 +162,9 @@ unless prefixed with `eth-` (`https://sepolia.etherscan.io/tx/<hash>`).
 | 10.4 | Replay protection for every state-mutating entry point | FORGE | `ReplayProtection.t.sol` |
 | 10.5 | Round-trip: every per-slot rebuilder == its corresponding builder | TEST | `tools/test_slot_state.py` (30 assertions, sponge-consistency check fires on drift) |
 | 10.6 | atomic_mint sponge_palette_salt consistency: every emitted palette_commit MUST open via the published palette+salt | TEST + ASSERT | enforced inside the builder; tests in test_slot_state.py |
+| 10.7 | Per-entry-point gas under 16M ceiling (forge measurement) | FORGE | `test_<fn>_gas_under_block_budget` in MintShadow / MutateSlot / MutateBatch / ExtractSlot / InsertFeature / SolveShadow / TransferShadow / BridgeShadow tests; max-occupancy variants in `*MaxOccupancy.t.sol` (10 tests total) |
+| 10.8 | mutateBatch per-entry asymptote: gas / N bounded so callers can compute a safe N upper limit | FORGE | `MutateBatch.t.sol::test_mutateBatch_per_entry_gas_bounded` -- per-entry < 5M, so practical N <= ~3 to fit under 16M |
+| 10.9 | transferFeature V2 gas regression (no forge happy-path; covered by on-chain measurement) | DONE (on-chain) | D7 `0x13305fc7...` 3,687,290 gas; documented in FeatureNFT.t.sol comment block |
 
 ---
 

@@ -152,4 +152,15 @@ contract ExtractSlotE2ETest is Test {
         vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.extractSlot(shadowId, slotIdx, bad, proofT10);
     }
+
+    /// Gas regression: extractSlot is a single T10 verify + manifest write.
+    /// On-chain observed: ~3.4M (B6, E5). Cap at 5M to leave headroom for
+    /// future T10 circuit growth.
+    function test_extractSlot_gas_under_block_budget() public {
+        vm.prank(alice);
+        uint256 gasBefore = gasleft();
+        st.extractSlot(shadowId, slotIdx, newT10, proofT10);
+        uint256 used = gasBefore - gasleft();
+        assertLt(used, 5_000_000, "extractSlot gas regressed past 5M");
+    }
 }

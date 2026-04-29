@@ -303,12 +303,40 @@ contract MutateBatchE2ETest is Test {
         uint256 gasBefore = gasleft();
         st.mutateBatch(args);
         uint256 used = gasBefore - gasleft();
-        // Base/mainnet block gas limit is 30M. We assert <= 25M to leave
-        // headroom for tx-level overhead + future verifier-circuit growth.
-        // If this fires, mutateBatch with N=2 is pushing the cap and we
-        // need to either shrink verifiers or bound N tighter.
-        assertLe(used, 25_000_000, "mutateBatch(2) gas exceeds 25M; near block cap");
+
+        // Hard target: every entry point under 16M (per spec). N=2 baseline
+        // sits comfortably under 12M (forge ~9M, on-chain ~10.8M including
+        // calldata).
+        assertLt(used, 12_000_000, "mutateBatch(2) gas regressed past 12M target");
     }
+
+    /// Per-entry asymptote: gas scales ~linearly with entries.length.
+    /// At N=2 the per-entry cost (after fixed overhead) sets the practical
+    /// upper bound on N. The contract permits any non-empty entries[] but
+    /// callers MUST bound N <= floor((16M - overhead) / per_entry).
+    /// At ~3.5M-4.5M per entry, that's N <= ~3 to fit under the 16M target.
+    /// This test asserts the per-entry growth is small enough that the math
+    /// doesn't get worse over time. If this fires, either circuit cost grew
+    /// or the caller-bound documentation needs updating.
+    function test_mutateBatch_per_entry_gas_bounded() public {
+        ShadowToken.MutateBatchArgs memory args = _buildArgs();
+        uint256 n = args.entries.length;
+        require(n >= 2, "per-entry test needs N>=2 fixture");
+
+        vm.prank(alice);
+        uint256 gasBefore = gasleft();
+        st.mutateBatch(args);
+        uint256 used = gasBefore - gasleft();
+
+        // Subtract a fixed-overhead estimate (T10 verify ~1M + calldata + bookkeeping).
+        // Then per-entry should be < 5M (current measurement: ~3.5-4M).
+        uint256 fixedOverhead = 2_000_000;
+        require(used > fixedOverhead, "sanity: total gas below fixed overhead");
+        uint256 perEntry = (used - fixedOverhead) / n;
+        assertLt(perEntry, 5_000_000,
+            "mutateBatch per-entry gas exceeds 5M; reduce N bound or shrink mutate verifier");
+    }
+
 
     function test_mutateBatch_reverts_when_slot_referenced_twice() public {
         // Build a batch where entry[0] mutates slot A, and entry[1] is a

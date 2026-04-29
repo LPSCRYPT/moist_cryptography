@@ -258,4 +258,16 @@ contract InsertFeatureE2ETest is Test {
         vm.expectRevert(ShadowToken.NotShadowOwner.selector);
         st.insertFeature(args);
     }
+
+    /// Gas regression: insertFeature does a mutate_slot verify (proves the
+    /// re-encryption) + a T10 verify + manifest writes + carrier rotation.
+    /// On-chain observed: ~7.3M (B7, E6). Cap at 9M.
+    function test_insertFeature_gas_under_block_budget() public {
+        ShadowToken.InsertFeatureArgs memory args = _buildArgs();
+        vm.prank(alice);
+        uint256 gasBefore = gasleft();
+        st.insertFeature(args);
+        uint256 used = gasBefore - gasleft();
+        assertLt(used, 9_000_000, "insertFeature gas regressed past 9M");
+    }
 }

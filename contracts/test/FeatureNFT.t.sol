@@ -268,6 +268,18 @@ contract FeatureNFTv2Test is Test {
     }
 
     // ---- transferFeature ----
+    //
+    // Gas regression coverage: transferFeature V2 does a single ZK verify
+    // (transfer_feature_v2 circuit) + an ERC-721 owner write + an ECIES
+    // envelope rotation. There is no forge happy-path gas test because the
+    // proof witness binds to specific (featureId, originFaceId, paletteCommit,
+    // oldLsh, recipientPk) values that would require recreating an exact
+    // chain history in the test environment. Instead the gas budget is
+    // covered by direct on-chain measurement: D7 transferFeature V2 on
+    // pipeline #5 = 3,687,290 gas (tx 0x13305fc7..., block 40,831,068).
+    // Tracked in docs/SEPOLIA_TEST_MATRIX.md row 4.7. If transfer_feature_v2
+    // verifier circuit grows, this on-chain number will move; re-measure
+    // there, not here.
 
     function test_transferFeature_revertsWhileInserted() public {
         uint256 fid = fn.mintAtShadowMint(

@@ -183,6 +183,22 @@ contract BridgeShadowTest is Test {
         vm.expectRevert(ShadowBridgeL2.BadRevealedPi.selector);
         bridge.bridgeShadow(shadowId, pi);
     }
+
+    /// Gas regression: bridgeShadow does an ERC-721 transferFrom (custody to
+    /// bridge), state slot writes, and a sendMessage call to the L2 messenger.
+    /// No ZK verify is involved -- bridgeShadow trusts the caller-provided
+    /// revealedPi is the same one solve() validated and committed to the chain.
+    /// On-chain observed: ~388K (D8). Cap at 1M.
+    function test_bridgeShadow_gas_under_block_budget() public {
+        bytes memory pi = _revealedPi();
+        vm.prank(alice);
+        st.approve(address(bridge), shadowId);
+        vm.prank(alice);
+        uint256 gasBefore = gasleft();
+        bridge.bridgeShadow(shadowId, pi);
+        uint256 used = gasBefore - gasleft();
+        assertLt(used, 1_000_000, "bridgeShadow gas regressed past 1M");
+    }
 }
 
 /// Minimal L2 messenger stub. Captures the last sendMessage call so
