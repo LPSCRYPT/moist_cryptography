@@ -51,26 +51,26 @@ unless prefixed with `eth-` (`https://sepolia.etherscan.io/tx/<hash>`).
 
 | # | Case | Status | Tx / Note |
 |---|---|---|---|
-| 2.1 | mutateSlot on slot in middle of mint state | DONE | B' slot 0 `0x77c94d80...` |
+| 2.1 | mutateSlot on slot in middle of mint state | DONE | B slot 0 `0x77c94d80...`; E slot 0 `0x148b9ce0...` |
 | 2.2 | mutateSlot on already-mutated slot (count 1 -> 2) | OPEN | exercise `prev_mutation_count` increment |
-| 2.3 | mutateBatch of 2 adjacent slots | DONE | B' slots 1+2 `0x66ad4960...` |
+| 2.3 | mutateBatch of 2 adjacent slots | DONE | B slots 1+2 `0x66ad4960...`; E slots 1+2 `0x187046b3...` |
 | 2.4 | mutateBatch of 3+ slots in one tx | OPEN | gas test up to N=8 in single tx |
 | 2.5 | mutateBatch with duplicated slot | FORGE | `test_mutateBatch_reverts_when_slot_referenced_twice` |
 | 2.6 | mutateBatch with empty entries | FORGE | `test_mutateBatch_reverts_on_empty_entries` |
 | 2.7 | mutate after solve | FORGE | `test_mutateSlot_reverts_when_solved` |
 | 2.8 | mutate by non-owner | FORGE | `test_mutateSlot_reverts_when_caller_not_owner` |
 | 2.9 | tampered c2 length | FORGE | `test_mutateSlot_reverts_when_c2_length_wrong` |
-| 2.10 | mutate gas under block budget | FORGE + DONE | forge cap test + on-chain `0x77c94d80...` 7.12M, batch 10.8M |
+| 2.10 | mutate gas under block budget | FORGE + DONE | forge cap test + on-chain B `0x77c94d80...` 7.12M batch 10.8M; E `0x148b9ce0...` 7.12M batch 10.8M |
 
 ## 3. Extract / Insert
 
 | # | Case | Status | Tx / Note |
 |---|---|---|---|
 | 3.1 | extractSlot on mint-state carrier | DONE (legacy on #3) | extract+insert lifecycle |
-| 3.2 | extractSlot on POST-MUTATE carrier | DONE | B' slot 3 `0xad84c4f2...` (slot was post-mutate) |
+| 3.2 | extractSlot on POST-MUTATE carrier | DONE | B slot 3 `0xad84c4f2...`; E slot 3 `0xa4c1a5d6...` |
 | 3.3 | extractSlot of already-empty slot | FORGE | `ExtractSlot.t.sol::test_extractSlot_reverts_when_slot_empty` |
 | 3.4 | insertFeature into mint-state host | OPEN | (#3 lifecycle covered this) |
-| 3.5 | insertFeature into POST-MUTATE host | DONE | B' slot 8 `0xc8a2c7ba...` (host slot 8 was empty mint state) |
+| 3.5 | insertFeature into POST-MUTATE host | DONE | B slot 8 `0xc8a2c7ba...`; E slot 8 `0x5ca9d610...` (host slot 8 was empty mint state) |
 | 3.6 | insertFeature where carrier already inserted | FORGE | `test_insertFeature_reverts_when_carrier_already_inserted` |
 | 3.7 | insertFeature into occupied slot | FORGE | `test_insertFeature_reverts_when_slot_occupied` |
 | 3.8 | extract+insert preserves immutables | FORGE | `ExtractInsertPreservation.t.sol` |
@@ -81,14 +81,14 @@ unless prefixed with `eth-` (`https://sepolia.etherscan.io/tx/<hash>`).
 
 | # | Case | Status | Tx / Note |
 |---|---|---|---|
-| 4.1 | proof-bound transferShadow PK -> deployer (8 occupied slots, all rotate) | DONE | B' `0x05ca2cf4...` 9.06M gas |
-| 4.2 | transferShadow with mixed-kind slots (post-mutate-single, post-mutate-batch, mint, post-insert) | DONE | B' slot-spec was `b_p5_post_insert.json` |
+| 4.1 | proof-bound transferShadow PK -> deployer (8 occupied slots, all rotate) | DONE | B `0x05ca2cf4...` 9.06M gas; E `0x95b82bb4...` 9.06M gas |
+| 4.2 | transferShadow with mixed-kind slots (post-mutate-single, post-mutate-batch, mint, post-insert) | DONE | B slot-spec `b_p5_post_insert.json`; E slot-spec `e_post_insert.json` |
 | 4.3 | transferShadow with wrong recipient_pk (not in KeyRegistry) | OPEN | should revert at PI[1..2] check; currently only failed-locally |
 | 4.4 | transferShadow tampered LSH | FORGE | `test_transferShadow_reverts_when_lsh_tampered` |
 | 4.5 | transferShadow replay after rotation | FORGE | `ReplayTransferShadowTest` (2 cases) |
 | 4.6 | transferShadow at MAX 16 occupied slots | FORGE | `TransferShadowMaxOccupancy.t.sol` |
-| 4.7 | transferFeature V2 on POST-MUTATE held carrier | DONE | A' slot 0 `0xb9470c0f...` |
-| 4.8 | transferFeature V2 on MINT-STATE solve auto-extracted carrier | OPEN | (similar path; A's case was post-mutate) |
+| 4.7 | transferFeature V2 on POST-MUTATE held carrier | DONE | A slot 0 `0xb9470c0f...` |
+| 4.8 | transferFeature V2 on MINT-STATE solve auto-extracted carrier | DONE | D slot 0 `0x13305fc7...` (post-solve auto-extracted carrier rotated to PK2) |
 | 4.9 | transferFeature V2 to recipient not in KeyRegistry | OPEN | reverts at check |
 | 4.10 | transferFeature V2 while still inserted in shadow | FORGE | `test_transferFeature_revertsWhileInserted` |
 
@@ -96,7 +96,7 @@ unless prefixed with `eth-` (`https://sepolia.etherscan.io/tx/<hash>`).
 
 | # | Case | Status | Tx / Note |
 |---|---|---|---|
-| 5.1 | solve mint-state shadow (8 occupied) | DONE | A' `0xea461ee9...`, C' `0xfd58fb3d...` |
+| 5.1 | solve mint-state shadow (8 occupied) | DONE | A `0xea461ee9...`, C `0xfd58fb3d...`, D `0xf95f95e2...` |
 | 5.2 | solve POST-MUTATE/POST-INSERT mixed-kind shadow | OPEN (blocked) | B' has stale palette commits (see below); future shadow needed |
 | 5.3 | solve max-occupancy 16 carriers | FORGE | `SolveShadowMaxOccupancy.t.sol` |
 | 5.4 | solve without setZIndexCommit | FORGE | `test_solve_reverts_when_zIndexCommit_unset` |
@@ -105,19 +105,19 @@ unless prefixed with `eth-` (`https://sepolia.etherscan.io/tx/<hash>`).
 | 5.7 | solve with tampered salt | FORGE | `test_solve_reverts_when_salt_tampered` |
 | 5.8 | solve when already solved | FORGE | `test_solve_reverts_when_already_solved` |
 | 5.9 | solve with stale palette_commit (not openable via sponge) | DONE-lesson | B' broadcasted setZIndex `0x475bf0ed...` but solve impossible; hard-stop at FeatureNFT.revealPaletteAtSolve |
-| 5.10 | event-only render: 8 palette + 8 plaintext events drive a complete sprite render with NO --sk and NO --c1-sidecar | DONE | A' + C' both verified via `tools/render_onchain_shadow.py`; C' rendered 2026-04-28 with --rpc base-sepolia.gateway.tenderly.co (public RPC rate-limits getLogs) -- 8 sprite PNGs + composite + strip emitted under `/tmp/shadow_c_render` |
+| 5.10 | event-only render: 8 palette + 8 plaintext events drive a complete sprite render with NO --sk and NO --c1-sidecar | DONE | A, C, D all verified via `tools/render_onchain_shadow.py`; D rendered 2026-04-29 with --rpc base-sepolia.gateway.tenderly.co (public RPC rate-limits getLogs) -- 8 sprite PNGs + composite + strip emitted under `/tmp/shadow_d_render` |
 
 ## 6. Bridge flow (L2-leg)
 
 | # | Case | Status | Tx / Note |
 |---|---|---|---|
-| 6.1 | bridgeShadow a SOLVED shadow through paired L2 bridge | DONE | C' `0xdd7306cb...` -> bridge #5b |
+| 6.1 | bridgeShadow a SOLVED shadow through paired L2 bridge | DONE | C `0xdd7306cb...` -> bridge #5b; D `0x35d0c712...` -> bridge #5b |
 | 6.2 | bridgeShadow before solve | FORGE | `test_bridgeShadow_reverts_when_unsolved` |
 | 6.3 | bridgeShadow when l1Mirror unset | FORGE | `BridgeShadowTest::reverts_when_l1_mirror_unset` |
 | 6.4 | bridgeShadow with bad PI length (not multiple of 32) | FORGE | `test_bridgeShadow_reverts_on_bad_revealed_pi_length` |
 | 6.5 | bridgeShadow with empty PI | FORGE | `test_bridgeShadow_reverts_on_zero_length_revealed_pi` |
 | 6.6 | bridgeShadow as non-owner | FORGE | `test_bridgeShadow_reverts_when_not_owner` |
-| 6.7 | bridgeShadow against an L2 bridge wired to a STRANDED L1 mirror (this case actually shipped) | DONE-lesson | A' `0x7e27fcb4...` to old bridge `0x9Ef3f7a3` -> message undeliverable |
+| 6.7 | bridgeShadow against an L2 bridge wired to a STRANDED L1 mirror (this case actually shipped) | DONE-lesson | A `0x7e27fcb4...` to old bridge `0x9Ef3f7a3` -> message undeliverable |
 
 ## 7. Bridge wiring (setters)
 
@@ -134,7 +134,7 @@ unless prefixed with `eth-` (`https://sepolia.etherscan.io/tx/<hash>`).
 
 | # | Case | Status | Tx / Note |
 |---|---|---|---|
-| 8.1 | L1 mirror minted via cross-domain message after challenge window | OPEN | calendar-bound; C' candidate (bridged 2026-04-28, finalize ~2026-05-05) |
+| 8.1 | L1 mirror minted via cross-domain message after challenge window | OPEN | calendar-bound; C and D both bridged 2026-04-28/29, finalize ~2026-05-05 |
 | 8.2 | proveWithdrawalTransaction against new L1 mirror | OPEN | first OP-Stack output proposal lands ~1hr after L2-leg |
 | 8.3 | finalizeWithdrawalTransaction after 7-day window | OPEN | calendar-bound |
 | 8.4 | mintFromBridge with non-messenger caller | FORGE | `BridgeWiring.t.sol::test_mintFromBridge_reverts_when_caller_not_messenger` |

@@ -158,13 +158,15 @@ def prove(circuit_dir: Path, json_name: str) -> tuple[bytes, bytes]:
 def reconstruct_post_insert_slot_state(
     src_seed: bytes, src_image_commit: int, src_slot: int,
     host_shadow_id: int, host_target_slot: int, chain_id: int,
+    src_palette_commit: int | None = None,
 ) -> dict:
     """Reconstruct the post-insert state of a HOST shadow's slot,
     byte-equivalent to what `build_insert_onchain.py` produced. Returns
     a dict shaped like `reconstruct_mint_slot_state`'s output (so the
     transfer builder can treat slot 8 the same way as slots 0..7)."""
     src_state = reconstruct_mint_slot_state(
-        src_seed, src_image_commit, src_slot, chain_id
+        src_seed, src_image_commit, src_slot, chain_id,
+        palette_commit=src_palette_commit,
     )
     insert_w = build_insert_witness(
         src_seed, src_state, host_shadow_id, host_target_slot

@@ -102,71 +102,28 @@ Broadcast artifact:
 
 ---
 
-## Pipeline #5 lifecycle (canonical demo)
+## Pipeline #5 lifecycle
 
-Shadow A' on pipeline #5 has `shadowId =
-`0x011c687ec30b886164f6506b5ad3972fbe295f2e1da1047bd782d686c645d52a` 
-(deterministic from the `face_disc/alice0` fixture; collides with #3
-and #4's shadow A by design -- different deployments, same math).
+Three working shadows (C, D, E) collectively exercise every entry-point
+function on pipeline #5 with no stranded state. Two earlier shadows
+(A, B) remain on chain as instructive scar tissue from bugs since fixed
+in the toolchain; their tables are documented under "Historical
+casualties" below.
 
-Pipeline #5 carries the **canonical full lifecycle**: every entry-point
-function broadcast end-to-end, across two shadows, two EOAs, and the L1
-bridge initiation. Pipeline #3 (`0x8439c679...`) and pipeline #4
-(`0xe5089e09...`) are preserved as historical artifacts only; everything
-in this section is the working source of truth.
-
-**Shadow A' (full reveal + transfer + bridge):**
-
-| # | Action | Tx | Block | Gas |
-|---|---|---|---:|---:|
-| 1 | `KeyRegistry.register` (deployer) | (mint run-latest.json) | -- | -- |
-| 2 | `registerImage` (image A) | (mint run-latest.json) | -- | -- |
-| 3 | `mintShadow` A' (1 shadow + 8 carriers, real palette + salt envelopes) | (mint run-latest.json) | -- | -- |
-| 4 | `setZIndexCommit` A' | (zindex run-latest.json) | -- | -- |
-| 5 | **`solve`** A' (palette + plaintext atomic reveal; 8+8 events) | [`0xea461ee9...`](https://sepolia.basescan.org/tx/0xea461ee94e8e41b5ed47e71589524050ea2c7545883eaeef946d211813ce1394) | 40,783,890 | **8,137,657** |
-| 6 | `transferFrom` A' deployer → PK2 (post-solve plain ERC721 unlocked) | [`0xd91dbfb6...`](https://sepolia.basescan.org/tx/0xd91dbfb6c26c628e51af1623d01214767eb98272de043a373db74e1a716c7529) | 40,786,056 | 57,882 |
-| 7 | `transferFrom` A' PK2 → deployer (round trip) | [`0x95e8fa3f...`](https://sepolia.basescan.org/tx/0x95e8fa3f7128472dea1cfff52f7be2f6f2bac86b5941b49a61611410e9905f92) | 40,786,058 | 57,882 |
-| 8 | `transferFeature` V2 (held carrier slot 0, deployer → PK2; ZK-rotated to recipient pk) | [`0xb9470c0f...`](https://sepolia.basescan.org/tx/0xb9470c0f9aae7ef0526d423186059158a3e020c6c35ab798cd3877757c92b08e) | 40,792,820 | **3,704,534** |
-| 9 | **`bridgeShadow` L2-leg** A' (custody to ShadowBridgeL2 #5; emits L2-to-L1 withdrawal) | [`0x7e27fcb4...`](https://sepolia.basescan.org/tx/0x7e27fcb4b8737dec037238721640c5c46dd93987dfdaec3a9b38747a8e368556) | 40,792,879 | 404,841 |
-
-**Shadow B' (mint + mutate + extract + insert + transferShadow):**
-
-Minted 2026-04-28 by PK2 to demonstrate that pipeline #5 hosts multiple
-shadows and a complete pre-solve dynamic-state lifecycle.
-Image is `face_disc/bob0`; mint seed `atomic_mint_demo_b` with owner_seed
-`atomic_mint_demo` and `mint_counter_base = 8` (A' minted 8 carriers
-first). Shadow B' shadowId =
-`0x2c6f0a0b412f403a6d080b2fa2fa3c4375cef9a5567f3c46df177ede9b74014d`.
-
-| # | Action | Tx | Block | Gas |
-|---|---|---|---:|---:|
-| B1 | `KeyRegistry.register` (PK2) | [`0xdfc420a7...`](https://sepolia.basescan.org/tx/0xdfc420a7ea6863413c603fa9402c25572f77f08f61889898f875128719d1aa60) | 40,786,288 | 68,566 |
-| B2 | `registerImage` (image B) | [`0x5827e802...`](https://sepolia.basescan.org/tx/0x5827e8021996c64456bea8ef3fbb50d67ad7f7e997c5f108fecaf613de0a873b) | 40,786,288 | 4,661,224 |
-| B3 | `mintShadow` B' (8 carriers, mintCounter 9..16) | [`0xab50a7ad...`](https://sepolia.basescan.org/tx/0xab50a7ad3834fb009df189c328ccd44c65870c7fd6979d51a6cb21584683ba53) | 40,786,288 | 11,025,823 |
-| B4 | `mutateSlot` B' slot 0 (count 0→1) | [`0x77c94d80...`](https://sepolia.basescan.org/tx/0x77c94d80f436e395b2461b8c82ee1ff92054d3c7c3eb35d5821a76c709969874) | 40,791,976 | **7,118,271** |
-| B5 | `mutateBatch` B' slots 1+2 (each count 0→1, single tx) | [`0x66ad4960...`](https://sepolia.basescan.org/tx/0x66ad496000c16901fbfe348eb5a2912069d14563f13a13c73c467deedc7f24ea) | 40,792,154 | **10,802,060** |
-| B6 | `extractSlot` B' slot 3 (carrier becomes held) | [`0xad84c4f2...`](https://sepolia.basescan.org/tx/0xad84c4f2b2f969cd191b02b840e55113fb974b82b41ca8321e3443ef4908efd2) | 40,792,228 | 3,432,579 |
-| B7 | `insertFeature` (extracted slot-3 carrier into B' slot 8) | [`0xc8a2c7ba...`](https://sepolia.basescan.org/tx/0xc8a2c7bac817e014c17b7f39866a579b2a8238efd6837bba09f7dc35473d5c25) | 40,792,355 | 7,254,726 |
-| B8 | **`transferShadow`** B' PK2 → deployer (proof-bound, all 8 occupied slots ECIES-rotated) | [`0x05ca2cf4...`](https://sepolia.basescan.org/tx/0x05ca2cf49db35adcd9750b761db9327163eb876ce63a435bd9c8bfeee0275482) | 40,792,654 | **9,058,102** |
-
-Cumulative pipeline-#5 gas (deploy + lifecycle): ~177M.
-Wall-clock: ~6 hours real time across multiple sessions including proof
-regeneration after the fixture-vs-builder reconcile (see commit history).
-
-**Bridge wiring (pipeline #5):**
+### Bridge wiring (pipeline #5)
 
 Two L2 bridges exist on chain. Only the second is canonical:
 
 | Bridge | Address | `l1Mirror` | Status |
 |---|---|---|---|
-| #5 (first attempt) | `0x9Ef3f7a3340454BffD618099Ae5645218b4924CC` | `0x89dB0113...` (pipeline #3 mirror) | **stranded** -- holds A'; L1 finalize not deliverable because the pipeline-#3 L1 mirror's `l2Bridge` is fixed to pipeline #3's L2 bridge |
-| #5b (canonical) | `0x49A8d60114C4869D2f0422c8e5b1f9442f5e4529` | `0xe9B8b1DddaEC95C165B0c4aE55Ea13FeAAC79042` (pipeline #5 mirror, fresh deploy) | **live** -- holds shadow C; clean L1-finalize candidate after the OP-Stack 7-day window |
+| #5 (first attempt) | `0x9Ef3f7a3340454BffD618099Ae5645218b4924CC` | `0x89dB0113...` (pipeline #3 mirror) | **stranded** -- holds A; L1 finalize not deliverable because the pipeline-#3 L1 mirror's `l2Bridge` is fixed to pipeline #3's L2 bridge |
+| #5b (canonical) | `0x49A8d60114C4869D2f0422c8e5b1f9442f5e4529` | `0xe9B8b1DddaEC95C165B0c4aE55Ea13FeAAC79042` (pipeline #5 mirror, fresh deploy) | **live** -- holds shadows C and D; clean L1-finalize candidates after the OP-Stack 7-day window |
 
 Why two: `ShadowBridgeL2.setL1Mirror` and `ShadowMirrorL1.setL2Bridge`
 are both one-shot (revert if already set). Once the first L2 bridge
 was wired to the historical L1 mirror, redirecting it to a new
 mirror was impossible -- only a fresh PAIR works. The existing L2
-bridge `0x9Ef3f7a3` retains custody of A' permanently; the message
+bridge `0x9Ef3f7a3` retains custody of A permanently; the message
 it dispatched references the wrong L1 mirror and is undeliverable.
 
 Fresh-pair deploy txs:
@@ -175,57 +132,191 @@ Fresh-pair deploy txs:
   * `setL2Bridge` on L1 mirror: [`0xa27ca617...`](https://sepolia.etherscan.io/tx/0xa27ca617a44cc8902b9b653e2738b05b34eefffb38a395f05c2b5575a7da32d4), block 10,747,281
   * `setL1Mirror` on L2 bridge: [`0xa5f466a3...`](https://sepolia.basescan.org/tx/0xa5f466a37b7f6cc374971d5dc83fab19744c8fc08091a7fe47446a032e59b319), block 40,793,510
 
-**Shadow C' (clean mint -> solve -> bridge through fresh L2 bridge #5b):**
+### Shadow C -- minimal mint -> solve -> bridge
 
-Minted 2026-04-28 by deployer to demonstrate the fresh L2 bridge
-wiring works end-to-end for a clean L1-finalize candidate. Image is
-synthetic `grid_48/s100_smile_+3.png` registered as `face_disc/carol0`
-(disc score 16.4, face_disc proof generated locally on M3 in ~3 min).
-Mint seed `solve_demo_c` with owner_seed `palette_reveal_live` so the
-owner_pk matches the deployer's KeyRegistry registration.
-Shadow C' shadowId =
-`0x0c923942a9a2e9c8a4178a12ade300472d62ce1ff3c2b4281a465ca827dbea3c`.
+C is the smallest demo: deployer-owned, no mutations, straight to solve
+and bridge through the canonical `#5b` pair. Image is synthetic
+`grid_48/s100_smile_+3.png` registered as `face_disc/carol0` (disc score
+16.4, face_disc proof generated locally on M3 in ~3 min). Mint seed
+`solve_demo_c` with owner_seed `palette_reveal_live` so owner_pk matches
+the deployer's KeyRegistry registration. C shadowId =
+`0x0c923942a9a2e9c8a4178a12ade300472d62ce1ff3c2b4281a465ca827dbea3c`,
+`mint_counter_base = 16` (C's carriers are 17..24).
 
 | # | Action | Tx | Block | Gas |
 |---|---|---|---:|---:|
 | C1 | `registerImage` (image C = carol0) | [`0x0193400d...`](https://sepolia.basescan.org/tx/0x0193400d430a37dab6bff5ed0097fcef1e18a1dba5b0c845f6d2fa3602a60a8c) | 40,794,257 | -- |
-| C2 | `mintShadow` C' (8 carriers, mintCounter 17..24) | [`0x876157cf...`](https://sepolia.basescan.org/tx/0x876157cf7f963149ab41b085d7f12cd98522520850484df088fb080105da8994) | 40,794,258 | ~10.5M |
-| C3 | `setZIndexCommit` C' | [`0xa8f8fe52...`](https://sepolia.basescan.org/tx/0xa8f8fe521039410011381dbe1f804e9e667e266c5d84ce73aabb02af680b5779) | 40,794,393 | -- |
-| C4 | **`solve`** C' (palette + plaintext atomic reveal; 8+8 events; auto-extracts 8 carriers) | [`0xfd58fb3d...`](https://sepolia.basescan.org/tx/0xfd58fb3d6dd835d0ad3082f6d32d3691a476c3eb7ca5775e083454ed69f47b39) | 40,794,657 | ~8.1M |
-| C5 | **`bridgeShadow`** C' (custody to ShadowBridgeL2 **#5b** `0x49A8d6...`; emits L2->L1 withdrawal to fresh L1 mirror) | [`0xdd7306cb...`](https://sepolia.basescan.org/tx/0xdd7306cb78277646befa8283f36443aa7672a2477b0259cbb53b78be4db79a31) | -- | ~0.4M |
+| C2 | `mintShadow` C (8 carriers, mintCounter 17..24) | [`0x876157cf...`](https://sepolia.basescan.org/tx/0x876157cf7f963149ab41b085d7f12cd98522520850484df088fb080105da8994) | 40,794,258 | ~10.5M |
+| C3 | `setZIndexCommit` C | [`0xa8f8fe52...`](https://sepolia.basescan.org/tx/0xa8f8fe521039410011381dbe1f804e9e667e266c5d84ce73aabb02af680b5779) | 40,794,393 | -- |
+| C4 | **`solve`** C (palette + plaintext atomic reveal; 8+8 events; auto-extracts 8 carriers) | [`0xfd58fb3d...`](https://sepolia.basescan.org/tx/0xfd58fb3d6dd835d0ad3082f6d32d3691a476c3eb7ca5775e083454ed69f47b39) | 40,794,657 | ~8.1M |
+| C5 | **`bridgeShadow`** C (custody to ShadowBridgeL2 **#5b** `0x49A8d6...`; emits L2->L1 withdrawal to fresh L1 mirror) | [`0xdd7306cb...`](https://sepolia.basescan.org/tx/0xdd7306cb78277646befa8283f36443aa7672a2477b0259cbb53b78be4db79a31) | -- | ~0.4M |
 
-C' is **the clean L1-finalize candidate**. After the OP-Stack output
-proposal lands and the 7-day challenge window passes (~2026-05-05),
-anyone can call `proveWithdrawalTransaction` then
-`finalizeWithdrawalTransaction` on Eth Sepolia against L1 mirror
-`0xe9B8b1Dd...` to mirror C' onto L1.
+### Shadow D -- mint -> solve -> transfer x 3 -> bridge
 
+D is the **full reveal lifecycle**: deployer-owned, exercises
+`transferFrom` plain-ERC721 round trip post-solve, `transferFeature` V2
+with proof-bound recipient pk rotation, and `bridgeShadow` through the
+canonical `#5b` pair. Image is synthetic `grid_48/s110_neutral.png`
+registered as `face_disc/dave0` (disc score 19.5, face_disc proof
+generated locally on M3 in ~110s). Mint seed `lifecycle_demo_d` with
+owner_seed `palette_reveal_live`. D shadowId =
+`0x2b9e5c62dff9dccdc941e2f6184b15a1632bc50a4f8cc2c623e21ac60d73d7fd`,
+`mint_counter_base = 24` (D's carriers are 25..32).
+
+| # | Action | Tx | Block | Gas |
+|---|---|---|---:|---:|
+| D1 | `registerImage` (image D = dave0) | [`0x985472ec...`](https://sepolia.basescan.org/tx/0x985472ec67f9f4295a013db3aab58af5db9f0cde343399add82ce4354602cc66) | 40,830,737 | 4,661,092 |
+| D2 | `mintShadow` D (8 carriers, mintCounter 25..32) | [`0xb810c8f0...`](https://sepolia.basescan.org/tx/0xb810c8f0bf6b9b13b0b3f3c16d5e27ef88ed7eb33d1a3055e0aafdeab6ca6321) | 40,830,739 | **11,000,899** |
+| D3 | `setZIndexCommit` D | [`0xd75d0c53...`](https://sepolia.basescan.org/tx/0xd75d0c53594364513f9e4d105af9fb6ea63ce20aefec191c26603b89af70cac0) | 40,830,817 | 6,953,497 |
+| D4 | **`solve`** D (palette + plaintext atomic reveal; 8+8 events; auto-extracts 8 carriers) | [`0xf95f95e2...`](https://sepolia.basescan.org/tx/0xf95f95e29a84f98ece8202cf7fe375f85315928b73453030ef178b84d7e0b9b6) | 40,830,956 | **8,137,513** |
+| D5 | `transferFrom` D deployer -> PK2 (post-solve plain ERC721 unlocked) | [`0x2796105e...`](https://sepolia.basescan.org/tx/0x2796105e2937b51a6ebb72a338619529e321e8e6535e4dbfdacad80eb25049ee) | 40,830,971 | 62,682 |
+| D6 | `transferFrom` D PK2 -> deployer (round trip) | [`0x98751253...`](https://sepolia.basescan.org/tx/0x98751253856cfee010edb198a7bc04f61abafd88ff274c3317fdb57253f5530a) | 40,830,978 | 40,782 |
+| D7 | `transferFeature` V2 (held carrier slot 0, deployer -> PK2; ZK-rotated to recipient pk) | [`0x13305fc7...`](https://sepolia.basescan.org/tx/0x13305fc771b25309b817696705e771627bdec4e45734db382a93a3aa3fb5f2d6) | 40,831,068 | **3,687,290** |
+| D8a | `approve(bridge, shadowId)` (D8 prep) | [`0xa24d6893...`](https://sepolia.basescan.org/tx/0xa24d689316b85379d4aa325d3bb214d6e9a955516792506ae2fe725fbc0c9c71) | 40,834,630 | 49,175 |
+| D8b | **`bridgeShadow`** D (custody to ShadowBridgeL2 **#5b**; emits L2->L1 withdrawal to fresh L1 mirror) | [`0x35d0c712...`](https://sepolia.basescan.org/tx/0x35d0c712d03c217aeaaba68cb19c7f802e6f4cd1b282bd42df69d3383f0afb4e) | 40,834,631 | 387,741 |
+
+### Shadow E -- mint -> mutate x 2 -> extract -> insert -> transferShadow
+
+E is the **full pre-solve dynamic-state lifecycle**: PK2-owned, exercises
+`mutateSlot`, `mutateBatch`, `extractSlot`, `insertFeature`, and the
+proof-bound `transferShadow` (which ECIES-rotates all 8 occupied slots
+atomically). Image is synthetic `grid_48/s112_neutral.png` registered as
+`face_disc/eve0` (disc score 15.7, face_disc proof generated locally on
+M3 in ~110s). Mint seed `lifecycle_demo_e` with owner_seed
+`atomic_mint_demo` matching PK2's KeyRegistry registration. E shadowId =
+`0x2f1601c0b2a4657ac13de45e106fb7378aa673bd11349dfe5bdafa9327a52ee4`,
+`mint_counter_base = 32` (E's carriers are 33..40).
+
+| # | Action | Tx | Block | Gas |
+|---|---|---|---:|---:|
+| E1 | `registerImage` (image E = eve0) | [`0xa5158bac...`](https://sepolia.basescan.org/tx/0xa5158bac283253aea983c21d4a33e8fa81f4f0ff500248f7d4bb67f3de8f9c8b) | 40,834,820 | 4,661,236 |
+| E2 | `mintShadow` E (PK2 sender, 8 carriers, mintCounter 33..40) | [`0xc790b597...`](https://sepolia.basescan.org/tx/0xc790b597b35ddb5eccb144a7e8f479bc170b0297f6baaa6e9e1ba6711574fac9) | 40,834,823 | **11,018,107** |
+| E3 | `mutateSlot` E slot 0 (count 0->1) | [`0x148b9ce0...`](https://sepolia.basescan.org/tx/0x148b9ce0468d3d88ab18ab33a72c8876b9d770d6af4e4d044f6d9d8b8349eb1e) | 40,835,100 | **7,117,959** |
+| E4 | `mutateBatch` E slots 1+2 (each count 0->1, single tx) | [`0x187046b3...`](https://sepolia.basescan.org/tx/0x187046b310a4b000333a022cbc822271ff69e7b056c3a98ee1919b0f80b9e2e3) | 40,835,251 | **10,802,216** |
+| E5 | `extractSlot` E slot 3 (carrier becomes held) | [`0xa4c1a5d6...`](https://sepolia.basescan.org/tx/0xa4c1a5d61e0f255dc5f5143ed3e234c02e9c20681cb3fc2b0818349443aadf2b) | 40,835,311 | 3,432,675 |
+| E6 | `insertFeature` (extracted slot-3 carrier into E slot 8) | [`0x5ca9d610...`](https://sepolia.basescan.org/tx/0x5ca9d610fe8ffdb695a49bd7d53ec1dbe93f6361ff1d0e4ba7551d52aca463df) | 40,835,407 | 7,254,978 |
+| E7 | **`transferShadow`** E PK2 -> deployer (proof-bound, all 8 occupied slots ECIES-rotated) | [`0x95b82bb4...`](https://sepolia.basescan.org/tx/0x95b82bb4f17532ebdad96e89d15496d99c988e96d275a189442b19ecbb99b2d2) | 40,835,611 | **9,062,974** |
+
+E is held pre-solve under deployer ownership post-transferShadow. Solve
++ bridge for E require `slot_state.py` extension with a `post-transfer`
+kind (~150 LOC); deferred. C and D collectively cover those entry
+points.
+
+### Solve event signature
 
 Solve emits per occupied slot:
   * `FeaturePaletteRevealed(featureId, paletteCommit, bytes paletteRGB_48)`
   * `FeatureSlotRevealed(featureId, shadowId, slotIdx, bytes plaintext_1248)`
 
-8 occupied carriers → 8 of each event in one tx. Auto-extracts all
+8 occupied carriers -> 8 of each event in one tx. Auto-extracts all
 carriers (manifest cleared, `paletteRevealed` flipped, `solved=true`,
 `zIndexRevealed` written).
 
-**Visualizer events-only path (no sk required):**
+### Visualizer events-only path (no sk required)
 
 ```bash
+# Shadow C
 python3 tools/render_onchain_shadow.py \
-  --shadow-id 0x011c687ec30b886164f6506b5ad3972fbe295f2e1da1047bd782d686c645d52a \
+  --shadow-id 0x0c923942a9a2e9c8a4178a12ade300472d62ce1ff3c2b4281a465ca827dbea3c \
   --rpc https://base-sepolia.gateway.tenderly.co \
   --st 0xbf9f3FC142f497774986345F027d3eaCa7Eba810 \
   --fn 0x414606aBa41297a4Dc71F2603453177885499f16 \
-  --from-block 40780000 \
-  --out-dir /tmp/shadow_p5_render
+  --from-block 40794200 \
+  --out-dir /tmp/shadow_c_render
+
+# Shadow D
+python3 tools/render_onchain_shadow.py \
+  --shadow-id 0x2b9e5c62dff9dccdc941e2f6184b15a1632bc50a4f8cc2c623e21ac60d73d7fd \
+  --rpc https://base-sepolia.gateway.tenderly.co \
+  --st 0xbf9f3FC142f497774986345F027d3eaCa7Eba810 \
+  --fn 0x414606aBa41297a4Dc71F2603453177885499f16 \
+  --from-block 40830737 \
+  --out-dir /tmp/shadow_d_render
 ```
 
-Output: 8 sprite PNGs + composite + strip, all rendered with the actual
-16-color palettes from `FeaturePaletteRevealed` events and the actual
-plaintexts from `FeatureSlotRevealed` events. Confirms the canonical NFT
-image is fully derivable from chain state alone -- no owner cooperation,
-no off-chain decrypt key required.
+Output: 8 sprite PNGs + composite + strip per shadow, all rendered with
+the actual 16-color palettes from `FeaturePaletteRevealed` events and
+the actual plaintexts from `FeatureSlotRevealed` events. Confirms the
+canonical NFT image is fully derivable from chain state alone -- no
+owner cooperation, no off-chain decrypt key required.
+
+### Cumulative gas
+
+| Component | Gas |
+|---|---:|
+| Deploy (27-tx setup) | ~100M |
+| Working shadows: C + D + E | ~107M |
+| Historical casualties: A + B (see below) | ~75M |
+| Total cumulative | ~282M |
+
+Wall-clock for the working-shadows portion (Phase 1-3 of the test
+matrix re-run): ~50 minutes including local face_disc proving for D and
+E, fixing one toolchain bug discovered during E3 broadcast, and 17
+successful broadcasts.
+
+### Historical casualties on pipeline #5
+
+Two shadows demonstrate what happens when pre-fixed bugs were live.
+They remain on chain because the operations that landed are real;
+the demos just dead-end. Both bugs are now caught at build time.
+
+**Shadow A (mis-wired bridge):**
+
+Custody-locked in stranded bridge `0x9Ef3f7a3...` whose `l1Mirror`
+points at the historical pipeline-#3 mirror. The dispatched L2->L1
+message references the wrong mirror and is undeliverable. A's on-chain
+ops 1-8 (mint through `transferFeature` V2) are valid demos; op 9
+(`bridgeShadow`) is the casualty -- A is custody-locked in the stranded
+bridge forever. Bug fixed: fresh bridge pair deployed (see #5b in the
+Bridge wiring table above).
+
+Image is `face_disc/alice0`, mint seed unknown (predates current
+fixture conventions). A shadowId =
+`0x011c687ec30b886164f6506b5ad3972fbe295f2e1da1047bd782d686c645d52a`.
+
+| # | Action | Tx | Block | Gas |
+|---|---|---|---:|---:|
+| 1 | `KeyRegistry.register` (deployer) | (mint run-latest.json) | -- | -- |
+| 2 | `registerImage` (image A) | (mint run-latest.json) | -- | -- |
+| 3 | `mintShadow` A (1 shadow + 8 carriers, real palette + salt envelopes) | (mint run-latest.json) | -- | -- |
+| 4 | `setZIndexCommit` A | (zindex run-latest.json) | -- | -- |
+| 5 | **`solve`** A (palette + plaintext atomic reveal; 8+8 events) | [`0xea461ee9...`](https://sepolia.basescan.org/tx/0xea461ee94e8e41b5ed47e71589524050ea2c7545883eaeef946d211813ce1394) | 40,783,890 | **8,137,657** |
+| 6 | `transferFrom` A deployer -> PK2 (post-solve plain ERC721 unlocked) | [`0xd91dbfb6...`](https://sepolia.basescan.org/tx/0xd91dbfb6c26c628e51af1623d01214767eb98272de043a373db74e1a716c7529) | 40,786,056 | 57,882 |
+| 7 | `transferFrom` A PK2 -> deployer (round trip) | [`0x95e8fa3f...`](https://sepolia.basescan.org/tx/0x95e8fa3f7128472dea1cfff52f7be2f6f2bac86b5941b49a61611410e9905f92) | 40,786,058 | 57,882 |
+| 8 | `transferFeature` V2 (held carrier slot 0, deployer -> PK2; ZK-rotated to recipient pk) | [`0xb9470c0f...`](https://sepolia.basescan.org/tx/0xb9470c0f9aae7ef0526d423186059158a3e020c6c35ab798cd3877757c92b08e) | 40,792,820 | **3,704,534** |
+| 9 | **WARN** `bridgeShadow` L2-leg A (custody to ShadowBridgeL2 #5; L2->L1 message references wrong mirror, undeliverable) | [`0x7e27fcb4...`](https://sepolia.basescan.org/tx/0x7e27fcb4b8737dec037238721640c5c46dd93987dfdaec3a9b38747a8e368556) | 40,792,879 | 404,841 |
+
+**Shadow B (stale palette commit fixture):**
+
+Permanently unsolvable. Minted with the legacy `atomic_mint_demo_b`
+fixture whose `palette_commits` came from the old
+`deterministic_int_mint(seed, "palette_{i}", P)` formula; the on-chain
+solve verifier opens via `sponge_palette_salt(palette, salt)`, which has
+no preimage to those values. B's ops B1-B8 are valid demos; B's
+`setZIndexCommit` (`0x475bf0ed...`, ~7M gas) is dead state, written
+before the impossibility was discovered. Bug fixed:
+`build_atomic_mint_fixture.py` now asserts sponge-consistency before
+exiting; in addition, during the C/D/E re-run a sibling regression was
+discovered in `build_mutate_slot_onchain.py:reconstruct_mint_slot_state`
+(reused by mutate / mutate_batch / insert / transfer / slot_state) which
+still recomputed `palette_commit` via the old formula -- now centrally
+fixed to read from the mint fixture's `meta.json::palette_commits`.
+
+Image is `face_disc/bob0`. B shadowId =
+`0x2c6f0a0b412f403a6d080b2fa2fa3c4375cef9a5567f3c46df177ede9b74014d`,
+owner is deployer post-transferShadow.
+
+| # | Action | Tx | Block | Gas |
+|---|---|---|---:|---:|
+| B1 | `KeyRegistry.register` (PK2) | [`0xdfc420a7...`](https://sepolia.basescan.org/tx/0xdfc420a7ea6863413c603fa9402c25572f77f08f61889898f875128719d1aa60) | 40,786,288 | 68,566 |
+| B2 | `registerImage` (image B) | [`0x5827e802...`](https://sepolia.basescan.org/tx/0x5827e8021996c64456bea8ef3fbb50d67ad7f7e997c5f108fecaf613de0a873b) | 40,786,288 | 4,661,224 |
+| B3 | `mintShadow` B (8 carriers, mintCounter 9..16) | [`0xab50a7ad...`](https://sepolia.basescan.org/tx/0xab50a7ad3834fb009df189c328ccd44c65870c7fd6979d51a6cb21584683ba53) | 40,786,288 | 11,025,823 |
+| B4 | `mutateSlot` B slot 0 (count 0->1) | [`0x77c94d80...`](https://sepolia.basescan.org/tx/0x77c94d80f436e395b2461b8c82ee1ff92054d3c7c3eb35d5821a76c709969874) | 40,791,976 | **7,118,271** |
+| B5 | `mutateBatch` B slots 1+2 (each count 0->1, single tx) | [`0x66ad4960...`](https://sepolia.basescan.org/tx/0x66ad496000c16901fbfe348eb5a2912069d14563f13a13c73c467deedc7f24ea) | 40,792,154 | **10,802,060** |
+| B6 | `extractSlot` B slot 3 (carrier becomes held) | [`0xad84c4f2...`](https://sepolia.basescan.org/tx/0xad84c4f2b2f969cd191b02b840e55113fb974b82b41ca8321e3443ef4908efd2) | 40,792,228 | 3,432,579 |
+| B7 | `insertFeature` (extracted slot-3 carrier into B slot 8) | [`0xc8a2c7ba...`](https://sepolia.basescan.org/tx/0xc8a2c7bac817e014c17b7f39866a579b2a8238efd6837bba09f7dc35473d5c25) | 40,792,355 | 7,254,726 |
+| B8 | **`transferShadow`** B PK2 -> deployer (proof-bound, all 8 occupied slots ECIES-rotated) | [`0x05ca2cf4...`](https://sepolia.basescan.org/tx/0x05ca2cf49db35adcd9750b761db9327163eb876ce63a435bd9c8bfeee0275482) | 40,792,654 | **9,058,102** |
+| B9 | **WARN** `setZIndexCommit` B (dead state; B is unsolvable due to palette commit drift) | [`0x475bf0ed...`](https://sepolia.basescan.org/tx/0x475bf0ed9a14a8c1f17af49aa28bcf7fb43e0d0a55c2cb8e7da5c79b39f5d2e2) | 40,793,648 | ~7M |
 
 ---
 

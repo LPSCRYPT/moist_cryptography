@@ -72,7 +72,9 @@ def _h(s: str) -> int:
 def _build_mint_slot(spec_root: dict, slot_idx: int) -> dict:
     """Mint state via reconstruct_mint_slot_state, plus mutation_count=0."""
     mint_fix = Path(spec_root["mint_fixture"])
-    image_commit = int(json.loads((mint_fix / "meta.json").read_text())["image_commit"], 16)
+    mint_meta = json.loads((mint_fix / "meta.json").read_text())
+    image_commit = int(mint_meta["image_commit"], 16)
+    palette_commit = int(mint_meta["palette_commits"][slot_idx], 16)
     state = reconstruct_mint_slot_state(
         spec_root["fixture_seed"].encode(),
         image_commit,
@@ -80,6 +82,7 @@ def _build_mint_slot(spec_root: dict, slot_idx: int) -> dict:
         spec_root["chain_id"],
         owner_seed=spec_root.get("owner_seed", spec_root["fixture_seed"]).encode(),
         mint_counter_base=spec_root["mint_counter_base"],
+        palette_commit=palette_commit,
     )
     state["mutation_count"] = 0
     return state
@@ -193,13 +196,16 @@ def _post_insert(spec_root: dict, slot_idx: int, fixture: Path) -> dict:
 
     # Carrier's source identity (mint state) under the SRC seed/owner.
     src_mint_fixture = Path(_resolve_src_mint_fixture(spec_root, fixture, fmeta))
-    src_image_commit = int(json.loads((src_mint_fixture / "meta.json").read_text())["image_commit"], 16)
+    src_meta = json.loads((src_mint_fixture / "meta.json").read_text())
+    src_image_commit = int(src_meta["image_commit"], 16)
+    src_palette_commit = int(src_meta["palette_commits"][fmeta["src_slot"]], 16)
     src_seed = fmeta["src_seed"].encode()
     src_owner_seed = fmeta.get("src_owner_seed", fmeta["src_seed"]).encode()
     src_state = reconstruct_mint_slot_state(
         src_seed, src_image_commit, fmeta["src_slot"], fmeta["chain_id"],
         owner_seed=src_owner_seed,
         mint_counter_base=fmeta.get("src_mint_counter_base", 0),
+        palette_commit=src_palette_commit,
     )
 
     # Mirror build_insert_onchain.build_insert_witness's post-insert state.

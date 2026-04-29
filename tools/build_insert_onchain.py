@@ -341,10 +341,12 @@ def main() -> None:
 
     # ---- 1. Reconstruct carrier state from src seed ----
     print(f"[1/4] reconstruct carrier state from src slot {args.src_slot}")
+    src_palette_commit = int(src_meta["palette_commits"][args.src_slot], 16)
     src_state = reconstruct_mint_slot_state(
         src_seed, src_image_commit, args.src_slot, args.chain_id,
         owner_seed=src_owner_seed,
         mint_counter_base=args.src_mint_counter_base,
+        palette_commit=src_palette_commit,
     )
     print(f"  reconstructed lsh = {hex(src_state['lsh'])[:18]}...")
     print(f"  feature_id        = {hex(src_state['feature_id'])[:18]}...")

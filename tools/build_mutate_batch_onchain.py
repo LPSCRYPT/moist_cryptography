@@ -260,9 +260,11 @@ def load_mint_slot_state(mint_fixture: Path, seed: bytes, owner_seed: bytes,
     """Reconstruct mint-state for `slot_idx` and shape it for build_mutate_witness."""
     meta = json.loads((mint_fixture / "meta.json").read_text())
     image_commit = int(meta["image_commit"], 16)
+    palette_commit = int(meta["palette_commits"][slot_idx], 16)
     state = reconstruct_mint_slot_state(seed, image_commit, slot_idx, chain_id,
                                         owner_seed=owner_seed,
-                                        mint_counter_base=mint_counter_base)
+                                        mint_counter_base=mint_counter_base,
+                                        palette_commit=palette_commit)
     state["mutation_count"] = 0
     return state
 

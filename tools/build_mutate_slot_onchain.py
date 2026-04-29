@@ -148,7 +148,8 @@ def derive_feature_id(chain_id: int, shadow_id: int, slot_idx: int,
 def reconstruct_mint_slot_state(seed: bytes, image_commit: int, slot_idx: int,
                                 chain_id: int,
                                 owner_seed: bytes | None = None,
-                                mint_counter_base: int = 0) -> dict:
+                                mint_counter_base: int = 0,
+                                palette_commit: int | None = None) -> dict:
     """Recompute slot_idx's full mint state byte-for-byte from seed.
 
     `seed` drives r_i (envelope nonce) and palette_commit. `owner_seed`
@@ -182,7 +183,15 @@ def reconstruct_mint_slot_state(seed: bytes, image_commit: int, slot_idx: int,
     ct_commit = sponge_39(c2)
 
     origin_face_id = poseidon2_hash_2(image_commit, slot_idx)
-    palette_commit = deterministic_int_mint(seed, f"palette_{slot_idx}".encode(), P)
+    # palette_commit: the on-chain value is sponge_palette_salt(palette, salt)
+    # produced at mint time by build_atomic_mint_fixture.py. The legacy
+    # `deterministic_int_mint(seed, "palette_{i}", P)` formula does NOT match
+    # what's stored on chain. Callers MUST pass the value from the mint
+    # fixture's meta.json::palette_commits[slot_idx] (or another authoritative
+    # source). The legacy formula is kept only for back-compat against fixtures
+    # that predate the sponge_palette_salt rollover.
+    if palette_commit is None:
+        palette_commit = deterministic_int_mint(seed, f"palette_{slot_idx}".encode(), P)
 
     mint_ct = mint_chain_step(origin_face_id, pk_x, pk_y)
     lsh = live_state_hash(state_commit, ct_commit, c1[0], c1[1], 0, mint_ct)
@@ -417,6 +426,8 @@ def main() -> None:
     image_commit = int(mint_meta["image_commit"], 16)
     mint_lsh_inits = [int(x, 16) for x in mint_meta["lsh_inits"]]
     assert len(mint_lsh_inits) == 8
+    # palette_commits[slot_idx] is the on-chain ground truth (sponge_palette_salt).
+    mint_palette_commit = int(mint_meta["palette_commits"][args.slot], 16)
 
     seed = args.seed.encode()
     print(f"[onchain_mutate fixture] seed={args.seed!r} slot={args.slot} chain_id={args.chain_id}")
@@ -428,7 +439,8 @@ def main() -> None:
     owner_seed = args.owner_seed.encode() if args.owner_seed else None
     mint_state = reconstruct_mint_slot_state(seed, image_commit, args.slot, args.chain_id,
                                              owner_seed=owner_seed,
-                                             mint_counter_base=args.mint_counter_base)
+                                             mint_counter_base=args.mint_counter_base,
+                                             palette_commit=mint_palette_commit)
     # Sanity: lsh from reconstruction byte-equals fixture's lsh_inits[slot].
     assert mint_state["lsh"] == mint_lsh_inits[args.slot], \
         f"lsh mismatch: reconstructed={hex(mint_state['lsh'])} " \
