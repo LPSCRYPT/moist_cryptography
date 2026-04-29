@@ -54,7 +54,7 @@ unless prefixed with `eth-` (`https://sepolia.etherscan.io/tx/<hash>`).
 | 2.1 | mutateSlot on slot in middle of mint state | DONE | B slot 0 `0x77c94d80...`; E slot 0 `0x148b9ce0...` |
 | 2.2 | mutateSlot on already-mutated slot (count 1 -> 2) | OPEN | exercise `prev_mutation_count` increment |
 | 2.3 | mutateBatch of 2 adjacent slots | DONE | B slots 1+2 `0x66ad4960...`; E slots 1+2 `0x187046b3...` |
-| 2.4 | mutateBatch of 3+ slots in one tx | OPEN | gas test up to N=8 in single tx |
+| 2.4 | mutateBatch of N>=3 slots in one tx (max N=8) | FORGE | `MutateBatchMaxBatch.t.sol::test_mutateBatch_max_n8_advances_all_slots` + `_gas_within_block_limit` -- N=8 measured at 21.4M forge gas (~25M with calldata); fits ~30M block but exceeds 16M target. Practical bound: N<=3 |
 | 2.5 | mutateBatch with duplicated slot | FORGE | `test_mutateBatch_reverts_when_slot_referenced_twice` |
 | 2.6 | mutateBatch with empty entries | FORGE | `test_mutateBatch_reverts_on_empty_entries` |
 | 2.7 | mutate after solve | FORGE | `test_mutateSlot_reverts_when_solved` |
@@ -164,7 +164,8 @@ unless prefixed with `eth-` (`https://sepolia.etherscan.io/tx/<hash>`).
 | 10.6 | atomic_mint sponge_palette_salt consistency: every emitted palette_commit MUST open via the published palette+salt | TEST + ASSERT | enforced inside the builder; tests in test_slot_state.py |
 | 10.7 | Per-entry-point gas under 16M ceiling (forge measurement) | FORGE | `test_<fn>_gas_under_block_budget` in MintShadow / MutateSlot / MutateBatch / ExtractSlot / InsertFeature / SolveShadow / TransferShadow / BridgeShadow tests; max-occupancy variants in `*MaxOccupancy.t.sol` (10 tests total) |
 | 10.8 | mutateBatch per-entry asymptote: gas / N bounded so callers can compute a safe N upper limit | FORGE | `MutateBatch.t.sol::test_mutateBatch_per_entry_gas_bounded` -- per-entry < 5M, so practical N <= ~3 to fit under 16M |
-| 10.9 | transferFeature V2 gas regression (no forge happy-path; covered by on-chain measurement) | DONE (on-chain) | D7 `0x13305fc7...` 3,687,290 gas; documented in FeatureNFT.t.sol comment block |
+| 10.9 | transferFeature V2 gas regression | FORGE + DONE | `TransferFeatureV2.t.sol::test_transferFeature_v2_gas_under_block_budget` -- forge ~3M; on-chain D7 `0x13305fc7...` 3,687,290 gas |
+| 10.10 | mutateBatch N=8 worst-case (cliff documentation) | FORGE | `MutateBatchMaxBatch.t.sol` -- pins observed 21.4M forge gas at N=8; asserts < 35M to catch non-linear regressions |
 
 ---
 
