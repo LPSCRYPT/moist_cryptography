@@ -55,3 +55,7 @@ circuits/shadow_t10/Prover.toml
 circuits/transfer_shadow_v2/Prover.toml
 circuits/solve_shadow_v2/Prover.toml
 circuits/landmark_regions_v2/Prover.toml
+
+
+# Local audit outputs
+/audit/
