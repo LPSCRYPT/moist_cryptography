@@ -51,7 +51,7 @@ contract TransferShadowE2ETest is Test {
     address internal alice = makeAddr("alice");
     address internal bob   = makeAddr("bob");
 
-    uint256 internal constant TRANSFER_PI_LEN = 8;
+    uint256 internal constant TRANSFER_PI_LEN = 9;
     uint256 internal constant T10_PI_LEN = 20;
 
     /// Cached per-slot post-rotation values from the fixture meta.json.
@@ -179,7 +179,7 @@ contract TransferShadowE2ETest is Test {
         args.newChainTips = newChainTip;
         args.newC1Xs = newC1X;
         args.newC1Ys = newC1Y;
-        // newCtCommits dropped in v2-gas: c2 calldata is advisory now.
+        args.newCtCommits = newCt;
         args.newMutationCounts = newCount;
 
         // Per-slot c2 (39 fields = 1248 bytes) for occupied; empty bytes for empty.
@@ -287,6 +287,24 @@ contract TransferShadowE2ETest is Test {
         st.transferShadow(args);
     }
 
+    /// Envelope binding (audit H-02): tampering with an occupied slot's c2
+    /// bytes after the proof was generated MUST revert. The contract
+    /// recomputes sponge_39(args.c2s[i]) and asserts equality with the
+    /// proof-bound args.newCtCommits[i].
+    function test_transferShadow_reverts_when_c2_tampered() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        uint8 sIdx = occupiedIdxs[0];
+        // Pre-state: shadow still owned by alice.
+        assertEq(st.ownerOf(shadowId), alice);
+        // Flip one byte in the middle of the first occupied slot's c2.
+        args.c2s[sIdx][512] = bytes1(uint8(args.c2s[sIdx][512]) ^ 0x40);
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.DigestMismatch.selector);
+        st.transferShadow(args);
+        // Post-state: shadow still owned by alice (atomic revert).
+        assertEq(st.ownerOf(shadowId), alice);
+    }
+
     /// Gas-pin: transferShadow rotates ownership for shadow + every
     /// occupied carrier + 16-slot LSH chain. Budget: 14M -- ~16% above
     /// current ~12.1M baseline (4 occupied slots).
@@ -296,7 +314,8 @@ contract TransferShadowE2ETest is Test {
         uint256 gasBefore = gasleft();
         st.transferShadow(args);
         uint256 used = gasBefore - gasleft();
-        // v2-gas: 4-occ ~6.2M post-sponge-drop. Budget 7M.
-        assertLt(used, 7_000_000, "transferShadow gas regressed");
+        // Envelope binding (Stage C.7): 4-occ + sponge_39 per slot adds ~3M.
+        // Budget 12M (was 7M pre-binding).
+        assertLt(used, 12_000_000, "transferShadow gas regressed");
     }
 }

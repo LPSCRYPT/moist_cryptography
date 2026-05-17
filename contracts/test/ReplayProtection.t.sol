@@ -268,7 +268,7 @@ contract ReplayTransferShadowTest is Test {
 
     function _loadProofsAndPi() internal {
         _proofTransfer = vm.readFileBinary(string.concat(FIX, "/proof_transfer.bin"));
-        bytes32[] memory piTransfer = _loadFields(string.concat(FIX, "/public_inputs_transfer.bin"), 8);
+        bytes32[] memory piTransfer = _loadFields(string.concat(FIX, "/public_inputs_transfer.bin"), 9);
         _proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
         bytes32[] memory piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), 20);
         _shadowId = uint256(piTransfer[0]);
@@ -358,7 +358,7 @@ contract ReplayTransferShadowTest is Test {
         args.newChainTips = _newChainTip;
         args.newC1Xs = _newC1X;
         args.newC1Ys = _newC1Y;
-        // newCtCommits dropped in v2-gas: c2 calldata is advisory now.
+        args.newCtCommits = _newCt;
         args.newMutationCounts = _newCount;
         args.c2s = _c2s;
         args.newT10 = t10;

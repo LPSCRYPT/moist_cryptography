@@ -94,7 +94,7 @@ contract TransferShadowMaxOccupancyTest is Test {
 
     function _loadProofsAndPi() internal {
         _proofTransfer = vm.readFileBinary(string.concat(FIX, "/proof_transfer.bin"));
-        bytes32[] memory piTransfer = _loadFields(string.concat(FIX, "/public_inputs_transfer.bin"), 8);
+        bytes32[] memory piTransfer = _loadFields(string.concat(FIX, "/public_inputs_transfer.bin"), 9);
         _proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
         bytes32[] memory piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), 20);
         shadowId = uint256(piTransfer[0]);
@@ -179,7 +179,7 @@ contract TransferShadowMaxOccupancyTest is Test {
         args.newChainTips = _newChainTip;
         args.newC1Xs = _newC1X;
         args.newC1Ys = _newC1Y;
-        // newCtCommits dropped in v2-gas: c2 calldata is advisory now.
+        args.newCtCommits = _newCt;
         args.newMutationCounts = _newCount;
         args.c2s = _c2s;
         args.newT10 = t10;
@@ -250,9 +250,11 @@ contract TransferShadowMaxOccupancyTest is Test {
         uint256 used = gasBefore - gasleft();
         // Real-chain block gas: 30M Ethereum / 60M Base. 22M is well under
         // either; pinning at 22M catches a per-slot regression early.
-        // v2-gas: 16-occ ~9.5M post-sponge-drop (was 21M with sponge_39).
-        // Budget 11M leaves ~14% margin. Lower bound removed (work legitimately
-        // reduced; the floor was a paranoia check from the pre-optimization era).
-        assertLt(used, 11_000_000, "max-occupancy transferShadow gas regressed");
+        // Envelope binding (Stage C.7): 16-occ + sponge_39 per slot adds ~10M.
+        // Budget 22M leaves headroom (was 11M pre-binding). 16-occupancy
+        // transferShadow now exceeds Base Sepolia 16M block budget on chain;
+        // production must keep occupancy <= 10 or migrate to a fused
+        // sponge_624 wrapper.
+        assertLt(used, 22_000_000, "max-occupancy transferShadow gas regressed");
     }
 }

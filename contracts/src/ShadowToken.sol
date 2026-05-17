@@ -95,7 +95,7 @@ contract ShadowToken is ERC721, PausableMixin {
     uint256 public constant MUTATE_SLOT_PI_LEN     = 16;
     uint256 public constant T10_SHADOW_PI_LEN      = 20; // shadowId + newT10[2] + 16x liveStateHash + zIndexCommit
     uint256 public constant ZINDEX_COMMIT_PI_LEN   = 2;
-    uint256 public constant TRANSFER_SHADOW_PI_LEN = 8;
+    uint256 public constant TRANSFER_SHADOW_PI_LEN = 9;
     uint256 public constant SOLVE_SHADOW_PI_LEN    = 7;
     uint256 public constant FACE_DISC_PI_LEN       = 1;
 
@@ -243,7 +243,7 @@ contract ShadowToken is ERC721, PausableMixin {
     /// proof-bound digest. Audit H-05 (originFaceId) reuses `InvalidProof`
     /// since the bytecode budget under EIP-170 doesn't allow a third
     /// dedicated error.
-    error DigestMismatch(bytes32 expected, bytes32 supplied);
+    error DigestMismatch();
 
     // ============== ctor ==============
 
@@ -1050,8 +1050,7 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes32[16] newChainTips;           // post-rotation per-slot chain tips (committed in proof)
         uint256[16] newC1Xs;                // per-slot fresh ECIES ephemeral c1.x
         uint256[16] newC1Ys;                // per-slot fresh ECIES ephemeral c1.y
-        // newCtCommits removed in v2-gas: sponge_39 verification dropped on chain;
-        // proof's PI binds new_lsh which embeds ct_commit transitively.
+        bytes32[16] newCtCommits;          // per-slot sponge_39(c2) digest; zero for empty slots (envelope binding H-02)
         uint16[16]  newMutationCounts;      // == prev + 1 for occupied; 0 for empty
         bytes[]     c2s;                    // 16 entries; empty bytes for empty slots
         bytes32[2]  newT10;                 // post-rotation T10 (hi, lo)
@@ -1102,6 +1101,7 @@ contract ShadowToken is ERC721, PausableMixin {
         piT[5] = s.ecdhPubX;
         piT[6] = s.ecdhPubY;
         piT[7] = _sponge16BytesArr(args.newChainTips);
+        piT[8] = _sponge16BytesArr(args.newCtCommits);
         _verifyOrRevert(transferShadowVerifier, args.proof, piT);
     }
 
@@ -1119,16 +1119,17 @@ contract ShadowToken is ERC721, PausableMixin {
             m.liveStateHash = args.newLiveStateHashes[i];
             if (m.kind == SlotKind.OCCUPIED) {
                 fn.rotateInsertedOwner(m.featureId, args.shadowId, args.to);
-                if (args.c2s[i].length != MAX_PLAINTEXT_FIELDS_PER_SLOT * 32) {
-                    revert BadC2Length(args.c2s[i].length, MAX_PLAINTEXT_FIELDS_PER_SLOT * 32);
-                }
-                // c2 calldata is ADVISORY (see security note on mutateSlot).
-                // Recipient detects sender-corrupted c2 via ECIES decrypt failure
-                // off-chain. Chain state's new_lsh is proof-bound either way.
+                // Envelope binding (audit H-02): length-check + sponge_39 over c2
+                // == proof-bound newCtCommits[i]. piT[8] also forces sponge_16 of
+                // args.newCtCommits to match the circuit witness.
+                _assertSlotEnvelope(args.c2s[i], args.newCtCommits[i]);
             } else {
                 if (args.c2s[i].length != 0) {
                     revert BadC2Length(args.c2s[i].length, 0);
                 }
+                // Empty-slot newCtCommits[i] must be zero: enforced transitively
+                // by piT[8] = sponge_16(args.newCtCommits) match against circuit's
+                // new_ct_commits_root (circuit zeros empty slots: occ * v).
             }
         }
         Shadow storage s = _shadows[args.shadowId];
@@ -1336,16 +1337,9 @@ contract ShadowToken is ERC721, PausableMixin {
         ManifestEntry[16] storage manifest = _manifests[args.shadowId];
         for (uint256 i = 0; i < N_SLOTS; i++) {
             if (manifest[i].kind == SlotKind.OCCUPIED) {
-                if (args.plaintexts[i].length != MAX_PLAINTEXT_FIELDS_PER_SLOT * 32) {
-                    revert BadC2Length(args.plaintexts[i].length, MAX_PLAINTEXT_FIELDS_PER_SLOT * 32);
-                }
                 // Bind emitted plaintext bytes to the proof-bound stateCommit
-                // (audit H-01). Reverts with DigestMismatch before
-                // any reveal event fires.
-                bytes32 ptDigest = bytes32(_sponge(args.plaintexts[i]));
-                if (ptDigest != args.stateCommits[i]) {
-                    revert DigestMismatch(args.stateCommits[i], ptDigest);
-                }
+                // (audit H-01). Reverts with DigestMismatch before any reveal event fires.
+                _assertSlotEnvelope(args.plaintexts[i], args.stateCommits[i]);
             } else {
                 if (args.plaintexts[i].length != 0) {
                     revert BadC2Length(args.plaintexts[i].length, 0);
@@ -1523,7 +1517,6 @@ contract ShadowToken is ERC721, PausableMixin {
     /// Reverts if `yulHash2` is unset or the staticcall fails.
     function _hash2(bytes32 a, bytes32 b) internal view returns (bytes32 digest) {
         address y = yulHash2;
-        if (y == address(0)) revert VerifierNotSet();
         assembly ("memory-safe") {
             let mptr := mload(0x40)
             mstore(mptr,        a)
@@ -1543,7 +1536,18 @@ contract ShadowToken is ERC721, PausableMixin {
     /// + insert + batch entry points already carry a lot of locals).
     function _assertCtCommitBinding(bytes calldata c2, bytes32 expected) internal view {
         bytes32 got = bytes32(_sponge(c2));
-        if (got != expected) revert DigestMismatch(expected, got);
+        if (got != expected) revert DigestMismatch();
+    }
+
+    /// Variant of `_assertCtCommitBinding` for occupied slots that also enforces
+    /// the canonical MAX_PLAINTEXT_FIELDS_PER_SLOT * 32 calldata length. Used by
+    /// transferShadow and solve where every occupied slot carries exactly 39
+    /// fields (no per-call c2FieldCount).
+    function _assertSlotEnvelope(bytes calldata c2, bytes32 expected) internal view {
+        if (c2.length != MAX_PLAINTEXT_FIELDS_PER_SLOT * 32) {
+            revert BadC2Length(c2.length, MAX_PLAINTEXT_FIELDS_PER_SLOT * 32);
+        }
+        if (bytes32(_sponge(c2)) != expected) revert DigestMismatch();
     }
 
     // ============== verifier rotation slot ids ==============

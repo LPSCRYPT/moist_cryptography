@@ -77,6 +77,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", default="atomic_transfer_demo")
     ap.add_argument("--n-occupied", type=int, default=4)
+    ap.add_argument("--rebuild-verifier", action="store_true",
+                    help="after prove+verify, regenerate contracts/src/TransferShadowVerifier.sol")
     args = ap.parse_args()
 
     seed = args.seed.encode()
@@ -102,6 +104,21 @@ def main() -> None:
          "-p", str(proof_dir_t / "proof"),
          "-i", str(proof_dir_t / "public_inputs"),
          "--scheme", "ultra_honk", "--oracle_hash", "keccak"], TRANSFER_DIR, timeout=300)
+
+    if args.rebuild_verifier:
+        print("[1b/2] bb write_solidity_verifier -> TransferShadowVerifier.sol")
+        verifier_tmp = target_dir / "TransferShadowVerifier.tmp.sol"
+        run([BB, "write_solidity_verifier",
+             "-k", str(target_dir / "vk"),
+             "-o", str(verifier_tmp),
+             "--verifier_target", "evm"], TRANSFER_DIR, timeout=300)
+        # ROOT is the repo root; FIXTURE_ROOT lives under it.
+        verifier_dst = FIXTURE_ROOT.parent.parent.parent / "src" / "TransferShadowVerifier.sol"
+        text = verifier_tmp.read_text().replace(
+            "contract HonkVerifier", "contract TransferShadowVerifier")
+        verifier_dst.write_text(text)
+        verifier_tmp.unlink()
+        print(f"  wrote {verifier_dst}")
 
     proof_t_bytes = (proof_dir_t / "proof").read_bytes()
     pi_t_bytes = (proof_dir_t / "public_inputs").read_bytes()
@@ -170,6 +187,7 @@ def main() -> None:
         "prev_owner_pk_x": bx32(w["prev_owner_pk_x"]),
         "prev_owner_pk_y": bx32(w["prev_owner_pk_y"]),
         "new_chain_tips_root": bx32(w["new_chain_tips_root"]),
+        "new_ct_commits_root": bx32(w["new_ct_commits_root"]),
 
         "prev_lsh": [bx32(v) for v in w["prev_lsh"]],
         "prev_state_commit": [bx32(v) for v in w["prev_state_commit"]],

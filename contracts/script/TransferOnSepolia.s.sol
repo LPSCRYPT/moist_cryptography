@@ -33,7 +33,7 @@ import {KeyRegistry} from "../src/KeyRegistry.sol";
 contract TransferOnSepolia is Script {
     using stdJson for string;
 
-    uint256 internal constant TRANSFER_PI_LEN = 8;
+    uint256 internal constant TRANSFER_PI_LEN = 9;
     uint256 internal constant T10_PI_LEN = 20;
     uint256 internal constant N_SLOTS = 16;
     uint256 internal constant C2_FIELD_COUNT = 39;
@@ -51,6 +51,7 @@ contract TransferOnSepolia is Script {
         uint256[16] newC1Xs;
         uint256[16] newC1Ys;
         uint16[16]  newCounts;
+        bytes32[16] newCtCommits;
         bytes[]     c2s;    // length 16 (empty bytes for empty slots)
     }
 
@@ -118,6 +119,7 @@ contract TransferOnSepolia is Script {
             L.newC1Xs[i]      = uint256(j.readBytes32(string.concat(".new_c1_x[", idx, "]")));
             L.newC1Ys[i]      = uint256(j.readBytes32(string.concat(".new_c1_y[", idx, "]")));
             L.newCounts[i]    = uint16(j.readUint(string.concat(".new_mutation_count[", idx, "]")));
+            L.newCtCommits[i] = j.readBytes32(string.concat(".new_ct_commit[", idx, "]"));
 
             // c2_per_slot is a JSON array; empty slots have []. Build a
             // 39*32 buffer per occupied slot, empty bytes otherwise.
@@ -148,6 +150,7 @@ contract TransferOnSepolia is Script {
         args.newC1Xs             = L.newC1Xs;
         args.newC1Ys             = L.newC1Ys;
         args.newMutationCounts   = L.newCounts;
+        args.newCtCommits        = L.newCtCommits;
         args.c2s                 = L.c2s;
         args.newT10              = L.newT10;
         args.proofT10            = L.proofT10;
