@@ -259,6 +259,26 @@ contract InsertFeatureE2ETest is Test {
         st.insertFeature(args);
     }
 
+    /// Envelope-binding cutover (audit H-02): tampered c2 in insertFeature
+    /// MUST revert. Pre-cutover the c2 calldata was advisory and only the
+    /// proof-bound newCtCommit was authoritative. The contract now
+    /// STATICCALLs sponge_39 over args.c2 and asserts equality with
+    /// args.newCtCommit before any FN.insertIntoShadow / manifest write.
+    function test_insertFeature_reverts_when_c2_tampered() public {
+        ShadowToken.InsertFeatureArgs memory args = _buildArgs();
+        // Snapshot pre-state so revert atomicity is provable.
+        ShadowToken.SlotKind kindBefore = st.slotOf(shadowId, slotIdx).kind;
+        args.c2[7] = bytes1(uint8(args.c2[7]) ^ 0x01);
+        vm.prank(alice);
+        vm.expectRevert();
+        st.insertFeature(args);
+        assertEq(
+            uint256(st.slotOf(shadowId, slotIdx).kind),
+            uint256(kindBefore),
+            "slot kind unchanged on tampered-c2 revert"
+        );
+    }
+
     /// Gas regression: insertFeature does a mutate_slot verify (proves the
     /// re-encryption) + a T10 verify + manifest writes + carrier rotation.
     /// On-chain observed: ~7.3M (B7, E6). Cap at 9M.

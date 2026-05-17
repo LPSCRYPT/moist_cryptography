@@ -985,7 +985,10 @@ contract ShadowToken is ERC721, PausableMixin {
         // dodges stack-too-deep on the entry point) + return PI for events ----
         bytes32[] memory piMut = _verifyInsertProof(args, fn);
 
-        // c2 calldata is ADVISORY (see security note on mutateSlot).
+        // Envelope-binding cutover (audit H-02): bind emitted c2 to
+        // proof-bound newCtCommit before any state change. Reverts with
+        // CiphertextDigestMismatch if sponge_39(args.c2) != args.newCtCommit.
+        _assertCtCommitBinding(args.c2, args.newCtCommit);
 
         // ---- 3. apply: slot OCCUPIED, carrier inserted ----
         m.kind = SlotKind.OCCUPIED;
