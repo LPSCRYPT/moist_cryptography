@@ -171,8 +171,7 @@ contract ShadowToken is ERC721, PausableMixin {
         uint256 indexed shadowId,
         uint8   indexed slotIdx,
         bytes32 c1X,
-        bytes32 c1Y,
-        bytes   c2
+        bytes32 c1Y
     );
     event SlotExtracted(
         uint256 indexed shadowId,
@@ -1198,10 +1197,10 @@ contract ShadowToken is ERC721, PausableMixin {
             args.shadowId,
             uint8(i),
             bytes32(args.newC1Xs[i]),
-            bytes32(args.newC1Ys[i]),
-            args.c2s[i]
+            bytes32(args.newC1Ys[i])
         );
     }
+
 
     /// Hash the chain manifest's per-slot liveStateHash array via the
     /// Yul sponge_16 contract.
