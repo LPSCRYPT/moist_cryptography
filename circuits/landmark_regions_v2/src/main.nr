@@ -201,6 +201,64 @@ fn sponge_8_pad16(e: [Field; 8]) -> Field {
     sponge_16(padded)
 }
 
+// ---- plaintext geometry validation (audit H-04) ----
+//
+// Mirrors mutate_slot's `assert_pose_byte_dims` but reads (w, h) from
+// the plaintext bytes directly instead of taking them as separate
+// witness inputs. The mint circuit doesn't bind external (w, h) PIs --
+// it just needs to ensure each freshly-minted plaintext is renderable
+// (non-zero, bounded by the 48x48 canvas, axis-aligned containment).
+//
+// Without this check, a malicious minter could commit to plaintexts
+// that the recipient cannot render but still pass `solve` reveal
+// because the bytes match the chain-bound ct_commit. H-04 closes that:
+// every minted slot's geometry is constraint-checked at mint time.
+//
+// Conservative axis-aligned containment: the pose's rotation/scale bits
+// are intentionally NOT validated here. Mutations are free to repose;
+// any rotation that overflows the unrotated bbox is rejected by
+// `mutate_slot::assert_pose_byte_dims`.
+global CANVAS_W: u32 = 48;
+global CANVAS_H: u32 = 48;
+
+fn decode_xy(pose_low_bits: Field) -> (u8, u8) {
+    // pose_low_bits encodes packed pose in its low 64 bits. Low 12 bits
+    // are (x: 6bit, y: 6bit).
+    let bytes: [u8; 8] = pose_low_bits.to_le_bytes();
+    let x: u8 = bytes[0] & 0x3F;
+    let y: u8 = ((bytes[0] >> 6) | ((bytes[1] & 0x0F) << 2)) & 0x3F;
+    (x, y)
+}
+
+fn validate_plaintext_v2(plaintext: [Field; 39]) {
+    // Plaintext field 0 layout (low 31 bytes):
+    //   bytes 0..7   pose (8 B, uint64 packed)
+    //   byte 8       w
+    //   byte 9       h
+    //   bytes 10..30 first 21 of (w * h) palette indices (4-bit packed)
+    let f0_bytes: [u8; 31] = plaintext[0].to_le_bytes();
+    // Reconstruct pose's low 8 bytes (used only for x, y here).
+    let mut pose_acc: Field = 0;
+    let mut mul: Field = 1;
+    for i in 0..8 {
+        pose_acc = pose_acc + (f0_bytes[i] as Field) * mul;
+        mul = mul * 256;
+    }
+    let (x, y) = decode_xy(pose_acc);
+    let w_byte = f0_bytes[8];
+    let h_byte = f0_bytes[9];
+
+    // (1) range: w, h in [1, 48].
+    assert(w_byte != 0);
+    assert(h_byte != 0);
+    assert(w_byte as u32 <= CANVAS_W);
+    assert(h_byte as u32 <= CANVAS_H);
+
+    // (2) canvas containment: anchor + extent must fit in 48x48.
+    assert((x as u32) + (w_byte as u32) <= CANVAS_W);
+    assert((y as u32) + (h_byte as u32) <= CANVAS_H);
+}
+
 // ---- main ----
 
 fn main(
@@ -241,6 +299,9 @@ fn main(
     for i in 0..N_MINT_SLOTS {
         // 2a. plaintext -> state_commit
         let state_commit_i = sponge_39(plaintexts[i]);
+
+        // H-04: validate plaintext geometry before committing to it.
+        validate_plaintext_v2(plaintexts[i]);
 
         // M-06: r != 0 rejects the degenerate (c1 = O, shared = O) envelope
         // that collapses k to kdf(role, 0, 0) -- a deterministic, attacker-
