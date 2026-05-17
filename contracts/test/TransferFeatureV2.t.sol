@@ -29,12 +29,12 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 contract TransferFeatureV2GasTest is Test {
     using stdJson for string;
 
-    TestableShadowToken       internal st;
-    TestableFeatureNFT        internal fn;
+    TestableShadowToken internal st;
+    TestableFeatureNFT internal fn;
     TransferFeatureV2Verifier internal vTF;
-    KeyRegistry               internal kr;
-    Poseidon2YulSponge        internal sponge;
-    Poseidon2YulSponge16      internal sponge16;
+    KeyRegistry internal kr;
+    Poseidon2YulSponge internal sponge;
+    Poseidon2YulSponge16 internal sponge16;
 
     string internal constant FIX =
         "./test/fixtures/onchain_transfer_feature_v2/transfer_feature_v2_atomic_mint_demo_slot0";
@@ -46,8 +46,8 @@ contract TransferFeatureV2GasTest is Test {
 
     uint256 internal featureId;
     uint256 internal shadowIdAtMint;
-    uint8   internal slotAtMint;
-    uint8   internal typeIdx;
+    uint8 internal slotAtMint;
+    uint8 internal typeIdx;
     bytes32 internal originFaceId;
     bytes32 internal paletteCommit;
     bytes32 internal oldLsh;
@@ -61,7 +61,7 @@ contract TransferFeatureV2GasTest is Test {
     uint256 internal constant TF_C2_BYTES = 39 * 32;
 
     function setUp() public {
-        sponge   = new Poseidon2YulSponge();
+        sponge = new Poseidon2YulSponge();
         sponge16 = new Poseidon2YulSponge16();
         st = new TestableShadowToken(address(sponge));
         fn = new TestableFeatureNFT(address(st));
@@ -76,49 +76,40 @@ contract TransferFeatureV2GasTest is Test {
 
         // Load proof + PI from fixture.
         proof = vm.readFileBinary(string.concat(FIX, "/proof.bin"));
-        pi    = _loadFields(string.concat(FIX, "/public_inputs.bin"), TF_PI_LEN);
-        c2    = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
+        pi = _loadFields(string.concat(FIX, "/public_inputs.bin"), TF_PI_LEN);
+        c2 = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
         require(c2.length == TF_C2_BYTES, "c2 length mismatch (regenerate fixture?)");
 
         // Read the binding values from meta.json (these are what the
         // contract will check pi against, so they MUST match the fixture).
         string memory j = vm.readFile(string.concat(FIX, "/meta.json"));
-        featureId      = uint256(j.readBytes32(".feature_id"));
+        featureId = uint256(j.readBytes32(".feature_id"));
         shadowIdAtMint = uint256(j.readBytes32(".shadow_id_at_mint"));
-        slotAtMint     = uint8(j.readUint(".slot_at_mint"));
-        typeIdx        = uint8(j.readUint(".type_idx"));
-        originFaceId   = j.readBytes32(".origin_face_id");
-        paletteCommit  = j.readBytes32(".palette_commit");
-        oldLsh         = j.readBytes32(".old_lsh");
-        newLsh         = j.readBytes32(".new_lsh");
-        recipientPkX   = j.readBytes32(".to_pk_x");
-        recipientPkY   = j.readBytes32(".to_pk_y");
-        recipient      = j.readAddress(".to_addr");
-        newCtCommit    = j.readBytes32(".new_ct_commit");
+        slotAtMint = uint8(j.readUint(".slot_at_mint"));
+        typeIdx = uint8(j.readUint(".type_idx"));
+        originFaceId = j.readBytes32(".origin_face_id");
+        paletteCommit = j.readBytes32(".palette_commit");
+        oldLsh = j.readBytes32(".old_lsh");
+        newLsh = j.readBytes32(".new_lsh");
+        recipientPkX = j.readBytes32(".to_pk_x");
+        recipientPkY = j.readBytes32(".to_pk_y");
+        recipient = j.readAddress(".to_addr");
+        newCtCommit = j.readBytes32(".new_ct_commit");
 
         // Sanity: PI fields the contract validates must match meta.
-        require(uint256(pi[0]) == featureId,             "pi[0] != featureId");
-        require(pi[1] == recipientPkX,                   "pi[1] != recipientPkX");
-        require(pi[2] == recipientPkY,                   "pi[2] != recipientPkY");
-        require(pi[3] == oldLsh,                         "pi[3] != oldLsh");
-        require(pi[4] == newLsh,                         "pi[4] != newLsh");
-        require(pi[5] == paletteCommit,                  "pi[5] != paletteCommit");
-        require(uint256(pi[6]) == uint256(typeIdx),      "pi[6] != typeIdx");
-        require(pi[7] == originFaceId,                   "pi[7] != originFaceId");
-        require(pi[8] == newCtCommit,                    "pi[8] != newCtCommit");
+        require(uint256(pi[0]) == featureId, "pi[0] != featureId");
+        require(pi[1] == recipientPkX, "pi[1] != recipientPkX");
+        require(pi[2] == recipientPkY, "pi[2] != recipientPkY");
+        require(pi[3] == oldLsh, "pi[3] != oldLsh");
+        require(pi[4] == newLsh, "pi[4] != newLsh");
+        require(pi[5] == paletteCommit, "pi[5] != paletteCommit");
+        require(uint256(pi[6]) == uint256(typeIdx), "pi[6] != typeIdx");
+        require(pi[7] == originFaceId, "pi[7] != originFaceId");
+        require(pi[8] == newCtCommit, "pi[8] != newCtCommit");
 
         // Seed: feature was inserted in shadowIdAtMint, then extracted to
         // standalone state owned by alice (post-extract carrier).
-        fn.seedFeature(
-            featureId,
-            shadowIdAtMint,
-            slotAtMint,
-            typeIdx,
-            originFaceId,
-            paletteCommit,
-            oldLsh,
-            alice
-        );
+        fn.seedFeature(featureId, shadowIdAtMint, slotAtMint, typeIdx, originFaceId, paletteCommit, oldLsh, alice);
         // Flip isInserted=false + sync checkpoint via the ShadowToken-only gate.
         vm.prank(address(st));
         fn.extractFromShadow(featureId, shadowIdAtMint, slotAtMint, oldLsh);
@@ -128,11 +119,7 @@ contract TransferFeatureV2GasTest is Test {
         kr.register(recipientPkX, recipientPkY);
     }
 
-    function _loadFields(string memory path, uint256 expectedLen)
-        internal
-        view
-        returns (bytes32[] memory out)
-    {
+    function _loadFields(string memory path, uint256 expectedLen) internal view returns (bytes32[] memory out) {
         bytes memory raw = vm.readFileBinary(path);
         require(raw.length == expectedLen * 32, "PI length mismatch");
         out = new bytes32[](expectedLen);
@@ -141,6 +128,10 @@ contract TransferFeatureV2GasTest is Test {
             assembly { word := mload(add(raw, add(0x20, mul(i, 32)))) }
             out[i] = word;
         }
+    }
+
+    function _writeField(bytes memory data, uint256 fieldIndex, uint256 value) internal pure {
+        assembly { mstore(add(add(data, 32), mul(fieldIndex, 32)), value) }
     }
 
     function test_transferFeature_v2_succeeds_against_real_verifier() public {
@@ -191,14 +182,25 @@ contract TransferFeatureV2GasTest is Test {
         assertEq(fn.liveStateHashCheckpointOf(featureId), checkpointBefore, "checkpoint unchanged");
     }
 
+    function test_transferFeature_reverts_when_c2_field_noncanonical() public {
+        bytes memory tampered = bytes.concat(c2);
+        uint256 fr = fn.FR_MOD();
+        _writeField(tampered, 0, fr);
+        address ownerBefore = fn.ownerOf(featureId);
+        bytes32 checkpointBefore = fn.liveStateHashCheckpointOf(featureId);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(FeatureNFT.NonCanonicalField.selector, uint256(0), fr));
+        fn.transferFeature(featureId, recipient, proof, pi, tampered);
+        assertEq(fn.ownerOf(featureId), ownerBefore, "owner unchanged");
+        assertEq(fn.liveStateHashCheckpointOf(featureId), checkpointBefore, "checkpoint unchanged");
+    }
+
     /// Envelope-binding cutover (audit H-02): wrong c2 length MUST revert
     /// with BadC2Length before the proof verifier is invoked.
     function test_transferFeature_reverts_when_c2_wrong_length() public {
         bytes memory short = new bytes(TF_C2_BYTES - 1);
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(FeatureNFT.BadC2Length.selector, TF_C2_BYTES - 1, TF_C2_BYTES)
-        );
+        vm.expectRevert(abi.encodeWithSelector(FeatureNFT.BadC2Length.selector, TF_C2_BYTES - 1, TF_C2_BYTES));
         fn.transferFeature(featureId, recipient, proof, pi, short);
     }
 
@@ -220,7 +222,7 @@ contract TransferFeatureV2GasTest is Test {
     /// recipient was unregistered. A valid proof + an unregistered recipient
     /// would still rotate ownership. Now MUST revert.
     function test_transferFeature_reverts_when_recipient_unregistered() public {
-        address stranger = makeAddr("stranger_no_kr");  // never registered
+        address stranger = makeAddr("stranger_no_kr"); // never registered
         // Mutate pi[1]/pi[2] so the proof binds the stranger... actually no,
         // the proof is bound to recipientPkX/Y; we cannot synthesize a valid
         // proof for the stranger. The relevant gate is _requirePkMatches
@@ -228,9 +230,7 @@ contract TransferFeatureV2GasTest is Test {
         // address regardless of what's in pi[1]/pi[2]. With M-01 fix this
         // reverts at the registry check, not at the verifier.
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(FeatureNFT.RecipientNotRegistered.selector, stranger)
-        );
+        vm.expectRevert(abi.encodeWithSelector(FeatureNFT.RecipientNotRegistered.selector, stranger));
         fn.transferFeature(featureId, stranger, proof, pi, c2);
         assertEq(fn.ownerOf(featureId), alice);
     }
@@ -243,16 +243,7 @@ contract TransferFeatureV2GasTest is Test {
         TestableFeatureNFT fn2 = new TestableFeatureNFT(address(st));
         fn2.setTransferFeatureVerifier(IVerifier(address(vTF)));
         // intentionally skip fn2.setKeyRegistry(kr)
-        fn2.seedFeature(
-            featureId,
-            shadowIdAtMint,
-            slotAtMint,
-            typeIdx,
-            originFaceId,
-            paletteCommit,
-            oldLsh,
-            alice
-        );
+        fn2.seedFeature(featureId, shadowIdAtMint, slotAtMint, typeIdx, originFaceId, paletteCommit, oldLsh, alice);
         // fn2.shadowToken was set in its ctor to address(st), so calls
         // pranked from address(st) satisfy fn2's NotShadowToken gate without
         // requiring ShadowToken to re-point at fn2 (setFeatureNFT is one-shot).

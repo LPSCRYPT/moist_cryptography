@@ -25,10 +25,10 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 contract SolveShadowE2ETest is Test {
     using stdJson for string;
 
-    TestableShadowToken  internal st;
-    TestableFeatureNFT   internal fn;
-    SolveShadowVerifier  internal vS;
-    Poseidon2YulSponge   internal sponge;
+    TestableShadowToken internal st;
+    TestableFeatureNFT internal fn;
+    SolveShadowVerifier internal vS;
+    Poseidon2YulSponge internal sponge;
     Poseidon2YulSponge16 internal sponge16;
     Poseidon2YulSpongePaletteSalt internal sponge17;
 
@@ -49,12 +49,12 @@ contract SolveShadowE2ETest is Test {
 
     uint256 internal constant SOLVE_PI_LEN = 7;
 
-    uint8[]   internal occupiedIdxs;
+    uint8[] internal occupiedIdxs;
     uint256[] internal featureIds;
     bytes32[16] internal prevLsh;
-    bytes32[16] internal stateCommits;       // pre-derivation; for assertions only
-    bytes32[16][16] internal palettes;       // [slot][color]
-    bytes32[16] internal paletteSalts;       // per-slot
+    bytes32[16] internal stateCommits; // pre-derivation; for assertions only
+    bytes32[16][16] internal palettes; // [slot][color]
+    bytes32[16] internal paletteSalts; // per-slot
     bytes[16] internal plaintextBytes;
     uint8[16] internal zPerm;
 
@@ -71,15 +71,15 @@ contract SolveShadowE2ETest is Test {
         st.setVerifier(st.SLOT_SOLVE_SHADOW(), IVerifier(address(vS)));
 
         proofSolve = vm.readFileBinary(string.concat(FIX, "/proof.bin"));
-        piSolve    = _loadFields(string.concat(FIX, "/public_inputs.bin"), SOLVE_PI_LEN);
+        piSolve = _loadFields(string.concat(FIX, "/public_inputs.bin"), SOLVE_PI_LEN);
 
-        shadowId         = uint256(piSolve[0]);
+        shadowId = uint256(piSolve[0]);
         stateCommitsRoot = piSolve[1];
-        zPermPacked      = piSolve[2];
-        zIndexCommit     = piSolve[3];
-        lshRoot          = piSolve[4];
-        ownerPkX         = piSolve[5];
-        ownerPkY         = piSolve[6];
+        zPermPacked = piSolve[2];
+        zIndexCommit = piSolve[3];
+        lshRoot = piSolve[4];
+        ownerPkX = piSolve[5];
+        ownerPkY = piSolve[6];
 
         _loadFromMeta();
         _seedChainState();
@@ -96,13 +96,17 @@ contract SolveShadowE2ETest is Test {
         }
     }
 
+    function _writeField(bytes memory data, uint256 fieldIndex, uint256 value) internal pure {
+        assembly { mstore(add(add(data, 32), mul(fieldIndex, 32)), value) }
+    }
+
     function _loadFromMeta() internal {
         string memory j = vm.readFile(string.concat(FIX, "/meta.json"));
         for (uint256 i = 0; i < 16; i++) {
             string memory idx = vm.toString(i);
-            prevLsh[i]      = j.readBytes32(string.concat(".prev_lsh[", idx, "]"));
+            prevLsh[i] = j.readBytes32(string.concat(".prev_lsh[", idx, "]"));
             stateCommits[i] = j.readBytes32(string.concat(".state_commits[", idx, "]"));
-            zPerm[i]        = uint8(j.readUint(string.concat(".z_perm[", idx, "]")));
+            zPerm[i] = uint8(j.readUint(string.concat(".z_perm[", idx, "]")));
         }
         uint256[] memory occ = j.readUintArray(".occupied_idxs");
         occupiedIdxs = new uint8[](occ.length);
@@ -152,7 +156,10 @@ contract SolveShadowE2ETest is Test {
             // empty bytes for unoccupied slots.
             bool isOccupied = false;
             for (uint256 q = 0; q < occupiedIdxs.length; q++) {
-                if (occupiedIdxs[q] == i) { isOccupied = true; break; }
+                if (occupiedIdxs[q] == i) {
+                    isOccupied = true;
+                    break;
+                }
             }
             if (isOccupied) {
                 plaintextBytes[i] = buf;
@@ -173,10 +180,7 @@ contract SolveShadowE2ETest is Test {
             featureIds[i] = featIds[i];
             prevLshArr[i] = prevLsh[sIdx];
         }
-        st.seedShadowMultiSlot(
-            shadowId, alice, ownerPkX, ownerPkY,
-            occupiedIdxs, featIds, prevLshArr
-        );
+        st.seedShadowMultiSlot(shadowId, alice, ownerPkX, ownerPkY, occupiedIdxs, featIds, prevLshArr);
         // Set zIndexCommit so the solve proof's PI[3] matches chain.
         st.setShadowZIndexCommitForTest(shadowId, zIndexCommit);
 
@@ -193,22 +197,15 @@ contract SolveShadowE2ETest is Test {
             }
             paletteSalts[sIdx] = salt;
             bytes32 paletteCommit = _computePaletteCommit(pal, salt);
-            fn.seedFeature(
-                featIds[i], shadowId, sIdx, typeIdx,
-                originFaceId, paletteCommit, prevLsh[sIdx], alice
-            );
+            fn.seedFeature(featIds[i], shadowId, sIdx, typeIdx, originFaceId, paletteCommit, prevLsh[sIdx], alice);
         }
     }
 
     /// Generate a deterministic 16-color palette + salt for a slot. Each
     /// color is a 24-bit value seeded from (shadowId, slotIdx, colorIdx).
-    function _genPaletteSalt(uint8 sIdx)
-        internal view returns (bytes32[16] memory palette, bytes32 salt)
-    {
+    function _genPaletteSalt(uint8 sIdx) internal view returns (bytes32[16] memory palette, bytes32 salt) {
         for (uint256 c = 0; c < 16; c++) {
-            palette[c] = bytes32(uint256(
-                uint24(uint256(keccak256(abi.encode("color", shadowId, sIdx, c))))
-            ));
+            palette[c] = bytes32(uint256(uint24(uint256(keccak256(abi.encode("color", shadowId, sIdx, c))))));
         }
         salt = bytes32(uint256(keccak256(abi.encode("salt", shadowId, sIdx))) % st.FR_MOD());
     }
@@ -216,9 +213,7 @@ contract SolveShadowE2ETest is Test {
     /// Compute paletteCommit by static-calling the same Yul sponge_17 the
     /// contract uses at solve. Guarantees seed-side and reveal-side hashing
     /// agree byte-for-byte.
-    function _computePaletteCommit(bytes32[16] memory palette, bytes32 salt)
-        internal view returns (bytes32 commit)
-    {
+    function _computePaletteCommit(bytes32[16] memory palette, bytes32 salt) internal view returns (bytes32 commit) {
         bytes memory buf = new bytes(17 * 32);
         for (uint256 i = 0; i < 16; i++) {
             bytes32 v = palette[i];
@@ -333,6 +328,17 @@ contract SolveShadowE2ETest is Test {
         assertEq(st.isSolved(args.shadowId), solvedBefore, "shadow unchanged on tampered-plaintext revert");
     }
 
+    function test_solve_reverts_when_plaintext_field_noncanonical() public {
+        ShadowToken.SolveArgs memory args = _buildArgs();
+        uint8 sIdx = occupiedIdxs[0];
+        uint256 fr = st.FR_MOD();
+        _writeField(args.plaintexts[sIdx], 0, fr);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(0), fr));
+        st.solve(args);
+        assertFalse(st.isSolved(shadowId), "shadow remains unsolved");
+    }
+
     /// reveal-update: tampering a palette color makes sponge_palette_salt
     /// produce a hash that doesn't match the carrier's stored
     /// paletteCommit. FeatureNFT.revealPaletteAtSolve reverts with
@@ -343,12 +349,7 @@ contract SolveShadowE2ETest is Test {
         // Flip one bit in palette[0] of the first occupied slot.
         args.palettes[sIdx][0] = bytes32(uint256(args.palettes[sIdx][0]) ^ 1);
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                FeatureNFT.PaletteCommitMismatch.selector,
-                featureIds[0]
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(FeatureNFT.PaletteCommitMismatch.selector, featureIds[0]));
         st.solve(args);
     }
 
@@ -358,13 +359,31 @@ contract SolveShadowE2ETest is Test {
         uint8 sIdx = occupiedIdxs[0];
         args.paletteSalts[sIdx] = bytes32(uint256(args.paletteSalts[sIdx]) ^ 1);
         vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(FeatureNFT.PaletteCommitMismatch.selector, featureIds[0]));
+        st.solve(args);
+    }
+
+    function test_solve_reverts_when_palette_color_out_of_range() public {
+        ShadowToken.SolveArgs memory args = _buildArgs();
+        uint8 sIdx = occupiedIdxs[0];
+        args.palettes[sIdx][0] = bytes32(uint256(0x01000000));
+        vm.prank(alice);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                FeatureNFT.PaletteCommitMismatch.selector,
-                featureIds[0]
-            )
+            abi.encodeWithSelector(FeatureNFT.PaletteColorOutOfRange.selector, uint256(0), uint256(0x01000000))
         );
         st.solve(args);
+        assertFalse(st.isSolved(shadowId), "shadow remains unsolved");
+    }
+
+    function test_solve_reverts_when_palette_salt_noncanonical() public {
+        ShadowToken.SolveArgs memory args = _buildArgs();
+        uint8 sIdx = occupiedIdxs[0];
+        uint256 fr = st.FR_MOD();
+        args.paletteSalts[sIdx] = bytes32(fr);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(FeatureNFT.NonCanonicalField.selector, uint256(16), fr));
+        st.solve(args);
+        assertFalse(st.isSolved(shadowId), "shadow remains unsolved");
     }
 
     // ============== Edge cases the spec called out ==============

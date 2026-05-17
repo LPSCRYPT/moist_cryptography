@@ -36,24 +36,24 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 contract MintShadowE2ETest is Test {
     using stdJson for string;
 
-    TestableShadowToken    internal st;
-    TestableFeatureNFT     internal fn;
-    MintShadowVerifier     internal vMint;
-    FaceDiscVerifier       internal vDisc;
-    T10ShadowVerifier      internal vT10;
-    Poseidon2YulSponge     internal sponge;
-    Poseidon2YulSponge16   internal sponge16;
-    Poseidon2YulHash2      internal hash2;
-    KeyRegistry            internal kr;
+    TestableShadowToken internal st;
+    TestableFeatureNFT internal fn;
+    MintShadowVerifier internal vMint;
+    FaceDiscVerifier internal vDisc;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
+    Poseidon2YulSponge16 internal sponge16;
+    Poseidon2YulHash2 internal hash2;
+    KeyRegistry internal kr;
 
     string internal constant FIX = "./test/fixtures/atomic_mint/atomic_mint_demo";
 
     bytes internal proofMint;
     bytes internal proofDisc;
     bytes internal proofT10;
-    bytes32[] internal piMint;     // 7 fields
-    bytes32[] internal piDisc;     // 1 field
-    bytes32[] internal piT10;      // 20 fields
+    bytes32[] internal piMint; // 7 fields
+    bytes32[] internal piDisc; // 1 field
+    bytes32[] internal piT10; // 20 fields
 
     uint256 internal shadowId;
     bytes32 internal imageCommit;
@@ -61,19 +61,19 @@ contract MintShadowE2ETest is Test {
     bytes32 internal ownerPkY;
 
     address internal alice = makeAddr("alice");
-    address internal bob   = makeAddr("bob");
+    address internal bob = makeAddr("bob");
 
     uint256 internal constant MINT_PI_LEN = 7;
     uint256 internal constant DISC_PI_LEN = 1;
-    uint256 internal constant T10_PI_LEN  = 20;
+    uint256 internal constant T10_PI_LEN = 20;
 
     /// Cached per-slot fields read from meta.json.
     bytes32[8] internal lshInits;
     bytes32[8] internal chainTips;
     bytes32[8] internal paletteCommits;
     bytes32[8] internal originFaceIds;
-    bytes32[8] internal ctCommits;          // sponge_39(c2[i]) per slot, from fixture
-    bytes32[8] internal paletteSaltCts;     // per-slot ECIES salt envelopes (advisory)
+    bytes32[8] internal ctCommits; // sponge_39(c2[i]) per slot, from fixture
+    bytes32[8] internal paletteSaltCts; // per-slot ECIES salt envelopes (advisory)
     bytes32[8] internal saltC1Xs;
     bytes32[8] internal saltC1Ys;
 
@@ -89,7 +89,7 @@ contract MintShadowE2ETest is Test {
 
         vMint = new MintShadowVerifier();
         vDisc = new FaceDiscVerifier();
-        vT10  = new T10ShadowVerifier();
+        vT10 = new T10ShadowVerifier();
         st.setVerifier(st.SLOT_MINT_SHADOW(), IVerifier(address(vMint)));
         st.setVerifier(st.SLOT_FACE_DISC(), IVerifier(address(vDisc)));
         st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
@@ -99,16 +99,16 @@ contract MintShadowE2ETest is Test {
 
         // Load proofs.
         proofMint = vm.readFileBinary(string.concat(FIX, "/proof_mint.bin"));
-        piMint    = _loadFields(string.concat(FIX, "/public_inputs_mint.bin"), MINT_PI_LEN);
+        piMint = _loadFields(string.concat(FIX, "/public_inputs_mint.bin"), MINT_PI_LEN);
         proofDisc = vm.readFileBinary(string.concat(FIX, "/proof_disc.bin"));
-        piDisc    = _loadFields(string.concat(FIX, "/public_inputs_disc.bin"), DISC_PI_LEN);
-        proofT10  = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
-        piT10     = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
+        piDisc = _loadFields(string.concat(FIX, "/public_inputs_disc.bin"), DISC_PI_LEN);
+        proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
+        piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
 
-        shadowId    = uint256(piMint[0]);
+        shadowId = uint256(piMint[0]);
         imageCommit = piMint[1];
-        ownerPkX    = piMint[2];
-        ownerPkY    = piMint[3];
+        ownerPkX = piMint[2];
+        ownerPkY = piMint[3];
 
         // Sanity: imageCommit pinned in mint PI must match face_disc PI.
         require(piDisc[0] == imageCommit, "imageCommit mismatch fixture");
@@ -127,9 +127,7 @@ contract MintShadowE2ETest is Test {
         st.registerImage(imageCommit, proofDisc);
     }
 
-    function _loadFields(string memory path, uint256 expectedLen)
-        internal returns (bytes32[] memory out)
-    {
+    function _loadFields(string memory path, uint256 expectedLen) internal returns (bytes32[] memory out) {
         bytes memory raw = vm.readFileBinary(path);
         require(raw.length == expectedLen * 32, "PI length mismatch");
         out = new bytes32[](expectedLen);
@@ -140,32 +138,36 @@ contract MintShadowE2ETest is Test {
         }
     }
 
+    function _writeField(bytes memory data, uint256 fieldIndex, uint256 value) internal pure {
+        assembly { mstore(add(add(data, 32), mul(fieldIndex, 32)), value) }
+    }
+
     function _loadFromMeta() internal {
         string memory j = vm.readFile(string.concat(FIX, "/meta.json"));
         for (uint256 i = 0; i < 8; i++) {
             string memory idx = vm.toString(i);
-            lshInits[i]       = j.readBytes32(string.concat(".lsh_inits[", idx, "]"));
-            chainTips[i]      = j.readBytes32(string.concat(".chain_tips[", idx, "]"));
+            lshInits[i] = j.readBytes32(string.concat(".lsh_inits[", idx, "]"));
+            chainTips[i] = j.readBytes32(string.concat(".chain_tips[", idx, "]"));
             paletteCommits[i] = j.readBytes32(string.concat(".palette_commits[", idx, "]"));
-            originFaceIds[i]  = j.readBytes32(string.concat(".origin_face_ids[", idx, "]"));
-            ctCommits[i]      = j.readBytes32(string.concat(".ct_commits[", idx, "]"));
+            originFaceIds[i] = j.readBytes32(string.concat(".origin_face_ids[", idx, "]"));
+            ctCommits[i] = j.readBytes32(string.concat(".ct_commits[", idx, "]"));
             paletteSaltCts[i] = j.readBytes32(string.concat(".palette_salt_cts[", idx, "]"));
-            saltC1Xs[i]       = j.readBytes32(string.concat(".salt_c1_xs[", idx, "]"));
-            saltC1Ys[i]       = j.readBytes32(string.concat(".salt_c1_ys[", idx, "]"));
+            saltC1Xs[i] = j.readBytes32(string.concat(".salt_c1_xs[", idx, "]"));
+            saltC1Ys[i] = j.readBytes32(string.concat(".salt_c1_ys[", idx, "]"));
         }
     }
 
     function _buildArgs() internal returns (ShadowToken.MintShadowArgs memory args) {
-        args.proofMint   = proofMint;
+        args.proofMint = proofMint;
         args.imageCommit = imageCommit;
         args.liveStateHashInits = lshInits;
-        args.chainTips          = chainTips;
-        args.paletteCommits     = paletteCommits;
-        args.paletteSaltCts     = paletteSaltCts;
-        args.saltC1Xs           = saltC1Xs;
-        args.saltC1Ys           = saltC1Ys;
-        args.originFaceIds      = originFaceIds;
-        args.ctCommits          = ctCommits;
+        args.chainTips = chainTips;
+        args.paletteCommits = paletteCommits;
+        args.paletteSaltCts = paletteSaltCts;
+        args.saltC1Xs = saltC1Xs;
+        args.saltC1Ys = saltC1Ys;
+        args.originFaceIds = originFaceIds;
+        args.ctCommits = ctCommits;
 
         // Per-slot c2 (39 fields = 1248 bytes), pulled from meta.json.
         bytes[] memory c2s = new bytes[](8);
@@ -174,8 +176,7 @@ contract MintShadowE2ETest is Test {
             string memory idx = vm.toString(i);
             bytes memory buf = new bytes(39 * 32);
             for (uint256 k = 0; k < 39; k++) {
-                bytes32 v = j.readBytes32(string.concat(
-                    ".c2_per_slot[", idx, "][", vm.toString(k), "]"));
+                bytes32 v = j.readBytes32(string.concat(".c2_per_slot[", idx, "][", vm.toString(k), "]"));
                 assembly { mstore(add(add(buf, 32), mul(k, 32)), v) }
             }
             c2s[i] = buf;
@@ -183,8 +184,8 @@ contract MintShadowE2ETest is Test {
         args.c2s = c2s;
 
         bytes32[2] memory t10;
-        t10[0] = piT10[2];   // hi
-        t10[1] = piT10[3];   // lo
+        t10[0] = piT10[2]; // hi
+        t10[1] = piT10[3]; // lo
         args.newT10 = t10;
         args.proofT10 = proofT10;
     }
@@ -259,10 +260,12 @@ contract MintShadowE2ETest is Test {
         // 8 origin slots OCCUPIED with the proof's lsh_init values.
         for (uint8 i = 0; i < 8; i++) {
             ShadowToken.ManifestEntry memory m = st.slotOf(shadowId, i);
-            assertEq(uint256(m.kind), uint256(ShadowToken.SlotKind.OCCUPIED),
-                     string.concat("slot ", vm.toString(uint256(i)), " OCCUPIED"));
-            assertEq(m.liveStateHash, lshInits[i],
-                     string.concat("slot ", vm.toString(uint256(i)), " lsh = lsh_init"));
+            assertEq(
+                uint256(m.kind),
+                uint256(ShadowToken.SlotKind.OCCUPIED),
+                string.concat("slot ", vm.toString(uint256(i)), " OCCUPIED")
+            );
+            assertEq(m.liveStateHash, lshInits[i], string.concat("slot ", vm.toString(uint256(i)), " lsh = lsh_init"));
             assertGt(m.featureId, 0, "carrier minted");
             // Cross-check carrier metadata.
             assertEq(fn.ownerOf(m.featureId), alice, "carrier owned by alice");
@@ -270,17 +273,18 @@ contract MintShadowE2ETest is Test {
             assertEq(fn.hostShadowIdOf(m.featureId), shadowId, "carrier host");
             assertEq(fn.hostSlotIdxOf(m.featureId), i, "carrier slot idx");
             assertEq(fn.typeIdxOf(m.featureId), i, "typeIdx = slot idx");
-            assertEq(fn.originFaceIdOf(m.featureId), originFaceIds[i],
-                     "originFaceId stored");
-            assertEq(fn.paletteCommitOf(m.featureId), paletteCommits[i],
-                     "paletteCommit stored");
+            assertEq(fn.originFaceIdOf(m.featureId), originFaceIds[i], "originFaceId stored");
+            assertEq(fn.paletteCommitOf(m.featureId), paletteCommits[i], "paletteCommit stored");
         }
 
         // Slots 8..15 EMPTY (default-zero values).
         for (uint8 i = 8; i < 16; i++) {
             ShadowToken.ManifestEntry memory m = st.slotOf(shadowId, i);
-            assertEq(uint256(m.kind), uint256(ShadowToken.SlotKind.EMPTY),
-                     string.concat("slot ", vm.toString(uint256(i)), " EMPTY"));
+            assertEq(
+                uint256(m.kind),
+                uint256(ShadowToken.SlotKind.EMPTY),
+                string.concat("slot ", vm.toString(uint256(i)), " EMPTY")
+            );
             assertEq(m.featureId, 0, "EMPTY slot featureId = 0");
             assertEq(m.liveStateHash, bytes32(0), "EMPTY slot lsh = 0");
         }
@@ -295,8 +299,8 @@ contract MintShadowE2ETest is Test {
         bool sawT10 = false;
         uint256 sawSlotMutated = 0;
         bytes32 sigMinted = keccak256("ShadowMinted(uint256,address,uint64,bytes32)");
-        bytes32 sigT10    = keccak256("ShadowT10Updated(uint256,bytes32,bytes32)");
-        bytes32 sigSM     = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
+        bytes32 sigT10 = keccak256("ShadowT10Updated(uint256,bytes32,bytes32)");
+        bytes32 sigSM = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter != address(st)) continue;
             if (logs[i].topics[0] == sigMinted) sawMinted = true;
@@ -354,9 +358,9 @@ contract MintShadowE2ETest is Test {
         st.mintShadow(args);
     }
 
-    /// v2-gas: c2 calldata is ADVISORY (not sponge-checked on chain).
-    /// Tampering with c2 alone does not revert. To trigger InvalidProof, tamper
-    /// args.ctCommits (which IS bound to PI[5] via sponge_8_pad16).
+    /// c2 calldata is byte-bound on chain. Tampering c2 is tested
+    /// separately via DigestMismatch; tampering ctCommits exercises the
+    /// proof-bound PI[5] root.
     function test_mintShadow_reverts_when_ctCommits_tampered() public {
         _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
@@ -401,6 +405,7 @@ contract MintShadowE2ETest is Test {
             assertEq(stOfi, args.originFaceIds[i], "derived matches fixture");
         }
     }
+
     /// Envelope-binding cutover (audit H-02): tampered c2 in mintShadow
     /// MUST revert. Pre-cutover the per-slot c2 calldata was advisory and
     /// only ctCommits[i] was bound to the proof. The contract now
@@ -413,6 +418,17 @@ contract MintShadowE2ETest is Test {
         vm.prank(alice);
         vm.expectRevert();
         st.mintShadow(args);
+    }
+
+    function test_mintShadow_reverts_when_c2_field_noncanonical() public {
+        _registerImage();
+        ShadowToken.MintShadowArgs memory args = _buildArgs();
+        uint256 fr = st.FR_MOD();
+        _writeField(args.c2s[0], 0, fr);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(0), fr));
+        st.mintShadow(args);
+        assertFalse(st.mintedOrigins(imageCommit), "mintedOrigins unchanged");
     }
 
     /// Gas-pin: mintShadow body now performs 8 on-chain sponge_39 c2

@@ -32,37 +32,37 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 contract MutateBatchE2ETest is Test {
     using stdJson for string;
 
-    TestableShadowToken    internal st;
-    TestableFeatureNFT     internal fn;
-    MutateSlotVerifier     internal vMut;
-    T10ShadowVerifier      internal vT10;
-    Poseidon2YulSponge     internal sponge;
-    Poseidon2YulSponge16   internal sponge16;
-    KeyRegistry            internal kr;
+    TestableShadowToken internal st;
+    TestableFeatureNFT internal fn;
+    MutateSlotVerifier internal vMut;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
+    Poseidon2YulSponge16 internal sponge16;
+    KeyRegistry internal kr;
 
     string internal constant FIX = "./test/fixtures/atomic_mutate_batch/atomic_mutate_batch_demo";
 
     bytes internal proofA;
     bytes internal proofB;
     bytes internal proofT10;
-    bytes32[] internal piA;     // 16 fields
+    bytes32[] internal piA; // 16 fields
     bytes32[] internal piB;
-    bytes32[] internal piT10;   // 20 fields
+    bytes32[] internal piT10; // 20 fields
     bytes internal c2A;
     bytes internal c2B;
 
     uint256 internal shadowId;
-    uint8   internal slotAIdx;
-    uint8   internal slotBIdx;
+    uint8 internal slotAIdx;
+    uint8 internal slotBIdx;
 
     address internal alice = makeAddr("alice");
-    address internal bob   = makeAddr("bob");
+    address internal bob = makeAddr("bob");
 
     uint256 internal constant MUT_PI_LEN = 16;
     uint256 internal constant T10_PI_LEN = 20;
 
     function setUp() public {
-        sponge   = new Poseidon2YulSponge();
+        sponge = new Poseidon2YulSponge();
         sponge16 = new Poseidon2YulSponge16();
         st = new TestableShadowToken(address(sponge));
         fn = new TestableFeatureNFT(address(st));
@@ -77,14 +77,14 @@ contract MutateBatchE2ETest is Test {
         kr = new KeyRegistry();
         st.setKeyRegistry(kr);
 
-        proofA   = vm.readFileBinary(string.concat(FIX, "/proof_mut_a.bin"));
-        piA      = _loadFields(string.concat(FIX, "/public_inputs_mut_a.bin"), MUT_PI_LEN);
-        proofB   = vm.readFileBinary(string.concat(FIX, "/proof_mut_b.bin"));
-        piB      = _loadFields(string.concat(FIX, "/public_inputs_mut_b.bin"), MUT_PI_LEN);
+        proofA = vm.readFileBinary(string.concat(FIX, "/proof_mut_a.bin"));
+        piA = _loadFields(string.concat(FIX, "/public_inputs_mut_a.bin"), MUT_PI_LEN);
+        proofB = vm.readFileBinary(string.concat(FIX, "/proof_mut_b.bin"));
+        piB = _loadFields(string.concat(FIX, "/public_inputs_mut_b.bin"), MUT_PI_LEN);
         proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
-        piT10    = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
-        c2A      = vm.readFileBinary(string.concat(FIX, "/c2_a.bin"));
-        c2B      = vm.readFileBinary(string.concat(FIX, "/c2_b.bin"));
+        piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
+        c2A = vm.readFileBinary(string.concat(FIX, "/c2_a.bin"));
+        c2B = vm.readFileBinary(string.concat(FIX, "/c2_b.bin"));
 
         shadowId = uint256(piA[0]);
         slotAIdx = uint8(uint256(piA[1]));
@@ -96,9 +96,7 @@ contract MutateBatchE2ETest is Test {
         _seedChainState();
     }
 
-    function _loadFields(string memory path, uint256 expectedLen)
-        internal returns (bytes32[] memory out)
-    {
+    function _loadFields(string memory path, uint256 expectedLen) internal returns (bytes32[] memory out) {
         bytes memory raw = vm.readFileBinary(path);
         require(raw.length == expectedLen * 32, "PI length mismatch");
         out = new bytes32[](expectedLen);
@@ -107,6 +105,10 @@ contract MutateBatchE2ETest is Test {
             assembly { word := mload(add(raw, add(0x20, mul(i, 32)))) }
             out[i] = word;
         }
+    }
+
+    function _writeField(bytes memory data, uint256 fieldIndex, uint256 value) internal pure {
+        assembly { mstore(add(add(data, 32), mul(fieldIndex, 32)), value) }
     }
 
     function _seedChainState() internal {
@@ -127,54 +129,47 @@ contract MutateBatchE2ETest is Test {
         featIds[0] = uint256(piA[2]);
         featIds[1] = uint256(piB[2]);
         bytes32[] memory oldLshes = new bytes32[](2);
-        oldLshes[0] = piA[6];   // PI[6] = old_lsh
+        oldLshes[0] = piA[6]; // PI[6] = old_lsh
         oldLshes[1] = piB[6];
 
-        st.seedShadowMultiSlot(
-            shadowId, alice, ownerPkX, ownerPkY,
-            slots, featIds, oldLshes
-        );
+        st.seedShadowMultiSlot(shadowId, alice, ownerPkX, ownerPkY, slots, featIds, oldLshes);
 
         // Seed each FeatureNFT carrier with metadata matching its proof's PI.
         fn.seedFeature(
-            featIds[0], shadowId, slotAIdx,
-            uint8(uint256(piA[3])),  // typeIdx
-            piA[4],                  // originFaceId
-            piA[5],                  // paletteCommit
-            piA[6],                  // initial LSH (carrier checkpoint, irrelevant while inserted)
+            featIds[0],
+            shadowId,
+            slotAIdx,
+            uint8(uint256(piA[3])), // typeIdx
+            piA[4], // originFaceId
+            piA[5], // paletteCommit
+            piA[6], // initial LSH (carrier checkpoint, irrelevant while inserted)
             alice
         );
-        fn.seedFeature(
-            featIds[1], shadowId, slotBIdx,
-            uint8(uint256(piB[3])),
-            piB[4],
-            piB[5],
-            piB[6],
-            alice
-        );
+        fn.seedFeature(featIds[1], shadowId, slotBIdx, uint8(uint256(piB[3])), piB[4], piB[5], piB[6], alice);
     }
 
-    function _entryFromPI(bytes calldata) internal pure returns (uint256) { return 0; }
+    function _entryFromPI(bytes calldata) internal pure returns (uint256) {
+        return 0;
+    }
 
     /// Build a MutateSlotEntry from a fixture proof + per-slot calldata.
-    function _entry(
-        uint8 slotIdx,
-        bytes memory proof,
-        bytes32[] memory pi,
-        bytes memory c2
-    ) internal pure returns (ShadowToken.MutateSlotEntry memory e) {
-        e.slotIdx           = slotIdx;
-        e.proofMutate       = proof;
-        e.newC1X            = uint256(0);   // not used by contract on PI build (PI[10..11] are pk, not c1)
-        e.newC1Y            = uint256(0);
-        e.newLiveStateHash  = pi[7];
-        e.newCtCommit       = pi[8];
-        e.c2FieldCount      = uint16(uint256(pi[9]));
-        e.c2                = c2;
-        e.prevChainTip      = pi[12];
-        e.newChainTip       = pi[13];
+    function _entry(uint8 slotIdx, bytes memory proof, bytes32[] memory pi, bytes memory c2)
+        internal
+        pure
+        returns (ShadowToken.MutateSlotEntry memory e)
+    {
+        e.slotIdx = slotIdx;
+        e.proofMutate = proof;
+        e.newC1X = uint256(0); // not used by contract on PI build (PI[10..11] are pk, not c1)
+        e.newC1Y = uint256(0);
+        e.newLiveStateHash = pi[7];
+        e.newCtCommit = pi[8];
+        e.c2FieldCount = uint16(uint256(pi[9]));
+        e.c2 = c2;
+        e.prevChainTip = pi[12];
+        e.newChainTip = pi[13];
         e.prevMutationCount = uint16(uint256(pi[14]));
-        e.newMutationCount  = uint16(uint256(pi[15]));
+        e.newMutationCount = uint16(uint256(pi[15]));
     }
 
     function _buildArgs() internal view returns (ShadowToken.MutateBatchArgs memory args) {
@@ -208,15 +203,13 @@ contract MutateBatchE2ETest is Test {
 
         // Events.
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 sigSM = keccak256(
-            "ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)"
-        );
+        bytes32 sigSM = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
         bytes32 sigT10 = keccak256("ShadowT10Updated(uint256,bytes32,bytes32)");
         uint256 sm = 0;
         bool t10Seen = false;
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter != address(st)) continue;
-            if (logs[i].topics[0] == sigSM)  sm++;
+            if (logs[i].topics[0] == sigSM) sm++;
             else if (logs[i].topics[0] == sigT10) t10Seen = true;
         }
         assertEq(sm, 2, "2x ShadowSlotMutated emitted");
@@ -289,6 +282,19 @@ contract MutateBatchE2ETest is Test {
         assertEq(st.slotOf(shadowId, slotBIdx).liveStateHash, lshBBefore, "slot B unchanged");
     }
 
+    function test_mutateBatch_reverts_when_entry_c2_field_noncanonical() public {
+        ShadowToken.MutateBatchArgs memory args = _buildArgs();
+        bytes32 lshABefore = st.slotOf(shadowId, slotAIdx).liveStateHash;
+        bytes32 lshBBefore = st.slotOf(shadowId, slotBIdx).liveStateHash;
+        uint256 fr = st.FR_MOD();
+        _writeField(args.entries[0].c2, 0, fr);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(0), fr));
+        st.mutateBatch(args);
+        assertEq(st.slotOf(shadowId, slotAIdx).liveStateHash, lshABefore, "slot A unchanged");
+        assertEq(st.slotOf(shadowId, slotBIdx).liveStateHash, lshBBefore, "slot B unchanged");
+    }
+
     function test_mutateBatch_reverts_when_t10_proof_tampered() public {
         ShadowToken.MutateBatchArgs memory args = _buildArgs();
         // Per-slot mutates verify cleanly; T10 fails. Both entry writes
@@ -341,10 +347,8 @@ contract MutateBatchE2ETest is Test {
         uint256 fixedOverhead = 2_000_000;
         require(used > fixedOverhead, "sanity: total gas below fixed overhead");
         uint256 perEntry = (used - fixedOverhead) / n;
-        assertLt(perEntry, 5_000_000,
-            "mutateBatch per-entry gas exceeds 5M; reduce N bound or shrink mutate verifier");
+        assertLt(perEntry, 5_000_000, "mutateBatch per-entry gas exceeds 5M; reduce N bound or shrink mutate verifier");
     }
-
 
     function test_mutateBatch_reverts_when_slot_referenced_twice() public {
         // Build a batch where entry[0] mutates slot A, and entry[1] is a

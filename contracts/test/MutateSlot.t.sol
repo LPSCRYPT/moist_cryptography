@@ -31,10 +31,10 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 ///      the correct values.
 contract MutateSlotE2ETest is Test {
     TestableShadowToken internal st;
-    TestableFeatureNFT  internal fn;
-    MutateSlotVerifier  internal vMut;
-    T10ShadowVerifier   internal vT10;
-    Poseidon2YulSponge  internal sponge;
+    TestableFeatureNFT internal fn;
+    MutateSlotVerifier internal vMut;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
 
     string internal constant FIX = "./test/fixtures/atomic_mutate/atomic_demo";
 
@@ -46,9 +46,9 @@ contract MutateSlotE2ETest is Test {
 
     // Convenience aliases pulled from PI:
     uint256 internal shadowId;
-    uint8   internal slotIdx;
+    uint8 internal slotIdx;
     uint256 internal featureId;
-    uint8   internal typeIdx;
+    uint8 internal typeIdx;
     bytes32 internal originFaceId;
     bytes32 internal paletteCommit;
     bytes32 internal oldLsh;
@@ -58,8 +58,8 @@ contract MutateSlotE2ETest is Test {
     bytes32 internal ownerPkY;
     bytes32 internal prevChainTip;
     bytes32 internal newChainTip;
-    uint16  internal prevMutationCount;
-    uint16  internal newMutationCount;
+    uint16 internal prevMutationCount;
+    uint16 internal newMutationCount;
 
     address internal alice = makeAddr("alice");
 
@@ -68,13 +68,13 @@ contract MutateSlotE2ETest is Test {
 
     event ShadowSlotMutated(
         uint256 indexed shadowId,
-        uint8   indexed slotIdx,
+        uint8 indexed slotIdx,
         bytes32 indexed originFaceId,
         uint256 featureId,
-        uint16  mutationCount,
+        uint16 mutationCount,
         bytes32 prevChainTip,
         bytes32 newChainTip,
-        bytes   c2
+        bytes c2
     );
     event ShadowT10Updated(uint256 indexed shadowId, bytes32 hi, bytes32 lo);
 
@@ -89,26 +89,26 @@ contract MutateSlotE2ETest is Test {
         st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
 
         proofMut = vm.readFileBinary(string.concat(FIX, "/proof_mut.bin"));
-        piMut    = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), MUT_PI_LEN);
+        piMut = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), MUT_PI_LEN);
         proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
-        piT10    = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
-        newC2    = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
+        piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
+        newC2 = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
 
-        shadowId      = uint256(piMut[0]);
-        slotIdx       = uint8(uint256(piMut[1]));
-        featureId     = uint256(piMut[2]);
-        typeIdx       = uint8(uint256(piMut[3]));
-        originFaceId  = piMut[4];
+        shadowId = uint256(piMut[0]);
+        slotIdx = uint8(uint256(piMut[1]));
+        featureId = uint256(piMut[2]);
+        typeIdx = uint8(uint256(piMut[3]));
+        originFaceId = piMut[4];
         paletteCommit = piMut[5];
-        oldLsh        = piMut[6];
-        newLsh        = piMut[7];
-        newCtCommit   = piMut[8];
-        ownerPkX      = piMut[10];
-        ownerPkY      = piMut[11];
-        prevChainTip  = piMut[12];
-        newChainTip   = piMut[13];
+        oldLsh = piMut[6];
+        newLsh = piMut[7];
+        newCtCommit = piMut[8];
+        ownerPkX = piMut[10];
+        ownerPkY = piMut[11];
+        prevChainTip = piMut[12];
+        newChainTip = piMut[13];
         prevMutationCount = uint16(uint256(piMut[14]));
-        newMutationCount  = uint16(uint256(piMut[15]));
+        newMutationCount = uint16(uint256(piMut[15]));
 
         // Seed the FeatureNFT carrier so its stored values match what the
         // mutate_slot proof PI claims.
@@ -119,19 +119,11 @@ contract MutateSlotE2ETest is Test {
             typeIdx,
             originFaceId,
             paletteCommit,
-            oldLsh,         // checkpoint stale-while-inserted; doesn't have to match here
+            oldLsh, // checkpoint stale-while-inserted; doesn't have to match here
             alice
         );
         // Seed the shadow + manifest entry to match the mutate_slot pre-state.
-        st.seedShadowAndSlot(
-            shadowId,
-            alice,
-            ownerPkX,
-            ownerPkY,
-            slotIdx,
-            featureId,
-            oldLsh
-        );
+        st.seedShadowAndSlot(shadowId, alice, ownerPkX, ownerPkY, slotIdx, featureId, oldLsh);
     }
 
     function _loadFields(string memory path, uint256 expectedLen) internal returns (bytes32[] memory out) {
@@ -145,16 +137,20 @@ contract MutateSlotE2ETest is Test {
         }
     }
 
+    function _writeField(bytes memory data, uint256 fieldIndex, uint256 value) internal pure {
+        assembly { mstore(add(add(data, 32), mul(fieldIndex, 32)), value) }
+    }
+
     function _buildArgs() internal view returns (ShadowToken.MutateSlotArgs memory args) {
         bytes32[2] memory newT10;
-        newT10[0] = piT10[2];   // hi
-        newT10[1] = piT10[3];   // lo
+        newT10[0] = piT10[2]; // hi
+        newT10[1] = piT10[3]; // lo
         return ShadowToken.MutateSlotArgs({
             shadowId: shadowId,
             slotIdx: slotIdx,
             proofMutate: proofMut,
-            newC1X: 0,                  // not bound on chain in v2; viewer hint via event
-            newC1Y: 0,                  // (folded into liveStateHash in-circuit)
+            newC1X: 0, // not bound on chain in v2; viewer hint via event
+            newC1Y: 0, // (folded into liveStateHash in-circuit)
             newLiveStateHash: newLsh,
             newCtCommit: newCtCommit,
             c2FieldCount: uint16(newC2.length / 32),
@@ -184,8 +180,7 @@ contract MutateSlotE2ETest is Test {
         emit ShadowT10Updated(shadowId, args.newT10[0], args.newT10[1]);
         vm.expectEmit(true, true, true, false);
         emit ShadowSlotMutated(
-            shadowId, slotIdx, originFaceId, featureId,
-            newMutationCount, prevChainTip, newChainTip, hex""
+            shadowId, slotIdx, originFaceId, featureId, newMutationCount, prevChainTip, newChainTip, hex""
         );
 
         vm.prank(alice);
@@ -226,13 +221,11 @@ contract MutateSlotE2ETest is Test {
 
     function test_mutateSlot_reverts_when_c2_length_wrong() public {
         ShadowToken.MutateSlotArgs memory args = _buildArgs();
-        args.c2 = hex"deadbeef";  // 4 bytes, not 39 * 32
+        args.c2 = hex"deadbeef"; // 4 bytes, not 39 * 32
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(
-            ShadowToken.BadC2Length.selector,
-            uint256(4),
-            uint256(args.c2FieldCount) * 32
-        ));
+        vm.expectRevert(
+            abi.encodeWithSelector(ShadowToken.BadC2Length.selector, uint256(4), uint256(args.c2FieldCount) * 32)
+        );
         st.mutateSlot(args);
     }
 
@@ -263,11 +256,18 @@ contract MutateSlotE2ETest is Test {
         st.mutateSlot(args);
 
         // Chain state must be unchanged: the revert preceded the lsh write.
-        assertEq(
-            st.slotOf(shadowId, slotIdx).liveStateHash,
-            lshBefore,
-            "lsh unchanged on tampered-c2 revert"
-        );
+        assertEq(st.slotOf(shadowId, slotIdx).liveStateHash, lshBefore, "lsh unchanged on tampered-c2 revert");
+    }
+
+    function test_mutateSlot_reverts_when_c2_field_noncanonical() public {
+        ShadowToken.MutateSlotArgs memory args = _buildArgs();
+        uint256 fr = st.FR_MOD();
+        _writeField(args.c2, 0, fr);
+        bytes32 lshBefore = st.slotOf(shadowId, slotIdx).liveStateHash;
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(0), fr));
+        st.mutateSlot(args);
+        assertEq(st.slotOf(shadowId, slotIdx).liveStateHash, lshBefore, "lsh unchanged");
     }
 
     /// Tampering with args.newCtCommit DOES revert (it's part of the proof's PI).

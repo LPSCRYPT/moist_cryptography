@@ -32,10 +32,10 @@ contract InsertFeatureE2ETest is Test {
     using stdJson for string;
 
     TestableShadowToken internal st;
-    TestableFeatureNFT  internal fn;
-    MutateSlotVerifier  internal vMut;
-    T10ShadowVerifier   internal vT10;
-    Poseidon2YulSponge  internal sponge;
+    TestableFeatureNFT internal fn;
+    MutateSlotVerifier internal vMut;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
 
     string internal constant FIX = "./test/fixtures/atomic_mutate/atomic_demo";
 
@@ -46,9 +46,9 @@ contract InsertFeatureE2ETest is Test {
     bytes internal newC2;
 
     uint256 internal shadowId;
-    uint8   internal slotIdx;
+    uint8 internal slotIdx;
     uint256 internal featureId;
-    uint8   internal typeIdx;
+    uint8 internal typeIdx;
     bytes32 internal originFaceId;
     bytes32 internal paletteCommit;
     bytes32 internal oldLsh;
@@ -58,8 +58,8 @@ contract InsertFeatureE2ETest is Test {
     bytes32 internal ownerPkY;
     bytes32 internal prevChainTip;
     bytes32 internal newChainTip;
-    uint16  internal prevMutationCount;
-    uint16  internal newMutationCount;
+    uint16 internal prevMutationCount;
+    uint16 internal newMutationCount;
 
     address internal alice = makeAddr("alice");
     uint256 internal constant SOURCE_SHADOW = 0xDEADBEEF;
@@ -70,13 +70,13 @@ contract InsertFeatureE2ETest is Test {
 
     event ShadowSlotMutated(
         uint256 indexed shadowId,
-        uint8   indexed slotIdx,
+        uint8 indexed slotIdx,
         bytes32 indexed originFaceId,
         uint256 featureId,
-        uint16  mutationCount,
+        uint16 mutationCount,
         bytes32 prevChainTip,
         bytes32 newChainTip,
-        bytes   c2
+        bytes c2
     );
     event ShadowFeatureInserted(uint256 indexed shadowId, uint8 indexed slotIdx, uint256 indexed featureId);
     event ShadowT10Updated(uint256 indexed shadowId, bytes32 hi, bytes32 lo);
@@ -92,34 +92,31 @@ contract InsertFeatureE2ETest is Test {
         st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
 
         proofMut = vm.readFileBinary(string.concat(FIX, "/proof_mut.bin"));
-        piMut    = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), MUT_PI_LEN);
+        piMut = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), MUT_PI_LEN);
         proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
-        piT10    = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
-        newC2    = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
+        piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
+        newC2 = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
 
-        shadowId      = uint256(piMut[0]);
-        slotIdx       = uint8(uint256(piMut[1]));
-        featureId     = uint256(piMut[2]);
-        typeIdx       = uint8(uint256(piMut[3]));
-        originFaceId  = piMut[4];
+        shadowId = uint256(piMut[0]);
+        slotIdx = uint8(uint256(piMut[1]));
+        featureId = uint256(piMut[2]);
+        typeIdx = uint8(uint256(piMut[3]));
+        originFaceId = piMut[4];
         paletteCommit = piMut[5];
-        oldLsh        = piMut[6];
-        newLsh        = piMut[7];
-        newCtCommit   = piMut[8];
-        ownerPkX      = piMut[10];
-        ownerPkY      = piMut[11];
-        prevChainTip  = piMut[12];
-        newChainTip   = piMut[13];
+        oldLsh = piMut[6];
+        newLsh = piMut[7];
+        newCtCommit = piMut[8];
+        ownerPkX = piMut[10];
+        ownerPkY = piMut[11];
+        prevChainTip = piMut[12];
+        newChainTip = piMut[13];
         prevMutationCount = uint16(uint256(piMut[14]));
-        newMutationCount  = uint16(uint256(piMut[15]));
+        newMutationCount = uint16(uint256(piMut[15]));
 
         // Seed: carrier was at SOURCE_SHADOW slot SOURCE_SLOT, then extracted
         // (so isInserted=false, checkpoint=oldLsh). Destination shadow has
         // an EMPTY slot at slotIdx.
-        fn.seedFeature(
-            featureId, SOURCE_SHADOW, SOURCE_SLOT, typeIdx,
-            originFaceId, paletteCommit, oldLsh, alice
-        );
+        fn.seedFeature(featureId, SOURCE_SHADOW, SOURCE_SLOT, typeIdx, originFaceId, paletteCommit, oldLsh, alice);
         // Force the seeded carrier to the held state (matches a post-extract carrier).
         // We do this with a storage poke since the v2 carrier API does not
         // expose a "release without sync" helper outside extractFromShadow.
@@ -149,6 +146,10 @@ contract InsertFeatureE2ETest is Test {
             assembly { word := mload(add(raw, add(0x20, mul(i, 32)))) }
             out[i] = word;
         }
+    }
+
+    function _writeField(bytes memory data, uint256 fieldIndex, uint256 value) internal pure {
+        assembly { mstore(add(add(data, 32), mul(fieldIndex, 32)), value) }
     }
 
     function _buildArgs() internal view returns (ShadowToken.InsertFeatureArgs memory args) {
@@ -196,8 +197,8 @@ contract InsertFeatureE2ETest is Test {
         bool sawFeatureInserted = false;
         bool sawSlotMutated = false;
         bytes32 sigT10 = keccak256("ShadowT10Updated(uint256,bytes32,bytes32)");
-        bytes32 sigFI  = keccak256("ShadowFeatureInserted(uint256,uint8,uint256)");
-        bytes32 sigSM  = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
+        bytes32 sigFI = keccak256("ShadowFeatureInserted(uint256,uint8,uint256)");
+        bytes32 sigSM = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter != address(st)) continue;
             if (logs[i].topics[0] == sigT10) sawT10 = true;
@@ -231,8 +232,7 @@ contract InsertFeatureE2ETest is Test {
 
         ShadowToken.InsertFeatureArgs memory args = _buildArgs();
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(
-            ShadowToken.FeatureAlreadyInserted.selector, featureId));
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.FeatureAlreadyInserted.selector, featureId));
         st.insertFeature(args);
     }
 
@@ -274,10 +274,20 @@ contract InsertFeatureE2ETest is Test {
         vm.expectRevert();
         st.insertFeature(args);
         assertEq(
-            uint256(st.slotOf(shadowId, slotIdx).kind),
-            uint256(kindBefore),
-            "slot kind unchanged on tampered-c2 revert"
+            uint256(st.slotOf(shadowId, slotIdx).kind), uint256(kindBefore), "slot kind unchanged on tampered-c2 revert"
         );
+    }
+
+    function test_insertFeature_reverts_when_c2_field_noncanonical() public {
+        ShadowToken.InsertFeatureArgs memory args = _buildArgs();
+        ShadowToken.SlotKind kindBefore = st.slotOf(shadowId, slotIdx).kind;
+        uint256 fr = st.FR_MOD();
+        _writeField(args.c2, 0, fr);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(0), fr));
+        st.insertFeature(args);
+        assertEq(uint256(st.slotOf(shadowId, slotIdx).kind), uint256(kindBefore), "slot kind unchanged");
+        assertFalse(fn.isInserted(featureId), "feature remains held");
     }
 
     /// Gas regression: insertFeature does a mutate_slot verify (proves the

@@ -27,13 +27,13 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 contract TransferShadowE2ETest is Test {
     using stdJson for string;
 
-    TestableShadowToken    internal st;
-    TestableFeatureNFT     internal fn;
+    TestableShadowToken internal st;
+    TestableFeatureNFT internal fn;
     TransferShadowVerifier internal vT;
-    T10ShadowVerifier      internal vT10;
-    Poseidon2YulSponge     internal sponge;
-    Poseidon2YulSponge16   internal sponge16;
-    KeyRegistry            internal kr;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
+    Poseidon2YulSponge16 internal sponge16;
+    KeyRegistry internal kr;
 
     string internal constant FIX = "./test/fixtures/atomic_transfer/atomic_transfer_demo";
 
@@ -49,7 +49,7 @@ contract TransferShadowE2ETest is Test {
     bytes32 internal prevOwnerPkY;
 
     address internal alice = makeAddr("alice");
-    address internal bob   = makeAddr("bob");
+    address internal bob = makeAddr("bob");
 
     uint256 internal constant TRANSFER_PI_LEN = 11;
     uint256 internal constant T10_PI_LEN = 20;
@@ -60,9 +60,9 @@ contract TransferShadowE2ETest is Test {
     uint256[16] internal newC1X;
     uint256[16] internal newC1Y;
     bytes32[16] internal newChainTip;
-    uint16[16]  internal newCount;
-    uint8[]     internal occupiedIdxs;
-    uint256[]   internal featureIds;
+    uint16[16] internal newCount;
+    uint8[] internal occupiedIdxs;
+    uint256[] internal featureIds;
 
     function setUp() public {
         sponge = new Poseidon2YulSponge();
@@ -81,15 +81,15 @@ contract TransferShadowE2ETest is Test {
 
         // Load proofs.
         proofTransfer = vm.readFileBinary(string.concat(FIX, "/proof_transfer.bin"));
-        piTransfer    = _loadFields(string.concat(FIX, "/public_inputs_transfer.bin"), TRANSFER_PI_LEN);
-        proofT10      = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
-        piT10         = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
+        piTransfer = _loadFields(string.concat(FIX, "/public_inputs_transfer.bin"), TRANSFER_PI_LEN);
+        proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
+        piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
 
-        shadowId      = uint256(piTransfer[0]);
-        recipientPkX  = piTransfer[1];
-        recipientPkY  = piTransfer[2];
-        prevOwnerPkX  = piTransfer[5];
-        prevOwnerPkY  = piTransfer[6];
+        shadowId = uint256(piTransfer[0]);
+        recipientPkX = piTransfer[1];
+        recipientPkY = piTransfer[2];
+        prevOwnerPkX = piTransfer[5];
+        prevOwnerPkY = piTransfer[6];
 
         _loadFromMeta();
         _seedChainState();
@@ -106,15 +106,38 @@ contract TransferShadowE2ETest is Test {
         }
     }
 
+    function _writeField(bytes memory data, uint256 fieldIndex, uint256 value) internal pure {
+        assembly { mstore(add(add(data, 32), mul(fieldIndex, 32)), value) }
+    }
+
+    function _bumpCanonical(uint256 value) internal view returns (uint256) {
+        uint256 mod = st.FR_MOD();
+        return value + 1 == mod ? value - 1 : value + 1;
+    }
+
+    function _firstEmptySlot() internal view returns (uint8) {
+        for (uint8 slot = 0; slot < 16; slot++) {
+            bool occupied = false;
+            for (uint256 i = 0; i < occupiedIdxs.length; i++) {
+                if (occupiedIdxs[i] == slot) {
+                    occupied = true;
+                    break;
+                }
+            }
+            if (!occupied) return slot;
+        }
+        revert("no empty slot");
+    }
+
     function _loadFromMeta() internal {
         string memory j = vm.readFile(string.concat(FIX, "/meta.json"));
         // Per-slot arrays at full 16-length.
         for (uint256 i = 0; i < 16; i++) {
             string memory idx = vm.toString(i);
-            newLsh[i]  = j.readBytes32(string.concat(".new_lsh[", idx, "]"));
-            newCt[i]   = j.readBytes32(string.concat(".new_ct_commit[", idx, "]"));
-            newC1X[i]  = uint256(j.readBytes32(string.concat(".new_c1_x[", idx, "]")));
-            newC1Y[i]  = uint256(j.readBytes32(string.concat(".new_c1_y[", idx, "]")));
+            newLsh[i] = j.readBytes32(string.concat(".new_lsh[", idx, "]"));
+            newCt[i] = j.readBytes32(string.concat(".new_ct_commit[", idx, "]"));
+            newC1X[i] = uint256(j.readBytes32(string.concat(".new_c1_x[", idx, "]")));
+            newC1Y[i] = uint256(j.readBytes32(string.concat(".new_c1_y[", idx, "]")));
             newChainTip[i] = j.readBytes32(string.concat(".new_chain_tip[", idx, "]"));
             newCount[i] = uint16(j.readUint(string.concat(".new_mutation_count[", idx, "]")));
         }
@@ -150,10 +173,7 @@ contract TransferShadowE2ETest is Test {
             featIds[i] = uint256(keccak256(abi.encode(shadowId, sIdx, "feature")));
             featureIds[i] = featIds[i];
         }
-        st.seedShadowMultiSlot(
-            shadowId, alice, prevOwnerPkX, prevOwnerPkY,
-            occupiedIdxs, featIds, prevLshArr
-        );
+        st.seedShadowMultiSlot(shadowId, alice, prevOwnerPkX, prevOwnerPkY, occupiedIdxs, featIds, prevLshArr);
         for (uint256 i = 0; i < occupiedIdxs.length; i++) {
             st.setSlotHistoryForTest(shadowId, occupiedIdxs[i], prevCounts[i], prevTips[i]);
         }
@@ -170,10 +190,7 @@ contract TransferShadowE2ETest is Test {
             // Initial checkpoint = prev_lsh[i]. The carrier is INSERTED so
             // the manifest's lsh is authoritative; checkpoint stays stale.
             bytes32 prevLsh = j.readBytes32(string.concat(".prev_lsh[", sIdxStr, "]"));
-            fn.seedFeature(
-                featIds[i], shadowId, sIdx, typeIdx,
-                originFaceId, paletteCommit, prevLsh, alice
-            );
+            fn.seedFeature(featIds[i], shadowId, sIdx, typeIdx, originFaceId, paletteCommit, prevLsh, alice);
         }
     }
 
@@ -255,7 +272,7 @@ contract TransferShadowE2ETest is Test {
         uint256 sawSlotMutated = 0;
         bytes32 sigTransferred = keccak256("ShadowTransferred(uint256,address,bytes32,bytes32)");
         bytes32 sigT10 = keccak256("ShadowT10Updated(uint256,bytes32,bytes32)");
-        bytes32 sigSM  = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
+        bytes32 sigSM = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter != address(st)) continue;
             if (logs[i].topics[0] == sigTransferred) sawTransferred = true;
@@ -287,8 +304,7 @@ contract TransferShadowE2ETest is Test {
     function test_transferShadow_reverts_when_lsh_tampered() public {
         ShadowToken.TransferShadowArgs memory args = _buildArgs();
         // Tamper with one occupied slot's LSH; sponge_16 root mismatches PI.
-        args.newLiveStateHashes[occupiedIdxs[0]] =
-            bytes32(uint256(args.newLiveStateHashes[occupiedIdxs[0]]) ^ 1);
+        args.newLiveStateHashes[occupiedIdxs[0]] = bytes32(uint256(args.newLiveStateHashes[occupiedIdxs[0]]) ^ 1);
         vm.prank(alice);
         vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.transferShadow(args);
@@ -311,6 +327,111 @@ contract TransferShadowE2ETest is Test {
         st.transferShadow(args);
         // Post-state: shadow still owned by alice (atomic revert).
         assertEq(st.ownerOf(shadowId), alice);
+    }
+
+    function test_transferShadow_reverts_when_c2_field_noncanonical() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        uint8 sIdx = occupiedIdxs[0];
+        uint256 fr = st.FR_MOD();
+        _writeField(args.c2s[sIdx], 0, fr);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(0), fr));
+        st.transferShadow(args);
+        assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
+    }
+
+    function test_transferShadow_reverts_when_newC1X_tampered() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        uint8 sIdx = occupiedIdxs[0];
+        args.newC1Xs[sIdx] = _bumpCanonical(args.newC1Xs[sIdx]);
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.transferShadow(args);
+        assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
+    }
+
+    function test_transferShadow_reverts_when_newC1Y_tampered() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        uint8 sIdx = occupiedIdxs[0];
+        args.newC1Ys[sIdx] = _bumpCanonical(args.newC1Ys[sIdx]);
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.transferShadow(args);
+        assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
+    }
+
+    function test_transferShadow_reverts_when_newC1_field_noncanonical() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        uint8 sIdx = occupiedIdxs[0];
+        uint256 fr = st.FR_MOD();
+        args.newC1Xs[sIdx] = fr;
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(sIdx), fr));
+        st.transferShadow(args);
+        assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
+    }
+
+    function test_transferShadow_emits_bound_c1_envelopes_for_occupied_slots() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        vm.recordLogs();
+        vm.prank(alice);
+        st.transferShadow(args);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sigEnvelope = keccak256("ShadowSlotEnvelope(uint256,uint8,bytes32,bytes32)");
+        bytes32 sigMutated = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
+        uint256 sawEnvelope = 0;
+        uint256 sawMutated = 0;
+        bool[16] memory sawSlot;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(st)) continue;
+            if (logs[i].topics[0] == sigMutated) {
+                sawMutated++;
+            } else if (logs[i].topics[0] == sigEnvelope) {
+                uint8 slotIdx = uint8(uint256(logs[i].topics[2]));
+                (bytes32 c1X, bytes32 c1Y) = abi.decode(logs[i].data, (bytes32, bytes32));
+                assertEq(c1X, bytes32(args.newC1Xs[slotIdx]), "emitted c1X matches args");
+                assertEq(c1Y, bytes32(args.newC1Ys[slotIdx]), "emitted c1Y matches args");
+                sawSlot[slotIdx] = true;
+                sawEnvelope++;
+            }
+        }
+
+        assertEq(sawEnvelope, occupiedIdxs.length, "one ShadowSlotEnvelope per occupied slot");
+        assertEq(sawMutated, occupiedIdxs.length, "one ShadowSlotMutated per occupied slot");
+        for (uint256 i = 0; i < occupiedIdxs.length; i++) {
+            assertTrue(sawSlot[occupiedIdxs[i]], "occupied slot envelope emitted");
+        }
+    }
+
+    function test_transferShadow_reverts_when_empty_slot_has_c2() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        uint8 sIdx = _firstEmptySlot();
+        args.c2s[sIdx] = new bytes(32);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.BadC2Length.selector, uint256(32), uint256(0)));
+        st.transferShadow(args);
+        assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
+    }
+
+    function test_transferShadow_reverts_when_empty_slot_has_c1() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        uint8 sIdx = _firstEmptySlot();
+        args.newC1Xs[sIdx] = 1;
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.transferShadow(args);
+        assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
+    }
+
+    function test_transferShadow_reverts_when_empty_slot_has_ct_commit() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        uint8 sIdx = _firstEmptySlot();
+        args.newCtCommits[sIdx] = bytes32(uint256(1));
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.transferShadow(args);
+        assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
     }
 
     /// Gas-pin: transferShadow rotates ownership for shadow + every
