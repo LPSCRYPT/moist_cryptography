@@ -47,15 +47,15 @@ contract ShadowToken is ERC721, PausableMixin {
 
     enum SlotKind { EMPTY, OCCUPIED }
 
-    /// One manifest entry. Two storage slots per entry; 16 entries per
-    /// shadow = 32 storage slots total. `liveStateHash` is the only
-    /// on-chain footprint of the slot's encrypted state; the six
-    /// sub-fields it commits to are reconstructable from emitted events
-    /// plus the bound FeatureNFT's immutable metadata.
+    /// One manifest entry. `liveStateHash` commits to the encrypted state,
+    /// while `mutationCount` and `chainTip` store authoritative event-history
+    /// metadata so transfer events do not rely on unbound calldata.
     struct ManifestEntry {
         SlotKind kind;
         uint256  featureId;       // 0 when EMPTY; FeatureNFT token id when OCCUPIED
         bytes32  liveStateHash;   // poseidon2(stateCommit, ctCommit, c1X, c1Y, count, chainTip)
+        uint16   mutationCount;   // post-mutation count committed in liveStateHash
+        bytes32  chainTip;        // latest chain tip committed in liveStateHash
     }
 
     struct Shadow {
@@ -95,7 +95,7 @@ contract ShadowToken is ERC721, PausableMixin {
     uint256 public constant MUTATE_SLOT_PI_LEN     = 16;
     uint256 public constant T10_SHADOW_PI_LEN      = 20; // shadowId + newT10[2] + 16x liveStateHash + zIndexCommit
     uint256 public constant ZINDEX_COMMIT_PI_LEN   = 2;
-    uint256 public constant TRANSFER_SHADOW_PI_LEN = 9;
+    uint256 public constant TRANSFER_SHADOW_PI_LEN = 11;
     uint256 public constant SOLVE_SHADOW_PI_LEN    = 7;
     uint256 public constant FACE_DISC_PI_LEN       = 1;
 
@@ -166,6 +166,13 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes32 prevChainTip,
         bytes32 newChainTip,
         bytes   c2                    // per-slot ciphertext (encrypted; hidden content)
+    );
+    event ShadowSlotEnvelope(
+        uint256 indexed shadowId,
+        uint8   indexed slotIdx,
+        bytes32 c1X,
+        bytes32 c1Y,
+        bytes   c2
     );
     event SlotExtracted(
         uint256 indexed shadowId,
@@ -244,6 +251,7 @@ contract ShadowToken is ERC721, PausableMixin {
     /// since the bytecode budget under EIP-170 doesn't allow a third
     /// dedicated error.
     error DigestMismatch();
+    error NonCanonicalField(uint256 index, uint256 value);
 
     // ============== ctor ==============
 
@@ -462,6 +470,7 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes memory buf = new bytes(N_SLOTS * 32);  // 512 bytes; trailing 8 are zero
         for (uint256 i = 0; i < N_MINT_ATOMS; i++) {
             bytes32 v = arr[i];
+            _assertCanonicalField(uint256(v), i);
             assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
         }
         return _sponge16(buf);
@@ -474,6 +483,7 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes memory buf = new bytes(N_SLOTS * 32);
         for (uint256 i = 0; i < N_MINT_ATOMS; i++) {
             bytes32 v = arr[i];
+            _assertCanonicalField(uint256(v), i);
             assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
         }
         return _sponge16(buf);
@@ -559,7 +569,9 @@ contract ShadowToken is ERC721, PausableMixin {
         manifest[i] = ManifestEntry({
             kind: SlotKind.OCCUPIED,
             featureId: featureId,
-            liveStateHash: args.liveStateHashInits[i]
+            liveStateHash: args.liveStateHashInits[i],
+            mutationCount: 0,
+            chainTip: args.chainTips[i]
         });
         emit ShadowSlotMutated(
             shadowId,
@@ -643,7 +655,8 @@ contract ShadowToken is ERC721, PausableMixin {
         // ---- 3. apply state change ----
         bytes32 prevLSH = m.liveStateHash;
         m.liveStateHash = args.newLiveStateHash;
-
+        m.mutationCount = uint16(uint256(piMut[15]));
+        m.chainTip = piMut[13];
         // ---- 4. atomic T10 refresh ----
         _refreshT10Atomically(args.shadowId, args.newT10, args.proofT10);
 
@@ -873,10 +886,11 @@ contract ShadowToken is ERC721, PausableMixin {
         // length-tampered c2; this catches content-tampered c2).
         _assertCtCommitBinding(e.c2, e.newCtCommit);
 
-        // Apply state: write new LSH; manifest's other fields
-        // (kind/featureId) are unchanged by mutation.
+        // Apply state: write new LSH and proof-bound event-history metadata;
+        // manifest's kind/featureId are unchanged by mutation.
         m.liveStateHash = e.newLiveStateHash;
-
+        m.mutationCount = uint16(uint256(piMut[15]));
+        m.chainTip = piMut[13];
         // Emit per-slot event so indexers can reconstruct chain history.
         emit ShadowSlotMutated(
             shadowId,
@@ -922,6 +936,8 @@ contract ShadowToken is ERC721, PausableMixin {
         m.kind = SlotKind.EMPTY;
         m.featureId = 0;
         m.liveStateHash = bytes32(0);
+        m.mutationCount = 0;
+        m.chainTip = bytes32(0);
 
         featureNFT.extractFromShadow(featureId, shadowId, slotIdx, finalLsh);
 
@@ -992,6 +1008,8 @@ contract ShadowToken is ERC721, PausableMixin {
         m.kind = SlotKind.OCCUPIED;
         m.featureId = args.featureId;
         m.liveStateHash = args.newLiveStateHash;
+        m.mutationCount = args.newMutationCount;
+        m.chainTip = args.newChainTip;
         fn.insertIntoShadow(args.featureId, args.shadowId, args.slotIdx);
 
         // ---- 4. atomic T10 refresh ----
@@ -1081,9 +1099,8 @@ contract ShadowToken is ERC721, PausableMixin {
         // ---- 4. atomic T10 refresh against post-rotation manifest ----
         _refreshT10Atomically(args.shadowId, args.newT10, args.proofT10);
 
-        // ---- 5. emit per-slot mutation events for indexers ----
+        // ---- 5. emit aggregate transfer event ----
         emit ShadowTransferred(args.shadowId, args.to, recipientPkX, recipientPkY);
-        _emitTransferSlotEvents(args);
     }
 
     /// Verify the transfer_shadow_v2 proof. Reconstructs PI from chain
@@ -1105,6 +1122,8 @@ contract ShadowToken is ERC721, PausableMixin {
         piT[6] = s.ecdhPubY;
         piT[7] = _sponge16BytesArr(args.newChainTips);
         piT[8] = _sponge16BytesArr(args.newCtCommits);
+        piT[9] = _sponge16UintArr(args.newC1Xs);
+        piT[10] = _sponge16UintArr(args.newC1Ys);
         _verifyOrRevert(transferShadowVerifier, args.proof, piT);
     }
 
@@ -1119,20 +1138,17 @@ contract ShadowToken is ERC721, PausableMixin {
         ManifestEntry[16] storage manifest = _manifests[args.shadowId];
         for (uint256 i = 0; i < N_SLOTS; i++) {
             ManifestEntry storage m = manifest[i];
-            m.liveStateHash = args.newLiveStateHashes[i];
             if (m.kind == SlotKind.OCCUPIED) {
-                fn.rotateInsertedOwner(m.featureId, args.shadowId, args.to);
-                // Envelope binding (audit H-02): length-check + sponge_39 over c2
-                // == proof-bound newCtCommits[i]. piT[8] also forces sponge_16 of
-                // args.newCtCommits to match the circuit witness.
-                _assertSlotEnvelope(args.c2s[i], args.newCtCommits[i]);
+                _applyOccupiedTransferSlot(args, i, m, fn);
             } else {
                 if (args.c2s[i].length != 0) {
                     revert BadC2Length(args.c2s[i].length, 0);
                 }
-                // Empty-slot newCtCommits[i] must be zero: enforced transitively
-                // by piT[8] = sponge_16(args.newCtCommits) match against circuit's
-                // new_ct_commits_root (circuit zeros empty slots: occ * v).
+                if (args.newLiveStateHashes[i] != bytes32(0)) revert InvalidProof();
+                if (args.newChainTips[i] != bytes32(0)) revert InvalidProof();
+                if (args.newCtCommits[i] != bytes32(0)) revert InvalidProof();
+                if (args.newC1Xs[i] != 0 || args.newC1Ys[i] != 0) revert InvalidProof();
+                if (args.newMutationCounts[i] != 0) revert InvalidProof();
             }
         }
         Shadow storage s = _shadows[args.shadowId];
@@ -1144,27 +1160,47 @@ contract ShadowToken is ERC721, PausableMixin {
         _update(args.to, args.shadowId, address(0));
     }
 
-    /// Emit ShadowSlotMutated for every occupied slot so indexers can
-    /// reconstruct chain history. Separate from _applyTransferState to
-    /// dodge stack-too-deep on the entry point.
-    function _emitTransferSlotEvents(TransferShadowArgs calldata args) internal {
-        IFeatureNFT fn = featureNFT;
-        ManifestEntry[16] storage manifest = _manifests[args.shadowId];
-        for (uint256 i = 0; i < N_SLOTS; i++) {
-            ManifestEntry storage m = manifest[i];
-            if (m.kind == SlotKind.OCCUPIED) {
-                emit ShadowSlotMutated(
-                    args.shadowId,
-                    uint8(i),
-                    fn.originFaceIdOf(m.featureId),
-                    m.featureId,
-                    args.newMutationCounts[i],
-                    bytes32(0),
-                    args.newChainTips[i],
-                    args.c2s[i]
-                );
-            }
-        }
+    function _applyOccupiedTransferSlot(
+        TransferShadowArgs calldata args,
+        uint256 i,
+        ManifestEntry storage m,
+        IFeatureNFT fn
+    ) internal {
+        if (m.mutationCount == type(uint16).max) revert InvalidProof();
+        uint16 newMutationCount = m.mutationCount + 1;
+        bytes32 prevChainTip = m.chainTip;
+        uint256 featureId = m.featureId;
+
+        m.liveStateHash = args.newLiveStateHashes[i];
+        fn.rotateInsertedOwner(featureId, args.shadowId, args.to);
+
+        // Envelope binding: c2 bytes are canonical and digest-bound; c1
+        // coordinates are canonical and root-bound by transfer PI[9..10].
+        _assertCanonicalField(args.newC1Xs[i], i * 2);
+        _assertCanonicalField(args.newC1Ys[i], i * 2 + 1);
+        _assertSlotEnvelope(args.c2s[i], args.newCtCommits[i]);
+        if (args.newMutationCounts[i] != newMutationCount) revert InvalidProof();
+
+        m.mutationCount = newMutationCount;
+        m.chainTip = args.newChainTips[i];
+
+        emit ShadowSlotMutated(
+            args.shadowId,
+            uint8(i),
+            fn.originFaceIdOf(featureId),
+            featureId,
+            newMutationCount,
+            prevChainTip,
+            args.newChainTips[i],
+            args.c2s[i]
+        );
+        emit ShadowSlotEnvelope(
+            args.shadowId,
+            uint8(i),
+            bytes32(args.newC1Xs[i]),
+            bytes32(args.newC1Ys[i]),
+            args.c2s[i]
+        );
     }
 
     /// Hash the chain manifest's per-slot liveStateHash array via the
@@ -1175,6 +1211,7 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes memory buf = new bytes(N_SLOTS * 32);
         for (uint256 i = 0; i < N_SLOTS; i++) {
             bytes32 v = manifest[i].liveStateHash;
+            _assertCanonicalField(uint256(v), i);
             assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
         }
         return _sponge16(buf);
@@ -1187,6 +1224,22 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes memory buf = new bytes(N_SLOTS * 32);
         for (uint256 i = 0; i < N_SLOTS; i++) {
             bytes32 v = arr[i];
+            _assertCanonicalField(uint256(v), i);
+            assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
+        }
+        return _sponge16(buf);
+    }
+
+    /// Hash a fixed-size 16-element uint256 array via the Yul sponge_16 after
+    /// rejecting non-canonical field encodings. This is used for public ECIES
+    /// c1 coordinates so verifier-bound roots commit to exact field elements.
+    function _sponge16UintArr(uint256[16] calldata arr)
+        internal view returns (bytes32)
+    {
+        bytes memory buf = new bytes(N_SLOTS * 32);
+        for (uint256 i = 0; i < N_SLOTS; i++) {
+            uint256 v = arr[i];
+            _assertCanonicalField(v, i);
             assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
         }
         return _sponge16(buf);
@@ -1201,6 +1254,7 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes memory buf = new bytes(N_SLOTS * 32);
         for (uint256 i = 0; i < N_SLOTS; i++) {
             bytes32 v = arr[i];
+            _assertCanonicalField(uint256(v), i);
             assembly { mstore(add(add(buf, 32), mul(i, 32)), v) }
         }
         return _sponge16(buf);
@@ -1407,6 +1461,8 @@ contract ShadowToken is ERC721, PausableMixin {
                 m.kind = SlotKind.EMPTY;
                 m.featureId = 0;
                 m.liveStateHash = bytes32(0);
+                m.mutationCount = 0;
+                m.chainTip = bytes32(0);
                 fn.extractFromShadow(fid, shadowId, uint8(i), finalLsh);
                 emit SlotExtracted(shadowId, uint8(i), fid, finalLsh);
             }
@@ -1536,6 +1592,7 @@ contract ShadowToken is ERC721, PausableMixin {
     /// out so call sites stay under the EVM stack-depth ceiling (the mint
     /// + insert + batch entry points already carry a lot of locals).
     function _assertCtCommitBinding(bytes calldata c2, bytes32 expected) internal view {
+        _assertCanonicalFields(c2);
         bytes32 got = bytes32(_sponge(c2));
         if (got != expected) revert DigestMismatch();
     }
@@ -1548,7 +1605,21 @@ contract ShadowToken is ERC721, PausableMixin {
         if (c2.length != MAX_PLAINTEXT_FIELDS_PER_SLOT * 32) {
             revert BadC2Length(c2.length, MAX_PLAINTEXT_FIELDS_PER_SLOT * 32);
         }
+        _assertCanonicalFields(c2);
         if (bytes32(_sponge(c2)) != expected) revert DigestMismatch();
+    }
+
+    function _assertCanonicalFields(bytes calldata data) internal pure {
+        uint256 len = data.length;
+        for (uint256 off = 0; off < len; off += 32) {
+            uint256 value;
+            assembly { value := calldataload(add(data.offset, off)) }
+            _assertCanonicalField(value, off / 32);
+        }
+    }
+
+    function _assertCanonicalField(uint256 value, uint256 index) internal pure {
+        if (value >= FR_MOD) revert NonCanonicalField(index, value);
     }
 
     // ============== verifier rotation slot ids ==============

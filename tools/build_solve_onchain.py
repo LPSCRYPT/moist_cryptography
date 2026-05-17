@@ -28,6 +28,7 @@ Inputs:
 """
 from __future__ import annotations
 
+import atexit
 import argparse
 import hashlib
 import json
@@ -58,6 +59,14 @@ FIXTURE_ROOT = ROOT / "contracts" / "test" / "fixtures" / "onchain_solve"
 
 NARGO = Path(os.environ.get("NARGO_PATH", str(Path.home() / ".nargo" / "bin" / "nargo")))
 BB = Path(os.environ.get("BB_PATH", str(Path.home() / ".bb" / "bb")))
+
+
+def _delete_if_exists(path: Path) -> None:
+    try:
+        path.unlink()
+        print(f"[deleted transient] {path}")
+    except FileNotFoundError:
+        pass
 
 
 def deterministic_int_mint(seed: bytes, label: bytes, mod: int) -> int:
@@ -255,6 +264,8 @@ def main() -> None:
         f"owner_sk = {fhex(owner_sk)}",
     ]
     PROVER_TOML.write_text("\n".join(lines) + "\n")
+    os.chmod(PROVER_TOML, 0o600)
+    atexit.register(_delete_if_exists, PROVER_TOML)
 
     # ---- prove ----
     print(f"[3/4] nargo execute + bb prove")

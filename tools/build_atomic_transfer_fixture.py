@@ -188,6 +188,8 @@ def main() -> None:
         "prev_owner_pk_y": bx32(w["prev_owner_pk_y"]),
         "new_chain_tips_root": bx32(w["new_chain_tips_root"]),
         "new_ct_commits_root": bx32(w["new_ct_commits_root"]),
+        "new_c1_x_root": bx32(w["new_c1_x_root"]),
+        "new_c1_y_root": bx32(w["new_c1_y_root"]),
 
         "prev_lsh": [bx32(v) for v in w["prev_lsh"]],
         "prev_state_commit": [bx32(v) for v in w["prev_state_commit"]],

@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import atexit
 import subprocess
 import sys
 import time
@@ -48,6 +49,14 @@ FIXTURE_ROOT = ROOT / "contracts" / "test" / "fixtures" / "onchain_solve_b"
 
 NARGO = Path(os.environ.get("NARGO_PATH", str(Path.home() / ".nargo" / "bin" / "nargo")))
 BB = Path(os.environ.get("BB_PATH", str(Path.home() / ".bb" / "bb")))
+
+
+def _delete_if_exists(path: Path) -> None:
+    try:
+        path.unlink()
+        print(f"[deleted transient] {path}")
+    except FileNotFoundError:
+        pass
 
 
 def parse_hex(s: str) -> int:
@@ -214,6 +223,8 @@ def main() -> None:
         f"owner_sk = {fhex(sk)}",
     ]
     PROVER_TOML.write_text("\n".join(lines) + "\n")
+    os.chmod(PROVER_TOML, 0o600)
+    atexit.register(_delete_if_exists, PROVER_TOML)
 
     print("[3/4] nargo execute + bb prove")
     target_dir = CIRCUIT_DIR / "target"

@@ -4,8 +4,8 @@ to a new owner.
 
 Synthesises a shadow with N occupied slots (default 4) and 16-N empty
 slots, then proves the transfer of the entire shadow to a fresh
-recipient. Writes Prover.toml, runs nargo execute + bb prove, dumps
-proof + public_inputs + meta.json into contracts/test/fixtures/.
+recipient. Writes a mode-0600 transient Prover.toml, runs nargo execute + bb prove,
+dumps proof + public_inputs + meta.json into contracts/test/fixtures/.
 
 Usage:
     python3 build_transfer_shadow_v2_fixture.py [--seed transfer_demo] [--n-occupied 4]
@@ -194,6 +194,8 @@ def build_witness(seed: bytes, n_occupied: int) -> dict:
     new_lsh_root = sponge_16(new_lsh_arr)
     new_chain_tips_root = sponge_16(new_chain_tip_arr)
     new_ct_commits_root = sponge_16(new_ct_commit_arr)
+    new_c1_x_root = sponge_16(new_c1_x_arr)
+    new_c1_y_root = sponge_16(new_c1_y_arr)
 
     return {
         # PI
@@ -206,6 +208,8 @@ def build_witness(seed: bytes, n_occupied: int) -> dict:
         "prev_owner_pk_y": prev_owner_pk[1],
         "new_chain_tips_root": new_chain_tips_root,
         "new_ct_commits_root": new_ct_commits_root,
+        "new_c1_x_root": new_c1_x_root,
+        "new_c1_y_root": new_c1_y_root,
 
         # witness arrays
         "prev_lsh": prev_lsh_arr,
@@ -247,6 +251,8 @@ def write_prover_toml(w: dict) -> None:
         f"prev_owner_pk_y = {fhex(w['prev_owner_pk_y'])}",
         f"new_chain_tips_root = {fhex(w['new_chain_tips_root'])}",
         f"new_ct_commits_root = {fhex(w['new_ct_commits_root'])}",
+        f"new_c1_x_root = {fhex(w['new_c1_x_root'])}",
+        f"new_c1_y_root = {fhex(w['new_c1_y_root'])}",
 
         render_array("prev_lsh", w["prev_lsh"]),
         render_array("is_occupied", w["is_occupied"]),
@@ -263,7 +269,8 @@ def write_prover_toml(w: dict) -> None:
         f"prev_owner_sk = {fhex(w['prev_owner_sk'])}",
     ]
     PROVER_TOML.write_text("\n".join(lines) + "\n")
-    print(f"[wrote] {PROVER_TOML}")
+    os.chmod(PROVER_TOML, 0o600)
+    print(f"[wrote transient 0600] {PROVER_TOML}")
 
 
 def main() -> None:
@@ -280,102 +287,110 @@ def main() -> None:
 
     w = build_witness(seed, args.n_occupied)
     write_prover_toml(w)
+    try:
+        print("[5/9] nargo execute")
+        run([NARGO, "execute"], CIRCUIT_DIR, timeout=600)
+        witness = CIRCUIT_DIR / "target" / "transfer_shadow_v2.gz"
+        print(f"[ok] witness at {witness}")
 
-    print("[5/9] nargo execute")
-    run([NARGO, "execute"], CIRCUIT_DIR, timeout=600)
-    witness = CIRCUIT_DIR / "target" / "transfer_shadow_v2.gz"
-    print(f"[ok] witness at {witness}")
+        if args.no_prove:
+            return
 
-    if args.no_prove:
-        return
+        target_dir = CIRCUIT_DIR / "target"
+        print("[6/9] bb write_vk")
+        run([BB, "write_vk", "-b", str(target_dir / "transfer_shadow_v2.json"),
+             "-o", str(target_dir),
+             "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=900)
 
-    target_dir = CIRCUIT_DIR / "target"
-    print("[6/9] bb write_vk")
-    run([BB, "write_vk", "-b", str(target_dir / "transfer_shadow_v2.json"),
-         "-o", str(target_dir),
-         "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=900)
-
-    print("[7/9] bb prove")
-    proof_dir = target_dir / "proof_dir"
-    proof_dir.mkdir(exist_ok=True)
-    run([BB, "prove", "-b", str(target_dir / "transfer_shadow_v2.json"),
-         "-w", str(witness),
-         "-o", str(proof_dir),
-         "-k", str(target_dir / "vk"),
-         "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=1800)
-
-    print("[8/9] bb verify (sanity)")
-    run([BB, "verify",
-         "-k", str(target_dir / "vk"),
-         "-p", str(proof_dir / "proof"),
-         "-i", str(proof_dir / "public_inputs"),
-         "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=300)
-    print("[ok] proof verified")
-
-    if args.rebuild_verifier:
-        print("[8b/9] bb write_solidity_verifier")
-        verifier_tmp = target_dir / "TransferShadowVerifier.tmp.sol"
-        run([BB, "write_solidity_verifier",
+        print("[7/9] bb prove")
+        proof_dir = target_dir / "proof_dir"
+        proof_dir.mkdir(exist_ok=True)
+        run([BB, "prove", "-b", str(target_dir / "transfer_shadow_v2.json"),
+             "-w", str(witness),
+             "-o", str(proof_dir),
              "-k", str(target_dir / "vk"),
-             "-o", str(verifier_tmp),
-             "--verifier_target", "evm"], CIRCUIT_DIR, timeout=300)
-        verifier_dst = ROOT / "contracts" / "src" / "TransferShadowVerifier.sol"
-        text = verifier_tmp.read_text().replace(
-            "contract HonkVerifier", "contract TransferShadowVerifier")
-        verifier_dst.write_text(text)
-        verifier_tmp.unlink()
-        print(f"  wrote {verifier_dst}")
+             "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=1800)
 
-    # Save fixture for forge tests.
-    fix_dir = FIXTURE_DIR / args.seed
-    fix_dir.mkdir(parents=True, exist_ok=True)
-    proof_bytes = (proof_dir / "proof").read_bytes()
-    pi_bytes = (proof_dir / "public_inputs").read_bytes()
-    (fix_dir / "proof.bin").write_bytes(proof_bytes)
-    (fix_dir / "public_inputs.bin").write_bytes(pi_bytes)
+        print("[8/9] bb verify (sanity)")
+        run([BB, "verify",
+             "-k", str(target_dir / "vk"),
+             "-p", str(proof_dir / "proof"),
+             "-i", str(proof_dir / "public_inputs"),
+             "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=300)
+        print("[ok] proof verified")
 
-    # Also dump per-slot c2 for occupied slots so the contract can replay them.
-    c2_per_slot: dict[int, list[str]] = {}
-    for i in w["occupied_idxs"]:
-        c2_per_slot[i] = [bx32(v) for v in w["new_c2"][i]]
+        if args.rebuild_verifier:
+            print("[8b/9] bb write_solidity_verifier")
+            verifier_tmp = target_dir / "TransferShadowVerifier.tmp.sol"
+            run([BB, "write_solidity_verifier",
+                 "-k", str(target_dir / "vk"),
+                 "-o", str(verifier_tmp),
+                 "--verifier_target", "evm"], CIRCUIT_DIR, timeout=300)
+            verifier_dst = ROOT / "contracts" / "src" / "TransferShadowVerifier.sol"
+            text = verifier_tmp.read_text().replace(
+                "contract HonkVerifier", "contract TransferShadowVerifier")
+            verifier_dst.write_text(text)
+            verifier_tmp.unlink()
+            print(f"  wrote {verifier_dst}")
 
-    meta = {
-        "seed": args.seed,
-        "n_occupied": args.n_occupied,
-        "occupied_idxs": w["occupied_idxs"],
-        "shadow_id": bx32(w["shadow_id"]),
-        "recipient_pk_x": bx32(w["recipient_pk_x"]),
-        "recipient_pk_y": bx32(w["recipient_pk_y"]),
-        "prev_lsh_root": bx32(w["prev_lsh_root"]),
-        "new_lsh_root": bx32(w["new_lsh_root"]),
-        "prev_owner_pk_x": bx32(w["prev_owner_pk_x"]),
-        "prev_owner_pk_y": bx32(w["prev_owner_pk_y"]),
-        "new_chain_tips_root": bx32(w["new_chain_tips_root"]),
-        "new_ct_commits_root": bx32(w["new_ct_commits_root"]),
+        # Save fixture for forge tests.
+        fix_dir = FIXTURE_DIR / args.seed
+        fix_dir.mkdir(parents=True, exist_ok=True)
+        proof_bytes = (proof_dir / "proof").read_bytes()
+        pi_bytes = (proof_dir / "public_inputs").read_bytes()
+        (fix_dir / "proof.bin").write_bytes(proof_bytes)
+        (fix_dir / "public_inputs.bin").write_bytes(pi_bytes)
 
-        # per-slot pre-rotation chain state (contract seeds these for the test)
-        "prev_lsh": [bx32(v) for v in w["prev_lsh"]],
-        "prev_c1_x": [bx32(v) for v in w["prev_c1_x"]],
-        "prev_c1_y": [bx32(v) for v in w["prev_c1_y"]],
-        "prev_mutation_count": w["prev_mutation_count"],
-        "prev_chain_tip": [bx32(v) for v in w["prev_chain_tip"]],
-        "prev_state_commit": [bx32(v) for v in w["prev_state_commit"]],
-        "prev_ct_commit": [bx32(v) for v in w["prev_ct_commit"]],
+        # Also dump per-slot c2 for occupied slots so the contract can replay them.
+        c2_per_slot: dict[int, list[str]] = {}
+        for i in w["occupied_idxs"]:
+            c2_per_slot[i] = [bx32(v) for v in w["new_c2"][i]]
 
-        # per-slot post-rotation chain state (contract writes these)
-        "new_lsh": [bx32(v) for v in w["new_lsh"]],
-        "new_c1_x": [bx32(v) for v in w["new_c1_x"]],
-        "new_c1_y": [bx32(v) for v in w["new_c1_y"]],
-        "new_ct_commit": [bx32(v) for v in w["new_ct_commit"]],
-        "new_chain_tip": [bx32(v) for v in w["new_chain_tip"]],
-        "new_mutation_count": w["new_mutation_count"],
+        meta = {
+            "seed": args.seed,
+            "n_occupied": args.n_occupied,
+            "occupied_idxs": w["occupied_idxs"],
+            "shadow_id": bx32(w["shadow_id"]),
+            "recipient_pk_x": bx32(w["recipient_pk_x"]),
+            "recipient_pk_y": bx32(w["recipient_pk_y"]),
+            "prev_lsh_root": bx32(w["prev_lsh_root"]),
+            "new_lsh_root": bx32(w["new_lsh_root"]),
+            "prev_owner_pk_x": bx32(w["prev_owner_pk_x"]),
+            "prev_owner_pk_y": bx32(w["prev_owner_pk_y"]),
+            "new_chain_tips_root": bx32(w["new_chain_tips_root"]),
+            "new_ct_commits_root": bx32(w["new_ct_commits_root"]),
+            "new_c1_x_root": bx32(w["new_c1_x_root"]),
+            "new_c1_y_root": bx32(w["new_c1_y_root"]),
 
-        "c2_per_slot": c2_per_slot,
-    }
-    (fix_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-    print(f"[wrote] {fix_dir}/")
-    print(f"        proof.bin ({len(proof_bytes)} B)")
-    print(f"        public_inputs.bin ({len(pi_bytes)} B)")
+            # per-slot pre-rotation chain state (contract seeds these for the test)
+            "prev_lsh": [bx32(v) for v in w["prev_lsh"]],
+            "prev_c1_x": [bx32(v) for v in w["prev_c1_x"]],
+            "prev_c1_y": [bx32(v) for v in w["prev_c1_y"]],
+            "prev_mutation_count": w["prev_mutation_count"],
+            "prev_chain_tip": [bx32(v) for v in w["prev_chain_tip"]],
+            "prev_state_commit": [bx32(v) for v in w["prev_state_commit"]],
+            "prev_ct_commit": [bx32(v) for v in w["prev_ct_commit"]],
+
+            # per-slot post-rotation chain state (contract writes these)
+            "new_lsh": [bx32(v) for v in w["new_lsh"]],
+            "new_c1_x": [bx32(v) for v in w["new_c1_x"]],
+            "new_c1_y": [bx32(v) for v in w["new_c1_y"]],
+            "new_ct_commit": [bx32(v) for v in w["new_ct_commit"]],
+            "new_chain_tip": [bx32(v) for v in w["new_chain_tip"]],
+            "new_mutation_count": w["new_mutation_count"],
+
+            "c2_per_slot": c2_per_slot,
+        }
+        (fix_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+        print(f"[wrote] {fix_dir}/")
+        print(f"        proof.bin ({len(proof_bytes)} B)")
+        print(f"        public_inputs.bin ({len(pi_bytes)} B)")
+    finally:
+        try:
+            PROVER_TOML.unlink()
+            print(f"[deleted transient] {PROVER_TOML}")
+        except FileNotFoundError:
+            pass
 
 
 if __name__ == "__main__":

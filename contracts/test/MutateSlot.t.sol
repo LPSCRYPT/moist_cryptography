@@ -281,11 +281,11 @@ contract MutateSlotE2ETest is Test {
 
     function test_mutateSlot_reverts_when_oldLsh_mismatch() public {
         // Tamper with chain state's stored lsh; proof's PI[6] no longer matches.
-        // Storage-poke: ManifestEntry's `liveStateHash` lives at offset 2 of the
-        // entry (3 slots: kind, featureId, liveStateHash). _MANIFESTS_SLOT = 21
-        // post envelope-binding cutover (was 20).
+        // Storage-poke: ManifestEntry now spans 5 slots: kind, featureId,
+        // liveStateHash, mutationCount, chainTip. _MANIFESTS_SLOT = 21 post
+        // envelope-binding cutover.
         bytes32 outerBase = keccak256(abi.encode(shadowId, uint256(21)));
-        bytes32 entryBase = bytes32(uint256(outerBase) + uint256(slotIdx) * 3);
+        bytes32 entryBase = bytes32(uint256(outerBase) + uint256(slotIdx) * 5);
         bytes32 lshSlot = bytes32(uint256(entryBase) + 2);
         vm.store(address(st), lshSlot, bytes32(uint256(oldLsh) ^ 1));
 

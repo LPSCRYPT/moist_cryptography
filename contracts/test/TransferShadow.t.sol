@@ -51,7 +51,7 @@ contract TransferShadowE2ETest is Test {
     address internal alice = makeAddr("alice");
     address internal bob   = makeAddr("bob");
 
-    uint256 internal constant TRANSFER_PI_LEN = 9;
+    uint256 internal constant TRANSFER_PI_LEN = 11;
     uint256 internal constant T10_PI_LEN = 20;
 
     /// Cached per-slot post-rotation values from the fixture meta.json.
@@ -136,11 +136,15 @@ contract TransferShadowE2ETest is Test {
         string memory j = vm.readFile(string.concat(FIX, "/meta.json"));
         bytes32[] memory prevLshArr = new bytes32[](occupiedIdxs.length);
         uint256[] memory featIds = new uint256[](occupiedIdxs.length);
+        uint16[] memory prevCounts = new uint16[](occupiedIdxs.length);
+        bytes32[] memory prevTips = new bytes32[](occupiedIdxs.length);
         featureIds = new uint256[](occupiedIdxs.length);
         for (uint256 i = 0; i < occupiedIdxs.length; i++) {
             uint8 sIdx = occupiedIdxs[i];
             string memory sIdxStr = vm.toString(uint256(sIdx));
             prevLshArr[i] = j.readBytes32(string.concat(".prev_lsh[", sIdxStr, "]"));
+            prevCounts[i] = uint16(j.readUint(string.concat(".prev_mutation_count[", sIdxStr, "]")));
+            prevTips[i] = j.readBytes32(string.concat(".prev_chain_tip[", sIdxStr, "]"));
             // Synth a unique featureId per slot. Doesn't need to match a circuit
             // PI since transferShadow's PI doesn't carry per-slot featureIds.
             featIds[i] = uint256(keccak256(abi.encode(shadowId, sIdx, "feature")));
@@ -150,6 +154,9 @@ contract TransferShadowE2ETest is Test {
             shadowId, alice, prevOwnerPkX, prevOwnerPkY,
             occupiedIdxs, featIds, prevLshArr
         );
+        for (uint256 i = 0; i < occupiedIdxs.length; i++) {
+            st.setSlotHistoryForTest(shadowId, occupiedIdxs[i], prevCounts[i], prevTips[i]);
+        }
 
         // 3. Seed each feature as inserted in its slot, owned by alice.
         for (uint256 i = 0; i < occupiedIdxs.length; i++) {

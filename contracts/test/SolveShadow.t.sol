@@ -210,7 +210,7 @@ contract SolveShadowE2ETest is Test {
                 uint24(uint256(keccak256(abi.encode("color", shadowId, sIdx, c))))
             ));
         }
-        salt = keccak256(abi.encode("salt", shadowId, sIdx));
+        salt = bytes32(uint256(keccak256(abi.encode("salt", shadowId, sIdx))) % st.FR_MOD());
     }
 
     /// Compute paletteCommit by static-calling the same Yul sponge_17 the

@@ -21,6 +21,9 @@ import {KeyRegistry} from "../src/KeyRegistry.sol";
 ///   - PI[4]   new_lsh_root         = sponge_16 over args.newLiveStateHashes.
 ///   - PI[5..6] prev_owner_pk_x/y   = `_shadows[shadow].ecdhPubX/Y`.
 ///   - PI[7]   new_chain_tips_root  = sponge_16 over args.newChainTips.
+///   - PI[8]   new_ct_commits_root  = sponge_16 over args.newCtCommits.
+///   - PI[9]   new_c1_x_root        = sponge_16 over args.newC1Xs.
+///   - PI[10]  new_c1_y_root        = sponge_16 over args.newC1Ys.
 ///
 /// Idempotency: skip if `_ownerOf(shadowId)` is already the recipient.
 ///
@@ -33,7 +36,7 @@ import {KeyRegistry} from "../src/KeyRegistry.sol";
 contract TransferOnSepolia is Script {
     using stdJson for string;
 
-    uint256 internal constant TRANSFER_PI_LEN = 9;
+    uint256 internal constant TRANSFER_PI_LEN = 11;
     uint256 internal constant T10_PI_LEN = 20;
     uint256 internal constant N_SLOTS = 16;
     uint256 internal constant C2_FIELD_COUNT = 39;
@@ -41,7 +44,7 @@ contract TransferOnSepolia is Script {
     struct Loaded {
         bytes proof;
         bytes proofT10;
-        bytes piT;          // raw 8x32 bytes
+        bytes piT;          // raw 11x32 bytes
         bytes piT10;        // raw 20x32 bytes
         uint256 shadowId;
         address recipient;

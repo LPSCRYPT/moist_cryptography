@@ -124,6 +124,8 @@ contract TestableShadowToken is ShadowToken {
         m.kind = SlotKind.OCCUPIED;
         m.featureId = featureId;
         m.liveStateHash = liveStateHash;
+        m.mutationCount = 0;
+        m.chainTip = bytes32(0);
 
         _mint(to, shadowId);
     }
@@ -142,18 +144,50 @@ contract TestableShadowToken is ShadowToken {
     ) external {
         require(slotIdxs.length == featureIds.length, "len mismatch");
         require(slotIdxs.length == liveStateHashes.length, "len mismatch");
+        _seedShadowHeader(shadowId, ecdhPubX, ecdhPubY);
+        for (uint256 i = 0; i < slotIdxs.length; i++) {
+            _seedManifestEntry(shadowId, slotIdxs[i], featureIds[i], liveStateHashes[i], 0, bytes32(0));
+        }
+        _mint(to, shadowId);
+    }
+
+    function setSlotHistoryForTest(
+        uint256 shadowId,
+        uint8 slotIdx,
+        uint16 mutationCount,
+        bytes32 chainTip
+    ) external {
+        ManifestEntry storage m = _manifestStorage(shadowId, slotIdx);
+        m.mutationCount = mutationCount;
+        m.chainTip = chainTip;
+    }
+
+    function _seedShadowHeader(
+        uint256 shadowId,
+        bytes32 ecdhPubX,
+        bytes32 ecdhPubY
+    ) private {
         Shadow storage s = _shadowsStorage(shadowId);
         s.ecdhPubX = ecdhPubX;
         s.ecdhPubY = ecdhPubY;
         s.mintIdx = 1;
         s.mintedAt = uint64(block.number);
-        for (uint256 i = 0; i < slotIdxs.length; i++) {
-            ManifestEntry storage m = _manifestStorage(shadowId, slotIdxs[i]);
-            m.kind = SlotKind.OCCUPIED;
-            m.featureId = featureIds[i];
-            m.liveStateHash = liveStateHashes[i];
-        }
-        _mint(to, shadowId);
+    }
+
+    function _seedManifestEntry(
+        uint256 shadowId,
+        uint8 slotIdx,
+        uint256 featureId,
+        bytes32 liveStateHash,
+        uint16 mutationCount,
+        bytes32 chainTip
+    ) private {
+        ManifestEntry storage m = _manifestStorage(shadowId, slotIdx);
+        m.kind = SlotKind.OCCUPIED;
+        m.featureId = featureId;
+        m.liveStateHash = liveStateHash;
+        m.mutationCount = mutationCount;
+        m.chainTip = chainTip;
     }
 
     /// Test-only setter for a shadow's `zIndexCommit` field. Used by tests
@@ -230,9 +264,9 @@ contract TestableShadowToken is ShadowToken {
             mstore(0x20, mapSlot)
             outerBase := keccak256(0x00, 0x40)
         }
-        // ManifestEntry { SlotKind kind; uint256 featureId; bytes32 liveStateHash; }
-        // -> 3 storage slots per entry (Solidity does NOT pack uint8 enum + uint256).
-        bytes32 entrySlot = bytes32(uint256(outerBase) + uint256(slotIdx) * 3);
+        // ManifestEntry { kind, featureId, liveStateHash, mutationCount, chainTip }
+        // -> 5 storage slots per entry (uint256/bytes32 members force slot breaks).
+        bytes32 entrySlot = bytes32(uint256(outerBase) + uint256(slotIdx) * 5);
         assembly { m.slot := entrySlot }
     }
 }

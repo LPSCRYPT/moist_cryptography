@@ -149,10 +149,18 @@ def _ensure_compiled(circuit_dir: pathlib.Path, pkg_name: str) -> None:
 def poseidon2_state(a: int, b: int, c: int, d: int) -> tuple[int, int, int, int]:
     """Poseidon2 permutation over [a, b, c, d], returning 4-element output."""
     _ensure_compiled(_STATE_HELPER, "_poseidon2_state_helper")
-    (_STATE_HELPER / "Prover.toml").write_text(
+    prover_toml = _STATE_HELPER / "Prover.toml"
+    prover_toml.write_text(
         f'a = "{hex(a)}"\nb = "{hex(b)}"\nc = "{hex(c)}"\nd = "{hex(d)}"\n'
     )
-    out = _run([NARGO, "execute"], _STATE_HELPER)
+    os.chmod(prover_toml, 0o600)
+    try:
+        out = _run([NARGO, "execute"], _STATE_HELPER)
+    finally:
+        try:
+            prover_toml.unlink()
+        except FileNotFoundError:
+            pass
     vals = _extract_outputs(out)
     if len(vals) != 4:
         raise RuntimeError(f"expected 4 outputs from state helper, got {len(vals)}")
@@ -167,8 +175,16 @@ def poseidon2_h2(x: int, y: int) -> int:
 def keystream(k: int) -> list[int]:
     """Generate N=32 Poseidon2-CTR keystream elements from Field key `k`."""
     _ensure_compiled(_KEYSTREAM_HELPER, "_ecies_keystream_helper")
-    (_KEYSTREAM_HELPER / "Prover.toml").write_text(f'k = "{hex(k)}"\n')
-    out = _run([NARGO, "execute"], _KEYSTREAM_HELPER)
+    prover_toml = _KEYSTREAM_HELPER / "Prover.toml"
+    prover_toml.write_text(f'k = "{hex(k)}"\n')
+    os.chmod(prover_toml, 0o600)
+    try:
+        out = _run([NARGO, "execute"], _KEYSTREAM_HELPER)
+    finally:
+        try:
+            prover_toml.unlink()
+        except FileNotFoundError:
+            pass
     vals = _extract_outputs(out)
     if len(vals) != N:
         raise RuntimeError(f"expected {N} keystream elements, got {len(vals)}")

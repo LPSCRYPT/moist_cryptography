@@ -130,11 +130,15 @@ contract TransferShadowMaxOccupancyTest is Test {
         uint8[] memory occupiedIdxs = new uint8[](16);
         bytes32[] memory prevLshArr = new bytes32[](16);
         uint256[] memory featIds = new uint256[](16);
+        uint16[] memory prevCounts = new uint16[](16);
+        bytes32[] memory prevTips = new bytes32[](16);
         featureIds = new uint256[](16);
         for (uint256 i = 0; i < 16; i++) {
             occupiedIdxs[i] = uint8(occ[i]);
             string memory sIdxStr = vm.toString(uint256(occupiedIdxs[i]));
             prevLshArr[i] = j.readBytes32(string.concat(".prev_lsh[", sIdxStr, "]"));
+            prevCounts[i] = uint16(j.readUint(string.concat(".prev_mutation_count[", sIdxStr, "]")));
+            prevTips[i] = j.readBytes32(string.concat(".prev_chain_tip[", sIdxStr, "]"));
             featIds[i]   = uint256(keccak256(abi.encode(shadowId, occupiedIdxs[i], "feature")));
             featureIds[i]= featIds[i];
         }
@@ -142,6 +146,9 @@ contract TransferShadowMaxOccupancyTest is Test {
             shadowId, alice, _stashedPrevOwnerPkX, _stashedPrevOwnerPkY,
             occupiedIdxs, featIds, prevLshArr
         );
+        for (uint256 i = 0; i < 16; i++) {
+            st.setSlotHistoryForTest(shadowId, occupiedIdxs[i], prevCounts[i], prevTips[i]);
+        }
         for (uint256 i = 0; i < 16; i++) {
             uint8 sIdx = occupiedIdxs[i];
             fn.seedFeature(

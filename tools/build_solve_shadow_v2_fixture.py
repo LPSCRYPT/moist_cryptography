@@ -216,7 +216,8 @@ def write_prover_toml(w: dict) -> None:
         f"owner_sk = {fhex(w['owner_sk'])}",
     ]
     PROVER_TOML.write_text("\n".join(lines) + "\n")
-    print(f"[wrote] {PROVER_TOML}")
+    os.chmod(PROVER_TOML, 0o600)
+    print(f"[wrote transient 0600] {PROVER_TOML}")
 
 
 def main() -> None:
@@ -233,92 +234,98 @@ def main() -> None:
 
     w = build_witness(seed, args.n_occupied)
     write_prover_toml(w)
+    try:
+        print("[5/9] nargo execute")
+        run([NARGO, "execute"], CIRCUIT_DIR, timeout=600)
 
-    print("[5/9] nargo execute")
-    run([NARGO, "execute"], CIRCUIT_DIR, timeout=600)
+        if args.no_prove:
+            return
 
-    if args.no_prove:
-        return
+        target_dir = CIRCUIT_DIR / "target"
+        print("[6/9] bb write_vk")
+        run([BB, "write_vk", "-b", str(target_dir / "solve_shadow_v2.json"),
+             "-o", str(target_dir),
+             "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=900)
 
-    target_dir = CIRCUIT_DIR / "target"
-    print("[6/9] bb write_vk")
-    run([BB, "write_vk", "-b", str(target_dir / "solve_shadow_v2.json"),
-         "-o", str(target_dir),
-         "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=900)
-
-    print("[7/9] bb prove")
-    proof_dir = target_dir / "proof_dir"
-    proof_dir.mkdir(exist_ok=True)
-    run([BB, "prove", "-b", str(target_dir / "solve_shadow_v2.json"),
-         "-w", str(target_dir / "solve_shadow_v2.gz"),
-         "-o", str(proof_dir),
-         "-k", str(target_dir / "vk"),
-         "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=1800)
-
-    print("[8/9] bb verify (sanity)")
-    run([BB, "verify",
-         "-k", str(target_dir / "vk"),
-         "-p", str(proof_dir / "proof"),
-         "-i", str(proof_dir / "public_inputs"),
-         "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=300)
-    print("[ok] proof verified")
-
-    if args.rebuild_verifier:
-        print("[8b/9] bb write_solidity_verifier")
-        verifier_tmp = target_dir / "SolveShadowVerifier.tmp.sol"
-        run([BB, "write_solidity_verifier",
+        print("[7/9] bb prove")
+        proof_dir = target_dir / "proof_dir"
+        proof_dir.mkdir(exist_ok=True)
+        run([BB, "prove", "-b", str(target_dir / "solve_shadow_v2.json"),
+             "-w", str(target_dir / "solve_shadow_v2.gz"),
+             "-o", str(proof_dir),
              "-k", str(target_dir / "vk"),
-             "-o", str(verifier_tmp),
-             "--verifier_target", "evm"], CIRCUIT_DIR, timeout=300)
-        verifier_dst = ROOT / "contracts" / "src" / "SolveShadowVerifier.sol"
-        text = verifier_tmp.read_text().replace(
-            "contract HonkVerifier", "contract SolveShadowVerifier")
-        verifier_dst.write_text(text)
-        verifier_tmp.unlink()
-        print(f"[wrote] {verifier_dst}")
+             "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=1800)
 
-    fix_dir = FIXTURE_DIR / args.seed
-    fix_dir.mkdir(parents=True, exist_ok=True)
-    proof_bytes = (proof_dir / "proof").read_bytes()
-    pi_bytes = (proof_dir / "public_inputs").read_bytes()
-    (fix_dir / "proof.bin").write_bytes(proof_bytes)
-    (fix_dir / "public_inputs.bin").write_bytes(pi_bytes)
+        print("[8/9] bb verify (sanity)")
+        run([BB, "verify",
+             "-k", str(target_dir / "vk"),
+             "-p", str(proof_dir / "proof"),
+             "-i", str(proof_dir / "public_inputs"),
+             "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=300)
+        print("[ok] proof verified")
 
-    meta = {
-        "seed": args.seed,
-        "n_occupied": args.n_occupied,
-        "occupied_idxs": w["occupied_idxs"],
-        "shadow_id": bx32(w["shadow_id"]),
-        "state_commits_root": bx32(w["state_commits_root"]),
-        "z_perm_packed": bx32(w["z_perm_packed"]),
-        "z_index_commit": bx32(w["z_index_commit"]),
-        "lsh_root": bx32(w["lsh_root"]),
-        "owner_pk_x": bx32(w["owner_pk_x"]),
-        "owner_pk_y": bx32(w["owner_pk_y"]),
+        if args.rebuild_verifier:
+            print("[8b/9] bb write_solidity_verifier")
+            verifier_tmp = target_dir / "SolveShadowVerifier.tmp.sol"
+            run([BB, "write_solidity_verifier",
+                 "-k", str(target_dir / "vk"),
+                 "-o", str(verifier_tmp),
+                 "--verifier_target", "evm"], CIRCUIT_DIR, timeout=300)
+            verifier_dst = ROOT / "contracts" / "src" / "SolveShadowVerifier.sol"
+            text = verifier_tmp.read_text().replace(
+                "contract HonkVerifier", "contract SolveShadowVerifier")
+            verifier_dst.write_text(text)
+            verifier_tmp.unlink()
+            print(f"[wrote] {verifier_dst}")
 
-        # chain seeding
-        "prev_lsh": [bx32(v) for v in w["prev_lsh"]],
-        "prev_ct_commit": [bx32(v) for v in w["prev_ct_commit"]],
-        "prev_c1_x": [bx32(v) for v in w["prev_c1_x"]],
-        "prev_c1_y": [bx32(v) for v in w["prev_c1_y"]],
-        "prev_mutation_count": w["prev_mutation_count"],
-        "prev_chain_tip": [bx32(v) for v in w["prev_chain_tip"]],
-        "state_commits": [bx32(v) for v in w["state_commits"]],
+        fix_dir = FIXTURE_DIR / args.seed
+        fix_dir.mkdir(parents=True, exist_ok=True)
+        proof_bytes = (proof_dir / "proof").read_bytes()
+        pi_bytes = (proof_dir / "public_inputs").read_bytes()
+        (fix_dir / "proof.bin").write_bytes(proof_bytes)
+        (fix_dir / "public_inputs.bin").write_bytes(pi_bytes)
 
-        "z_perm": w["z_perm"],
-    }
-    (fix_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-    # Per-slot plaintexts as bytes32 arrays for forge consumption.
-    plaintexts_json = {
-        "plaintexts": [
-            [bx32(v) for v in w["plaintexts"][i]]
-            for i in range(16)
-        ],
-    }
-    (fix_dir / "plaintexts.json").write_text(json.dumps(plaintexts_json, indent=2))
-    print(f"[wrote] {fix_dir}/")
-    print(f"        proof.bin ({len(proof_bytes)} B)")
-    print(f"        public_inputs.bin ({len(pi_bytes)} B)")
+        meta = {
+            "seed": args.seed,
+            "n_occupied": args.n_occupied,
+            "occupied_idxs": w["occupied_idxs"],
+            "shadow_id": bx32(w["shadow_id"]),
+            "state_commits_root": bx32(w["state_commits_root"]),
+            "z_perm_packed": bx32(w["z_perm_packed"]),
+            "z_index_commit": bx32(w["z_index_commit"]),
+            "lsh_root": bx32(w["lsh_root"]),
+            "owner_pk_x": bx32(w["owner_pk_x"]),
+            "owner_pk_y": bx32(w["owner_pk_y"]),
+
+            # chain seeding
+            "prev_lsh": [bx32(v) for v in w["prev_lsh"]],
+            "prev_ct_commit": [bx32(v) for v in w["prev_ct_commit"]],
+            "prev_c1_x": [bx32(v) for v in w["prev_c1_x"]],
+            "prev_c1_y": [bx32(v) for v in w["prev_c1_y"]],
+            "prev_mutation_count": w["prev_mutation_count"],
+            "prev_chain_tip": [bx32(v) for v in w["prev_chain_tip"]],
+            "state_commits": [bx32(v) for v in w["state_commits"]],
+
+            "z_perm": w["z_perm"],
+        }
+        (fix_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+        # Per-slot plaintexts as bytes32 arrays for forge consumption.
+        plaintexts_json = {
+            "plaintexts": [
+                [bx32(v) for v in w["plaintexts"][i]]
+                for i in range(16)
+            ],
+        }
+        (fix_dir / "plaintexts.json").write_text(json.dumps(plaintexts_json, indent=2))
+        print(f"[wrote] {fix_dir}/")
+        print(f"        proof.bin ({len(proof_bytes)} B)")
+        print(f"        public_inputs.bin ({len(pi_bytes)} B)")
+    finally:
+        try:
+            PROVER_TOML.unlink()
+            print(f"[deleted transient] {PROVER_TOML}")
+        except FileNotFoundError:
+            pass
 
 
 if __name__ == "__main__":

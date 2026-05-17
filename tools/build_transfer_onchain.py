@@ -57,6 +57,7 @@ Wall-clock on M3: ~2-5 min (transfer circuit is the heaviest in v2).
 """
 from __future__ import annotations
 
+import atexit
 import argparse
 import json
 import os
@@ -91,6 +92,14 @@ from build_insert_onchain import build_insert_witness  # noqa: E402
 ROOT = REPO.parent
 TRANSFER_DIR = ROOT / "circuits" / "transfer_shadow_v2"
 FIXTURE_ROOT = ROOT / "contracts" / "test" / "fixtures" / "onchain_transfer"
+
+
+def _delete_if_exists(path: Path) -> None:
+    try:
+        path.unlink()
+        print(f"[deleted transient] {path}")
+    except FileNotFoundError:
+        pass
 
 
 def deterministic_int_transfer(seed: bytes, label: bytes, mod: int) -> int:
@@ -280,9 +289,12 @@ def build_transfer_witness(
     prev_lsh_root = sponge_16(prev_lsh_arr)
     new_lsh_root = sponge_16(new_lsh_arr)
     new_chain_tips_root = sponge_16(new_chain_tip_arr)
+    new_ct_commits_root = sponge_16(new_ct_commit_arr)
+    new_c1_x_root = sponge_16(new_c1_x_arr)
+    new_c1_y_root = sponge_16(new_c1_y_arr)
 
     return {
-        # PI (8)
+        # PI (11)
         "shadow_id":            host_shadow_id,
         "recipient_pk_x":       recipient_pk[0],
         "recipient_pk_y":       recipient_pk[1],
@@ -291,6 +303,9 @@ def build_transfer_witness(
         "prev_owner_pk_x":      prev_owner_pk[0],
         "prev_owner_pk_y":      prev_owner_pk[1],
         "new_chain_tips_root":  new_chain_tips_root,
+        "new_ct_commits_root":  new_ct_commits_root,
+        "new_c1_x_root":       new_c1_x_root,
+        "new_c1_y_root":       new_c1_y_root,
         # witness arrays
         "prev_lsh":             prev_lsh_arr,
         "is_occupied":          is_occupied,
@@ -330,6 +345,9 @@ def write_transfer_prover_toml(w: dict) -> None:
         f"prev_owner_pk_x = {fhex(w['prev_owner_pk_x'])}",
         f"prev_owner_pk_y = {fhex(w['prev_owner_pk_y'])}",
         f"new_chain_tips_root = {fhex(w['new_chain_tips_root'])}",
+        f"new_ct_commits_root = {fhex(w['new_ct_commits_root'])}",
+        f"new_c1_x_root = {fhex(w['new_c1_x_root'])}",
+        f"new_c1_y_root = {fhex(w['new_c1_y_root'])}",
         render_array("prev_lsh", w["prev_lsh"]),
         render_array("is_occupied", w["is_occupied"]),
         render_2d("plaintexts", w["plaintexts"]),
@@ -345,6 +363,9 @@ def write_transfer_prover_toml(w: dict) -> None:
         f"prev_owner_sk = {fhex(w['prev_owner_sk'])}",
     ]
     toml.write_text("\n".join(lines) + "\n")
+    os.chmod(toml, 0o600)
+
+    atexit.register(_delete_if_exists, toml)
 
 
 def main() -> None:
@@ -414,6 +435,8 @@ def main() -> None:
         f"new_t10_lo = {fhex(lo)}\n"
         f"live_state_hash = [{', '.join(fhex(v) for v in post_lsh)}]\n"
     )
+    os.chmod(T10_DIR / "Prover.toml", 0o600)
+    atexit.register(_delete_if_exists, T10_DIR / "Prover.toml")
     proof_t10, pi_t10 = prove(T10_DIR, "shadow_t10.json")
 
     # Write fixture.
@@ -446,6 +469,9 @@ def main() -> None:
         "prev_lsh_root":  bx32(w["prev_lsh_root"]),
         "new_lsh_root":   bx32(w["new_lsh_root"]),
         "new_chain_tips_root": bx32(w["new_chain_tips_root"]),
+        "new_ct_commits_root": bx32(w["new_ct_commits_root"]),
+        "new_c1_x_root": bx32(w["new_c1_x_root"]),
+        "new_c1_y_root": bx32(w["new_c1_y_root"]),
         "new_lsh":        [bx32(v) for v in w["new_lsh"]],
         "new_c1_x":       [bx32(v) for v in w["new_c1_x"]],
         "new_c1_y":       [bx32(v) for v in w["new_c1_y"]],
