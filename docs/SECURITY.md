@@ -126,38 +126,21 @@ files in CI. The pipeline-#4 baseline reported:
 - Three LOW findings: idiomatic leading-underscore parameter names.
 
 A local code-and-cryptography audit (`/audit/`, gitignored) identified
-several High-severity findings not visible to Slither, primarily
-around z-index Field canonicality, mint plaintext geometry validation,
-and bridge round-trip custody. See "Known limitations" below.
+several findings not visible to Slither. Two rounds of remediation
+(passes 1 and 2) have landed; see "Known limitations" for what remains.
 
 ## Known limitations
 
-1. **Mint plaintext geometry is not validated in-circuit.** (Audit H-04,
-   deferred.) `landmark_regions_v2` hashes and encrypts the 39-field
-   plaintext without decoding pose/dimensions/palette indices. The same
-   validator exists in `mutate_slot` but is not shared with mint, so
-   initial-state slots can commit to malformed plaintexts that later
-   mutate operations would reject.
-
-2. **KeyRegistry accepts the `(0,0)` sentinel at registration.**
+1. **KeyRegistry accepts the `(0,0)` sentinel at registration.**
    `(0,0)` is documented as "unregistered", but `register` does not
    reject it, so an account can emit a `Registered` event while
    `isRegistered` still returns false.
 
-3. **ECIES inputs.** (Audit M-05, M-06, L-01, deferred to the same
-   redeploy as the envelope-binding cutover.) Circuits do not assert
-   `new_r != 0` or that stored Grumpkin public keys are valid
-   non-infinity points. Old keystream keys (`old_k` / `prev_k`) are
-   witnessed and proven consistent with `ctCommit`, but not derived
-   from `old_c1 * owner_sk` — so a leaked keystream key would let a
-   non-owner forge mutations that pass the proof, provided they also
-   know the owner's secret.
-
-4. **Bridge round-trip via OP messenger has 7-day L2→L1 finality**
+2. **Bridge round-trip via OP messenger has 7-day L2->L1 finality**
    (OP withdrawal challenge period). Fast bridges with external trust
    are not implemented.
 
-5. **No external audit.** Forge surface is 202/202 with real proofs
+3. **No external audit.** Forge surface is 202/202 with real proofs
    and no mocks. A third-party audit has not been commissioned.
 
 Closed by audit remediation pass 1 (pipeline #5):
@@ -169,6 +152,29 @@ Closed by the envelope-binding cutover (pipeline #6):
 - H-01 solve plaintext byte-binding via `sponge_39` re-hash.
 - H-02 ECIES envelope byte-binding for every state-changing entry point.
 - H-05 origin lineage ID binding via on-chain `poseidon2_hash_2`.
+
+Closed by audit remediation pass 2 (pipeline #6 redeploy):
+- L-01 KDF domain separation. Every ECIES shared-secret -> keystream-key
+  derivation in the v2 pipeline now flows through a single Poseidon2
+  permutation with a global domain tag (`MOISTKDFV2`) and a role tag
+  (1 = plaintext keystream, 2 = salt envelope). Plaintext and salt KDFs
+  derive cryptographically independent keys for the same (c1, owner_pk).
+- M-06 ECIES well-formedness. Every Grumpkin point fed to embedded-curve
+  MSM (owner_pk, recipient_pk, next_pk, old_c1) is now asserted on
+  Grumpkin (y^2 = x^3 - 17); every ECIES ephemeral scalar `new_r` is
+  asserted non-zero. Off-curve and degenerate witnesses are rejected at
+  proof generation.
+- M-05 old keystream key bound to ECDH. `mutate_slot`, `transfer_shadow_v2`,
+  `solve_shadow_v2` now constrain witnessed `old_k` / `prev_k[i]` /
+  `owner_k[i]` against `kdf(owner_sk * c1)`. A leaked past keystream key
+  is no longer sufficient to forge state transitions; only the holder
+  of the owner's secret key can produce a valid witness.
+  (`transfer_feature_v2` had this binding pre-pass-2.)
+- H-04 mint plaintext geometry validation. `landmark_regions_v2` now
+  runs the same geometry validator as `mutate_slot`: every minted slot's
+  plaintext must encode non-zero (w, h) with axis-aligned containment
+  inside the 48x48 canvas. Carriers with malformed geometry are rejected
+  at proof generation.
 
 ## Reporting issues
 
