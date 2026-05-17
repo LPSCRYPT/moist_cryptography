@@ -194,10 +194,12 @@ contract TestableShadowToken is ShadowToken {
     }
 
     /// Pinned storage slot of `ShadowToken._shadows` mapping. Derived from
-    /// `forge inspect ShadowToken storageLayout`.
-    uint256 private constant _SHADOWS_SLOT = 19;
-    /// Pinned storage slot of `ShadowToken._manifests` mapping.
-    uint256 private constant _MANIFESTS_SLOT = 20;
+    /// `forge inspect ShadowToken storage-layout`. Bumped from 19 → 20 in
+    /// the envelope-binding cutover when `yulHash2` + `_yulHash2Locked`
+    /// were inserted before `keyRegistry` to set up the H-05 binding.
+    uint256 private constant _SHADOWS_SLOT = 20;
+    /// Pinned storage slot of `ShadowToken._manifests` mapping. Bumped 20→21.
+    uint256 private constant _MANIFESTS_SLOT = 21;
 
     function _shadowsStorage(uint256 shadowId) private pure returns (Shadow storage s) {
         uint256 slot = _SHADOWS_SLOT;

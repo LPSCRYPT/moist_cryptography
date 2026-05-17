@@ -622,18 +622,19 @@ contract ShadowToken is ERC721, PausableMixin {
         }));
         _verifyOrRevert(mutateSlotVerifier, args.proofMutate, piMut);
 
-        // ---- 2. c2 calldata is ADVISORY (emitted in event for indexers) ----
-        // The proof binds args.newCtCommit (PI[8]) to the witness c2's sponge_39.
-        // We do NOT sponge_39 calldata c2 on chain (~735K gas, structural cost).
-        // If caller's calldata c2 mismatches their witness c2:
-        //   - chain state (lsh) stays correct (proof-bound transitively via
-        //     new_lsh = LSH(state_commit, ct_commit, c1, count, chainTip))
-        //   - emitted c2 in event will not decrypt to the witness plaintext
-        //   - indexers / consumers detect via decrypt failure or off-chain
-        //     sponge_39(emitted c2) != newCtCommit
-        // For self-ops (mutateSlot/mintShadow/solve) the caller IS the owner,
-        // so lying is self-harm. For transferShadow the recipient detects via
-        // ECIES decrypt failure (see security note in transferShadow).
+        // ---- 2. bind emitted c2 to proof-bound newCtCommit (audit H-02) ----
+        // The proof binds args.newCtCommit (PI[8]) to the witness c2's
+        // sponge_39, but does NOT bind the emitted calldata c2. Pre-fix the
+        // chain accepted any c2 in calldata; off-chain consumers had to
+        // re-verify out-of-band. Now the contract recomputes sponge_39 over
+        // the emitted c2 via the Yul wrapper and asserts equality with
+        // newCtCommit before applying state. Tampered c2 reverts before any
+        // mutation lands, so every emitted byte is proof-bound at the
+        // byte level.
+        bytes32 c2Digest = bytes32(_sponge(args.c2));
+        if (c2Digest != args.newCtCommit) {
+            revert CiphertextDigestMismatch(args.newCtCommit, c2Digest);
+        }
 
         // ---- 3. apply state change ----
         bytes32 prevLSH = m.liveStateHash;
