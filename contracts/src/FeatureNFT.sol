@@ -189,6 +189,9 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     error PaletteCommitMismatch(uint256 featureId);
     error PaletteSpongeNotSet();
     error PaletteSpongeCallFailed();
+    error TransferToZeroAddress();
+    error KeyRegistryNotSet();
+    error RecipientNotRegistered(address recipient);
 
     // ============== ctor ==============
 
@@ -341,6 +344,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         bytes calldata proof,
         bytes32[] calldata pi
     ) external whenNotPaused {
+        if (to == address(0)) revert TransferToZeroAddress();
         if (_ownerOf(featureId) != msg.sender) revert NotFeatureOwner();
         Feature storage f = _features[featureId];
         if (f.isInserted) revert CustodyLocked(featureId);
@@ -512,9 +516,14 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     // ============== internals ==============
 
     function _requirePkMatches(address who, bytes32 px, bytes32 py) internal view {
+        // Per audit M-01: silent bypass on unset registry / unregistered
+        // recipient is what let a held feature be proof-transferred to an
+        // address whose pk we know nothing about. transferFeature MUST require
+        // both (1) a wired KeyRegistry and (2) the recipient to have a stored
+        // pk that matches the proof's recipient_pk public inputs.
         KeyRegistry r = keyRegistry;
-        if (address(r) == address(0)) return;
-        if (!r.isRegistered(who)) return;
+        if (address(r) == address(0)) revert KeyRegistryNotSet();
+        if (!r.isRegistered(who)) revert RecipientNotRegistered(who);
         (bytes32 wantX, bytes32 wantY) = r.pkOf(who);
         if (wantX != px) revert PkMismatch(wantX, px);
         if (wantY != py) revert PkMismatch(wantY, py);

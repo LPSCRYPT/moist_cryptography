@@ -165,4 +165,66 @@ contract TransferFeatureV2GasTest is Test {
         uint256 used = gasBefore - gasleft();
         assertLt(used, 5_000_000, "transferFeature V2 gas regressed past 5M");
     }
+
+    // ============== audit M-01 / M-02 negative tests ==============
+
+    /// Audit M-02: pre-fix, transferFeature did not reject `to == address(0)`,
+    /// so a valid proof could burn a held carrier through a path documented
+    /// as transfer. Burn-via-transfer must revert before any state change.
+    function test_transferFeature_reverts_when_to_is_zero() public {
+        vm.prank(alice);
+        vm.expectRevert(FeatureNFT.TransferToZeroAddress.selector);
+        fn.transferFeature(featureId, address(0), proof, pi);
+        // pre-revert state preserved
+        assertEq(fn.ownerOf(featureId), alice);
+        assertEq(fn.liveStateHashCheckpointOf(featureId), oldLsh);
+    }
+
+    /// Audit M-01a: pre-fix, _requirePkMatches returned silently when the
+    /// recipient was unregistered. A valid proof + an unregistered recipient
+    /// would still rotate ownership. Now MUST revert.
+    function test_transferFeature_reverts_when_recipient_unregistered() public {
+        address stranger = makeAddr("stranger_no_kr");  // never registered
+        // Mutate pi[1]/pi[2] so the proof binds the stranger... actually no,
+        // the proof is bound to recipientPkX/Y; we cannot synthesize a valid
+        // proof for the stranger. The relevant gate is _requirePkMatches
+        // BEFORE the verifier call: it should reject the unregistered `to`
+        // address regardless of what's in pi[1]/pi[2]. With M-01 fix this
+        // reverts at the registry check, not at the verifier.
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(FeatureNFT.RecipientNotRegistered.selector, stranger)
+        );
+        fn.transferFeature(featureId, stranger, proof, pi);
+        assertEq(fn.ownerOf(featureId), alice);
+    }
+
+    /// Audit M-01b: pre-fix, _requirePkMatches returned silently when the KR
+    /// pointer was address(0). The deployed pipeline #5 was vulnerable because
+    /// the deploy script didn't call fn.setKeyRegistry(kr). Now MUST revert.
+    function test_transferFeature_reverts_when_keyRegistry_unset() public {
+        // Reproduce a fresh FN without a KR wired and re-seed identical state.
+        TestableFeatureNFT fn2 = new TestableFeatureNFT(address(st));
+        fn2.setTransferFeatureVerifier(IVerifier(address(vTF)));
+        // intentionally skip fn2.setKeyRegistry(kr)
+        fn2.seedFeature(
+            featureId,
+            shadowIdAtMint,
+            slotAtMint,
+            typeIdx,
+            originFaceId,
+            paletteCommit,
+            oldLsh,
+            alice
+        );
+        // fn2.shadowToken was set in its ctor to address(st), so calls
+        // pranked from address(st) satisfy fn2's NotShadowToken gate without
+        // requiring ShadowToken to re-point at fn2 (setFeatureNFT is one-shot).
+        vm.prank(address(st));
+        fn2.extractFromShadow(featureId, shadowIdAtMint, slotAtMint, oldLsh);
+
+        vm.prank(alice);
+        vm.expectRevert(FeatureNFT.KeyRegistryNotSet.selector);
+        fn2.transferFeature(featureId, recipient, proof, pi);
+    }
 }

@@ -1372,8 +1372,14 @@ contract ShadowToken is ERC721, PausableMixin {
         return _manifests[shadowId][slotIdx];
     }
 
-    function shadowIdOf(bytes32 imageCommit) external view returns (uint256) {
-        return uint256(keccak256(abi.encode(DOMAIN_SHADOW, block.chainid, imageCommit))) % FR_MOD;
+    /// Returns the canonical shadowId for an imageCommit, matching the
+    /// derivation used by `mintShadow` (`uint256(imageCommit) % FR_MOD`).
+    /// Previously this read returned a domain-separated keccak that DID
+    /// NOT match any minted token; that was audit M-03. The chainId binding
+    /// happens via `registeredImages` being per-chain (image_commit can only
+    /// register against the local face_disc verifier deployment).
+    function shadowIdOf(bytes32 imageCommit) external pure returns (uint256) {
+        return uint256(imageCommit) % FR_MOD;
     }
 
     /// Mint-time convention: originFaceId = poseidon2(imageCommit, slotIdx).

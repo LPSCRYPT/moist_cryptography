@@ -62,4 +62,23 @@ contract KeyRegistryTest is Test {
         r.register(alicePkX, alicePkY);
         assertTrue(r.isRegistered(alice));
     }
+
+    /// Audit M-04: (0, 0) is documented as the unregistered sentinel, but
+    /// the pre-fix `register` accepted it. That violated the one-shot
+    /// immutability claim (an attacker could emit Registered(0,0) then
+    /// later register a different pk because `pkX|pkY != 0` checks failed).
+    function test_Register_RevertsOnZeroSentinel() public {
+        vm.prank(alice);
+        vm.expectRevert(KeyRegistry.InvalidPk.selector);
+        r.register(bytes32(0), bytes32(0));
+        assertFalse(r.isRegistered(alice));
+    }
+
+    /// (0, x) and (x, 0) are NOT the sentinel and ARE still allowed -- only
+    /// the all-zero pair is rejected. This documents the chosen invariant.
+    function test_Register_AllowsPartialZero() public {
+        vm.prank(alice);
+        r.register(bytes32(0), alicePkY);
+        assertTrue(r.isRegistered(alice));
+    }
 }

@@ -21,15 +21,20 @@ pragma solidity ^0.8.27;
 contract KeyRegistry {
     error AlreadyRegistered();
     error NotRegistered(address who);
+    error InvalidPk();
 
     /// EOA -> Grumpkin pkX. (0, 0) is the sentinel for unregistered.
+    /// `register` rejects (0, 0) so a successful `Registered` event always
+    /// corresponds to a non-sentinel binding (audit M-04).
     mapping(address => bytes32) public pkX;
     mapping(address => bytes32) public pkY;
 
     event Registered(address indexed who, bytes32 pkX, bytes32 pkY);
 
     /// Register caller's pk. One-shot per address (immutable after first call).
+    /// (0, 0) is reserved as the unregistered sentinel and is rejected.
     function register(bytes32 _pkX, bytes32 _pkY) external {
+        if (_pkX == bytes32(0) && _pkY == bytes32(0)) revert InvalidPk();
         if (pkX[msg.sender] != bytes32(0) || pkY[msg.sender] != bytes32(0)) {
             revert AlreadyRegistered();
         }

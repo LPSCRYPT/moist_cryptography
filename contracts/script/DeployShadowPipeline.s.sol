@@ -73,6 +73,11 @@ contract DeployShadowPipeline is Script {
         st.setFeatureNFT(fn);
         st.setYulSponge16(address(sponge16));
         st.setKeyRegistry(kr);
+        // Wire FN's KR too. Pre-audit deploy script omitted this; FeatureNFT
+        // has its own KR pointer separate from ShadowToken's, so without this
+        // line `FeatureNFT.transferFeature` would silently skip recipient-pk
+        // enforcement (M-01 in /audit/). Both calls are one-shot.
+        fn.setKeyRegistry(kr);
 
         // ---- 4. Verifiers (deploy + one-shot wire) ----
         IVerifier mintV = IVerifier(address(new MintShadowVerifier()));

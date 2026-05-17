@@ -304,6 +304,22 @@ contract MintShadowE2ETest is Test {
         assertEq(sawSlotMutated, 8, "8 ShadowSlotMutated emitted (one per origin slot)");
     }
 
+    /// Audit M-03: pre-fix, `ShadowToken.shadowIdOf` returned a domain-
+    /// separated keccak that did NOT match `mintShadow`'s formula
+    /// (`uint256(imageCommit) % FR_MOD`). Indexers/scripts using shadowIdOf
+    /// to look up minted tokens got the wrong id. After the fix, the view
+    /// helper and the minted token id must agree byte-for-byte.
+    function test_shadowIdOf_matches_mintShadow_derivation() public {
+        _registerImage();
+        ShadowToken.MintShadowArgs memory args = _buildArgs();
+        vm.prank(alice);
+        uint256 minted = st.mintShadow(args);
+        assertEq(minted, st.shadowIdOf(imageCommit), "shadowIdOf == minted id");
+        // And the formula matches what mintShadow uses internally.
+        uint256 FR_MOD = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
+        assertEq(minted, uint256(imageCommit) % FR_MOD, "= imageCommit % FR_MOD");
+    }
+
     function test_mintShadow_reverts_when_image_not_registered() public {
         // No _registerImage() call. mintShadow MUST refuse.
         ShadowToken.MintShadowArgs memory args = _buildArgs();
