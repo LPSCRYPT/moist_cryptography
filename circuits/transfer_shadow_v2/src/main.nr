@@ -90,6 +90,17 @@ fn kdf(role: Field, shared_x: Field, shared_y: Field) -> Field {
     out[0]
 }
 
+// ---- ECIES well-formedness (audit M-06) ----
+//
+// Assert (x, y) lies on Grumpkin (y^2 = x^3 - 17 in Field arithmetic,
+// which is mod P). Rejects (0, 0) since 0 != -17 mod P, so identity-
+// at-infinity coordinates cannot pass. recipient_pk is checked once
+// at the top of main; prev_owner_pk is on-curve by construction via
+// prev_owner_sk * G == prev_owner_pk.
+fn assert_on_grumpkin(x: Field, y: Field) {
+    assert(y * y == x * x * x - 17);
+}
+
 fn sponge_6(a: Field, b: Field, c: Field, d: Field, e: Field, f: Field) -> Field {
     let mut s: [Field; 4] = [0, 0, 0, 0];
     s[0] = s[0] + a;
@@ -168,6 +179,9 @@ fn main(
         y: recipient_pk_y,
         is_infinite: false,
     };
+    // M-06: recipient_pk arrives as PI from the contract; assert on-curve
+    // so the per-slot MSM operates on a real Grumpkin point.
+    assert_on_grumpkin(recipient_pk_x, recipient_pk_y);
 
     // ---- 2. per-slot ----
     let mut new_lsh: [Field; 16] = [0; 16];
@@ -206,6 +220,12 @@ fn main(
         }
         let prev_ct_commit_recomputed = sponge_39(prev_ct);
         assert(occ * (prev_ct_commit_recomputed - prev_ct_commit[i]) == 0);
+
+        // M-06: r != 0 rejects the degenerate (c1 = O, shared = O) envelope.
+        // Unconditional across all 16 slots; the fixture builder must supply
+        // a nonzero placeholder for empty slots (the computed work is masked
+        // out by `occ * ...` below anyway).
+        assert(new_r[i] != 0);
 
         // 2d. new ECIES envelope to recipient.
         let r_scalar = EmbeddedCurveScalar::from_field(new_r[i]);

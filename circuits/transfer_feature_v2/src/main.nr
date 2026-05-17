@@ -66,6 +66,18 @@ fn kdf(role: Field, shared_x: Field, shared_y: Field) -> Field {
     out[0]
 }
 
+// ---- ECIES well-formedness (audit M-06) ----
+//
+// Assert (x, y) lies on Grumpkin (y^2 = x^3 - 17 in Field arithmetic,
+// which is mod P). Rejects (0, 0) since 0 != -17 mod P, so identity-
+// at-infinity coordinates cannot pass. Both next_pk (PI) and old_c1
+// (witness, bound to old_lsh via sponge_6) are consumed as MSM inputs
+// below; both must be on-curve before MSM produces a well-defined
+// shared point.
+fn assert_on_grumpkin(x: Field, y: Field) {
+    assert(y * y == x * x * x - 17);
+}
+
 // poseidon2_sponge over a fixed 6-element tuple. Used both for
 // liveStateHash assembly and for chain-tip extension. Matches the v2
 // schema:
@@ -142,6 +154,12 @@ fn main(
     );
     assert(lsh_old_recomputed == old_lsh);
 
+    // M-06: both old_c1 (witness, just sponge-bound above) and next_pk
+    // (PI from contract) feed multi_scalar_mul below; assert on-curve so
+    // MSM operates on real Grumpkin points. r != 0 asserted at section 5.
+    assert_on_grumpkin(old_c1_x, old_c1_y);
+    assert_on_grumpkin(next_pk_x, next_pk_y);
+
     // ---- 2. plaintext commitment binding ----
     assert(sponge_39(plaintext) == old_state_commit);
 
@@ -174,6 +192,8 @@ fn main(
     assert(old_k == k_old_derived);
 
     // ---- 5. recipient envelope binding ----
+    // M-06: r != 0 rejects the degenerate (c1 = O, shared = O) envelope.
+    assert(new_r != 0);
     let r_scalar = EmbeddedCurveScalar::from_field(new_r);
     let new_c1 = fixed_base_scalar_mul(r_scalar);
     let next_pk_pt = EmbeddedCurvePoint {

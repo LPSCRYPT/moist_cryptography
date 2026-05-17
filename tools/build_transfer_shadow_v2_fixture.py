@@ -98,7 +98,10 @@ def build_witness(seed: bytes, n_occupied: int) -> dict:
     prev_chain_tip = [0] * 16
     prev_k_arr = [0] * 16
     new_k_arr = [0] * 16
-    new_r_arr = [0] * 16
+    # M-06: every slot's new_r must be nonzero (the circuit asserts
+    # `new_r[i] != 0` unconditionally, even for empty slots whose ECIES
+    # output is masked by occ=0). 1 is a cheap nonzero placeholder.
+    new_r_arr = [1] * 16
     prev_lsh_arr = [0] * 16
 
     # Per-slot post-rotation values (chain-side, contract reconstructs).

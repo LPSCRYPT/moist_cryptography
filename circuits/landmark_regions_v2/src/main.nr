@@ -125,6 +125,17 @@ fn kdf(role: Field, shared_x: Field, shared_y: Field) -> Field {
     out[0]
 }
 
+// ---- ECIES well-formedness (audit M-06) ----
+//
+// Assert (x, y) lies on Grumpkin (y^2 = x^3 - 17 in Field arithmetic,
+// which is mod P). Rejects (0, 0) automatically since 0 != -17 mod P,
+// so identity-at-infinity coordinates cannot pass. Without this check,
+// `multi_scalar_mul([owner_pk], [r])` will operate on attacker-supplied
+// coordinates and produce a shared point under the attacker's control.
+fn assert_on_grumpkin(x: Field, y: Field) {
+    assert(y * y == x * x * x - 17);
+}
+
 // 4-element absorb: 1 rate-3 block + 1-element partial absorb + sentinel.
 // Used for chain_tip[i] = sponge_4(MINT_TAG, origin_face_id, pk_x, pk_y).
 // Distinct shape from sponge_6 (mutate/transfer LSH) so transcripts
@@ -218,6 +229,9 @@ fn main(
         y: owner_pk_y,
         is_infinite: false,
     };
+    // M-06: owner_pk arrives as PI from the contract; assert on-curve so
+    // the MSM below operates on a real Grumpkin point.
+    assert_on_grumpkin(owner_pk_x, owner_pk_y);
 
     // ---- 2. per-slot ----
     let mut lsh_inits:  [Field; 8] = [0; 8];
@@ -227,6 +241,11 @@ fn main(
     for i in 0..N_MINT_SLOTS {
         // 2a. plaintext -> state_commit
         let state_commit_i = sponge_39(plaintexts[i]);
+
+        // M-06: r != 0 rejects the degenerate (c1 = O, shared = O) envelope
+        // that collapses k to kdf(role, 0, 0) -- a deterministic, attacker-
+        // known key independent of owner_pk.
+        assert(new_r[i] != 0);
 
         // 2b. ECIES envelope: c1 = G * r; shared = owner_pk * r
         let r_scalar = EmbeddedCurveScalar::from_field(new_r[i]);

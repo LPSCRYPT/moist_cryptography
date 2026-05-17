@@ -119,6 +119,18 @@ fn kdf(role: Field, shared_x: Field, shared_y: Field) -> Field {
     out[0]
 }
 
+// ---- ECIES well-formedness (audit M-06) ----
+//
+// Assert (x, y) lies on Grumpkin (y^2 = x^3 - 17 in Field arithmetic,
+// which is mod P). Rejects (0, 0) automatically since 0 != -17 mod P,
+// so identity-at-infinity coordinates cannot pass. owner_pk is bound
+// on-curve by construction below via owner_sk * G == owner_pk; the
+// witness `old_c1` is checked here so M-05's owner_sk * old_c1 bind
+// operates on a real Grumpkin point.
+fn assert_on_grumpkin(x: Field, y: Field) {
+    assert(y * y == x * x * x - 17);
+}
+
 // poseidon2_sponge over a fixed 6-element tuple; matches the
 // liveStateHash schema:
 //   liveStateHash = sponge_6(stateCommit, ctCommit, c1X, c1Y, count, chainTip).
@@ -313,8 +325,10 @@ fn main(
     let derived_pk = fixed_base_scalar_mul(sk_scalar);
     assert(derived_pk.x == owner_pk_x);
     assert(derived_pk.y == owner_pk_y);
-    let _ = old_c1_x;
-    let _ = old_c1_y;
+    // M-06: old_c1 is witnessed -- bound to chain via old_live_state_hash
+    // sponge above, but the sponge accepts any field. Assert on-curve so
+    // any future EC use (M-05) operates on a real Grumpkin point.
+    assert_on_grumpkin(old_c1_x, old_c1_y);
 
     // ---- 5. new plaintext well-formedness ----
     assert_pose_byte_dims(new_plaintext, w_new as u32, h_new as u32);
@@ -331,6 +345,8 @@ fn main(
 
     // ---- 7. fresh ECIES ephemeral c1 + ECDH binding ----
     // The new c1 is computed from new_r * G (fixed-base scalar mul).
+    // M-06: r != 0 rejects the degenerate (c1 = O, shared = O) envelope.
+    assert(new_r != 0);
     let r_scalar = EmbeddedCurveScalar::from_field(new_r);
     let new_c1 = fixed_base_scalar_mul(r_scalar);
 
