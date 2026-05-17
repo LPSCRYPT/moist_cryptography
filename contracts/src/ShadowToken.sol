@@ -105,6 +105,8 @@ contract ShadowToken is ERC721, PausableMixin {
     address public immutable yulSponge;
     address public yulSponge16;
     bool private _yulSponge16Locked;
+    address public yulHash2;
+    bool private _yulHash2Locked;
 
     KeyRegistry public keyRegistry;
     bool private _keyRegistryLocked;
@@ -204,6 +206,7 @@ contract ShadowToken is ERC721, PausableMixin {
     event KeyRegistrySet(KeyRegistry r);
     event FeatureNFTSet(IFeatureNFT f);
     event YulSponge16Set(address indexed addr);
+    event YulHash2Set(address indexed addr);
 
     // ============== errors ==============
 
@@ -234,6 +237,16 @@ contract ShadowToken is ERC721, PausableMixin {
     error FeatureAlreadyInserted(uint256 featureId);
     error TransferGated();
     error NotImplementedYet();
+
+    /// Audit H-05: emitted when a caller-supplied `originFaceIds[i]`
+    /// at `mintShadow` does not match the canonical derivation
+    /// `poseidon2_hash_2(imageCommit, i)`.
+    error OriginFaceIdMismatch(uint8 slotIdx, bytes32 expected, bytes32 supplied);
+
+    /// Audit H-01/H-02: emitted when emitted ciphertext / plaintext
+    /// bytes do not match the proof-bound digest (`sponge_39`).
+    error CiphertextDigestMismatch(bytes32 expected, bytes32 supplied);
+    error PlaintextDigestMismatch(uint8 slotIdx, bytes32 expected, bytes32 supplied);
 
     // ============== ctor ==============
 
@@ -267,6 +280,20 @@ contract ShadowToken is ERC721, PausableMixin {
         yulSponge16 = addr;
         _yulSponge16Locked = true;
         emit YulSponge16Set(addr);
+    }
+
+    /// One-shot setter for the Poseidon2 hash_2 Yul wrapper. Used to
+    /// (a) derive `origin_face_id_i = poseidon2_hash_2(imageCommit, i)`
+    /// on chain so `mintShadow` no longer trusts caller-supplied
+    /// `args.originFaceIds[i]` (audit H-05), and (b) back the public
+    /// `originFaceIdOf` view with the same Yul code path so the read
+    /// matches what `_mintOneAtom` stores.
+    function setYulHash2(address addr) external {
+        if (msg.sender != deployer) revert NotDeployer();
+        if (_yulHash2Locked) revert VerifierAlreadySet();
+        yulHash2 = addr;
+        _yulHash2Locked = true;
+        emit YulHash2Set(addr);
     }
 
     /// One-shot lock + write for any verifier slot. Slot ids match the
@@ -363,6 +390,7 @@ contract ShadowToken is ERC721, PausableMixin {
         if (address(mintShadowVerifier) == address(0)) revert VerifierNotSet();
         if (yulSponge == address(0)) revert VerifierNotSet();
         if (yulSponge16 == address(0)) revert VerifierNotSet();
+        if (yulHash2 == address(0)) revert VerifierNotSet();
         if (args.c2s.length != N_MINT_ATOMS) revert BadArrayLen(args.c2s.length, N_MINT_ATOMS);
         _validateMintC2Lengths(args.c2s);
 
@@ -493,7 +521,20 @@ contract ShadowToken is ERC721, PausableMixin {
         ManifestEntry[16] storage manifest,
         uint256 i
     ) internal {
+        // Bind args.originFaceIds[i] to the canonical derivation
+        // origin_face_id_i = poseidon2_hash_2(imageCommit, i)
+        // computed inside `landmark_regions_v2`. Audit H-05: pre-fix the
+        // contract trusted the caller's value and only bound it
+        // transitively through chain_tip[i] = sponge_4(MINT_TAG,
+        // originFaceId, pk.x, pk.y); a tampered originFaceId still
+        // satisfied PI[6] = sponge_8_pad16(chain_tips) because the
+        // chain_tip absorbed the lie. Direct check via Yul hash_2 closes
+        // the gap and also lets `originFaceIdOf(image,i)` honestly recompute.
         bytes32 originFaceId = args.originFaceIds[i];
+        bytes32 expectedFaceId = _hash2(args.imageCommit, bytes32(i));
+        if (expectedFaceId != originFaceId) {
+            revert OriginFaceIdMismatch(uint8(i), expectedFaceId, originFaceId);
+        }
         uint256 featureId = fn.mintAtShadowMint(
             shadowId,
             uint8(i),
@@ -1382,11 +1423,16 @@ contract ShadowToken is ERC721, PausableMixin {
         return uint256(imageCommit) % FR_MOD;
     }
 
-    /// Mint-time convention: originFaceId = poseidon2(imageCommit, slotIdx).
-    /// Open Q6 option (b). The pure-keccak fallback is used here only as a
-    /// placeholder until the actual Yul Poseidon2 circuit input is wired.
-    function originFaceIdOf(bytes32 imageCommit, uint8 slotIdx) public pure returns (bytes32) {
-        return keccak256(abi.encode("OMP_ORIGIN_FACE_ID_v2", imageCommit, slotIdx));
+    /// Canonical mint-time derivation:
+    ///   originFaceId_i = poseidon2_hash_2(imageCommit, i).
+    ///
+    /// Pre-audit (H-05) this returned a keccak placeholder that did not
+    /// match anything the circuit produced or the contract stored. Now
+    /// backed by the same `yulHash2` STATICCALL that `_mintOneAtom` uses
+    /// to bind `args.originFaceIds[i]`, so a successful mint guarantees:
+    ///   manifest[i].originFaceId == originFaceIdOf(imageCommit, i).
+    function originFaceIdOf(bytes32 imageCommit, uint8 slotIdx) public view returns (bytes32) {
+        return _hash2(imageCommit, bytes32(uint256(slotIdx)));
     }
 
     /// Solved? Convenience accessor.
@@ -1443,6 +1489,26 @@ contract ShadowToken is ERC721, PausableMixin {
             let mptr := mload(0x40)
             calldatacopy(mptr, data.offset, len)
             let ok := staticcall(gas(), y, mptr, len, 0, 32)
+            if iszero(ok) {
+                returndatacopy(0, 0, returndatasize())
+                revert(0, returndatasize())
+            }
+            digest := mload(0)
+        }
+    }
+
+    /// Yul Poseidon2 `hash_2(a, b)` = `permute([a,b,0,0])[0]`. Used to
+    /// bind `args.originFaceIds[i]` to the canonical circuit-side
+    /// derivation `poseidon2_hash_2(imageCommit, i)` (audit H-05).
+    /// Reverts if `yulHash2` is unset or the staticcall fails.
+    function _hash2(bytes32 a, bytes32 b) internal view returns (bytes32 digest) {
+        address y = yulHash2;
+        if (y == address(0)) revert VerifierNotSet();
+        assembly ("memory-safe") {
+            let mptr := mload(0x40)
+            mstore(mptr,        a)
+            mstore(add(mptr,32), b)
+            let ok := staticcall(gas(), y, mptr, 64, 0, 32)
             if iszero(ok) {
                 returndatacopy(0, 0, returndatasize())
                 revert(0, returndatasize())

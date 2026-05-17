@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {Script, console} from "forge-std/Script.sol";
 import {Poseidon2YulSponge}   from "../src/Poseidon2YulSponge.sol";
 import {Poseidon2YulSponge16} from "../src/Poseidon2YulSponge16.sol";
+import {Poseidon2YulHash2}    from "../src/Poseidon2YulHash2.sol";
 
 import {IVerifier}    from "../src/IVerifier.sol";
 import {KeyRegistry}  from "../src/KeyRegistry.sol";
@@ -56,8 +57,10 @@ contract DeployShadowPipeline is Script {
         // ---- 1. Yul sponges ----
         Poseidon2YulSponge   sponge   = new Poseidon2YulSponge();
         Poseidon2YulSponge16 sponge16 = new Poseidon2YulSponge16();
+        Poseidon2YulHash2    hash2    = new Poseidon2YulHash2();
         console.log("Poseidon2YulSponge   :", address(sponge));
         console.log("Poseidon2YulSponge16 :", address(sponge16));
+        console.log("Poseidon2YulHash2    :", address(hash2));
 
         // ---- 2. KeyRegistry ----
         KeyRegistry kr = new KeyRegistry();
@@ -72,6 +75,7 @@ contract DeployShadowPipeline is Script {
 
         st.setFeatureNFT(fn);
         st.setYulSponge16(address(sponge16));
+        st.setYulHash2(address(hash2));
         st.setKeyRegistry(kr);
         // Wire FN's KR too. Pre-audit deploy script omitted this; FeatureNFT
         // has its own KR pointer separate from ShadowToken's, so without this

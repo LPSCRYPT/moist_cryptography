@@ -12,6 +12,7 @@ import {FaceDiscVerifier} from "../src/FaceDiscVerifier.sol";
 import {T10ShadowVerifier} from "../src/T10ShadowVerifier.sol";
 import {Poseidon2YulSponge} from "../src/Poseidon2YulSponge.sol";
 import {Poseidon2YulSponge16} from "../src/Poseidon2YulSponge16.sol";
+import {Poseidon2YulHash2} from "../src/Poseidon2YulHash2.sol";
 import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 
 /// @notice Real-proof e2e test for `ShadowToken.registerImage` + `mintShadow`.
@@ -42,6 +43,7 @@ contract MintShadowE2ETest is Test {
     T10ShadowVerifier      internal vT10;
     Poseidon2YulSponge     internal sponge;
     Poseidon2YulSponge16   internal sponge16;
+    Poseidon2YulHash2      internal hash2;
     KeyRegistry            internal kr;
 
     string internal constant FIX = "./test/fixtures/atomic_mint/atomic_mint_demo";
@@ -78,10 +80,12 @@ contract MintShadowE2ETest is Test {
     function setUp() public {
         sponge = new Poseidon2YulSponge();
         sponge16 = new Poseidon2YulSponge16();
+        hash2 = new Poseidon2YulHash2();
         st = new TestableShadowToken(address(sponge));
         fn = new TestableFeatureNFT(address(st));
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         st.setYulSponge16(address(sponge16));
+        st.setYulHash2(address(hash2));
 
         vMint = new MintShadowVerifier();
         vDisc = new FaceDiscVerifier();
@@ -362,6 +366,45 @@ contract MintShadowE2ETest is Test {
         st.mintShadow(args);
     }
 
+    /// Audit H-05 negative: caller-supplied `originFaceIds[i]` must equal
+    /// `poseidon2_hash_2(imageCommit, i)` (canonical circuit derivation).
+    /// Pre-fix the contract trusted the caller; now the contract recomputes
+    /// the expected face id via the Poseidon2 hash_2 Yul wrapper and
+    /// reverts on mismatch BEFORE invoking the verifier.
+    function test_mintShadow_reverts_when_originFaceIds_tampered() public {
+        _registerImage();
+        ShadowToken.MintShadowArgs memory args = _buildArgs();
+        bytes32 supplied = bytes32(uint256(args.originFaceIds[3]) ^ 1);
+        bytes32 expected = args.originFaceIds[3];
+        args.originFaceIds[3] = supplied;
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ShadowToken.OriginFaceIdMismatch.selector,
+                uint8(3),
+                expected,
+                supplied
+            )
+        );
+        st.mintShadow(args);
+    }
+
+    /// Audit H-05 positive: the `originFaceIdOf` view must agree byte-for-byte
+    /// with what `_mintOneAtom` stored. Pre-fix it returned a keccak
+    /// placeholder that matched nothing the circuit produced.
+    function test_originFaceIdOf_matches_minted_carrier() public {
+        _registerImage();
+        ShadowToken.MintShadowArgs memory args = _buildArgs();
+        vm.prank(alice);
+        uint256 sid = st.mintShadow(args);
+        for (uint8 i = 0; i < 8; i++) {
+            ShadowToken.ManifestEntry memory m = st.slotOf(sid, i);
+            bytes32 fnOfi = fn.originFaceIdOf(m.featureId);
+            bytes32 stOfi = st.originFaceIdOf(imageCommit, i);
+            assertEq(fnOfi, stOfi, "FN.originFaceIdOf(fid) == ST.originFaceIdOf(image, i)");
+            assertEq(stOfi, args.originFaceIds[i], "derived matches fixture");
+        }
+    }
     function test_mintShadow_c2_tamper_does_not_revert() public {
         _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
