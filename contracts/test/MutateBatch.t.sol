@@ -268,17 +268,25 @@ contract MutateBatchE2ETest is Test {
         assertEq(st.slotOf(shadowId, slotBIdx).liveStateHash, piB[6], "slot B unchanged");
     }
 
-    /// v2-gas: c2 calldata is ADVISORY. Tampering with one entry's c2 does
-    /// not revert; chain state advances to the proof-bound new_lsh values.
-    /// Off-chain consumers detect the corrupt c2 via decrypt failure.
-    function test_mutateBatch_c2_tamper_does_not_revert_chain_lshes_correct() public {
+    /// Envelope-binding cutover (audit H-02): tampering one entry's c2
+    /// MUST revert. Pre-cutover, the per-entry c2 was advisory and chain
+    /// state advanced regardless of c2 content. The whole batch now aborts
+    /// atomically on the first byte-level c2 mismatch and the chain stays
+    /// at its pre-batch state.
+    function test_mutateBatch_reverts_when_entry_c2_tampered() public {
         ShadowToken.MutateBatchArgs memory args = _buildArgs();
+        // Snapshot pre-state so we can prove revert was atomic.
+        bytes32 lshABefore = st.slotOf(shadowId, slotAIdx).liveStateHash;
+        bytes32 lshBBefore = st.slotOf(shadowId, slotBIdx).liveStateHash;
+
         args.entries[0].c2[7] = bytes1(uint8(args.entries[0].c2[7]) ^ 0x80);
         vm.prank(alice);
+        vm.expectRevert();
         st.mutateBatch(args);
-        // Both slots advanced to the witnessed new_lsh values.
-        assertEq(st.slotOf(shadowId, slotAIdx).liveStateHash, piA[7], "slot A: lsh = witness new_lsh");
-        assertEq(st.slotOf(shadowId, slotBIdx).liveStateHash, piB[7], "slot B: lsh = witness new_lsh");
+
+        // Both slots stayed at their pre-batch lsh: tx rolled back.
+        assertEq(st.slotOf(shadowId, slotAIdx).liveStateHash, lshABefore, "slot A unchanged");
+        assertEq(st.slotOf(shadowId, slotBIdx).liveStateHash, lshBBefore, "slot B unchanged");
     }
 
     function test_mutateBatch_reverts_when_t10_proof_tampered() public {

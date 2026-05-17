@@ -869,7 +869,11 @@ contract ShadowToken is ERC721, PausableMixin {
         }));
         _verifyOrRevert(mutateSlotVerifier, e.proofMutate, piMut);
 
-        // c2 calldata is ADVISORY (see security note on mutateSlot).
+        // Envelope-binding cutover (audit H-02): bind emitted c2 to
+        // proof-bound newCtCommit. Whole batch aborts atomically on the
+        // first mismatch (BadC2Length check above already rejected
+        // length-tampered c2; this catches content-tampered c2).
+        _assertCtCommitBinding(e.c2, e.newCtCommit);
 
         // Apply state: write new LSH; manifest's other fields
         // (kind/featureId) are unchanged by mutation.
