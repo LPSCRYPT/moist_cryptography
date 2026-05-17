@@ -185,6 +185,7 @@ def build_witness(seed: bytes, n_occupied: int) -> dict:
     prev_lsh_root = sponge_16(prev_lsh_arr)
     new_lsh_root = sponge_16(new_lsh_arr)
     new_chain_tips_root = sponge_16(new_chain_tip_arr)
+    new_ct_commits_root = sponge_16(new_ct_commit_arr)
 
     return {
         # PI
@@ -196,6 +197,7 @@ def build_witness(seed: bytes, n_occupied: int) -> dict:
         "prev_owner_pk_x": prev_owner_pk[0],
         "prev_owner_pk_y": prev_owner_pk[1],
         "new_chain_tips_root": new_chain_tips_root,
+        "new_ct_commits_root": new_ct_commits_root,
 
         # witness arrays
         "prev_lsh": prev_lsh_arr,
@@ -236,6 +238,7 @@ def write_prover_toml(w: dict) -> None:
         f"prev_owner_pk_x = {fhex(w['prev_owner_pk_x'])}",
         f"prev_owner_pk_y = {fhex(w['prev_owner_pk_y'])}",
         f"new_chain_tips_root = {fhex(w['new_chain_tips_root'])}",
+        f"new_ct_commits_root = {fhex(w['new_ct_commits_root'])}",
 
         render_array("prev_lsh", w["prev_lsh"]),
         render_array("is_occupied", w["is_occupied"]),
@@ -259,6 +262,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", default="transfer_demo")
     ap.add_argument("--n-occupied", type=int, default=4)
+    ap.add_argument("--rebuild-verifier", action="store_true",
+                    help="after prove+verify, regenerate contracts/src/TransferShadowVerifier.sol")
     ap.add_argument("--no-prove", action="store_true")
     args = ap.parse_args()
 
@@ -299,6 +304,20 @@ def main() -> None:
          "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=300)
     print("[ok] proof verified")
 
+    if args.rebuild_verifier:
+        print("[8b/9] bb write_solidity_verifier")
+        verifier_tmp = target_dir / "TransferShadowVerifier.tmp.sol"
+        run([BB, "write_solidity_verifier",
+             "-k", str(target_dir / "vk"),
+             "-o", str(verifier_tmp),
+             "--verifier_target", "evm"], CIRCUIT_DIR, timeout=300)
+        verifier_dst = ROOT / "contracts" / "src" / "TransferShadowVerifier.sol"
+        text = verifier_tmp.read_text().replace(
+            "contract HonkVerifier", "contract TransferShadowVerifier")
+        verifier_dst.write_text(text)
+        verifier_tmp.unlink()
+        print(f"  wrote {verifier_dst}")
+
     # Save fixture for forge tests.
     fix_dir = FIXTURE_DIR / args.seed
     fix_dir.mkdir(parents=True, exist_ok=True)
@@ -324,6 +343,7 @@ def main() -> None:
         "prev_owner_pk_x": bx32(w["prev_owner_pk_x"]),
         "prev_owner_pk_y": bx32(w["prev_owner_pk_y"]),
         "new_chain_tips_root": bx32(w["new_chain_tips_root"]),
+        "new_ct_commits_root": bx32(w["new_ct_commits_root"]),
 
         # per-slot pre-rotation chain state (contract seeds these for the test)
         "prev_lsh": [bx32(v) for v in w["prev_lsh"]],

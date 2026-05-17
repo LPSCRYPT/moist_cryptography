@@ -16,15 +16,20 @@
 // The proof additionally binds the *current* (pre-transfer) owner: prover
 // supplies prev_owner_sk, derived prev_owner_pk_x/y matches PI.
 //
-// PI compaction (8 fields):
+// PI compaction (9 fields):
 //   PI[0]  shadow_id
 //   PI[1]  recipient_pk_x
 //   PI[2]  recipient_pk_y
-//   PI[3]  prev_lsh_root      = sponge_16(prev_lsh[16])
-//   PI[4]  new_lsh_root       = sponge_16(new_lsh[16])
+//   PI[3]  prev_lsh_root         = sponge_16(prev_lsh[16])
+//   PI[4]  new_lsh_root          = sponge_16(new_lsh[16])
 //   PI[5]  prev_owner_pk_x
 //   PI[6]  prev_owner_pk_y
-//   PI[7]  new_chain_tips_root = sponge_16(new_chain_tip[16])  // for indexer
+//   PI[7]  new_chain_tips_root   = sponge_16(new_chain_tip[16])
+//   PI[8]  new_ct_commits_root   = sponge_16(new_ct_commit[16]) (audit H-02:
+//                                  contract recomputes sponge_39 per occupied
+//                                  slot and asserts equality with the
+//                                  caller-supplied newCtCommits, which is
+//                                  itself sponge_16-bound to this PI)
 //
 // The contract reconstructs prev_lsh_root from chain manifest, supplies
 // per-slot calldata (new_lsh, new_c1_x, new_c1_y, new_ct_commit,
@@ -113,15 +118,16 @@ fn sponge_16(e: [Field; 16]) -> Field {
 // ---- main ----
 
 fn main(
-    // public inputs (8)
-    shadow_id:           pub Field,
-    recipient_pk_x:      pub Field,
-    recipient_pk_y:      pub Field,
-    prev_lsh_root:       pub Field,
-    new_lsh_root:        pub Field,
-    prev_owner_pk_x:     pub Field,
-    prev_owner_pk_y:     pub Field,
-    new_chain_tips_root: pub Field,
+    // public inputs (9)
+    shadow_id:             pub Field,
+    recipient_pk_x:        pub Field,
+    recipient_pk_y:        pub Field,
+    prev_lsh_root:         pub Field,
+    new_lsh_root:          pub Field,
+    prev_owner_pk_x:       pub Field,
+    prev_owner_pk_y:       pub Field,
+    new_chain_tips_root:   pub Field,
+    new_ct_commits_root:   pub Field,
 
     // ---- per-slot witness (private) ----
     prev_lsh:            [Field; 16],
@@ -158,6 +164,7 @@ fn main(
     // ---- 2. per-slot ----
     let mut new_lsh: [Field; 16] = [0; 16];
     let mut new_chain_tips: [Field; 16] = [0; 16];
+    let mut new_ct_commits: [Field; 16] = [0; 16];
 
     for i in 0..N_SLOTS {
         // is_occupied is boolean
@@ -230,10 +237,12 @@ fn main(
         );
         new_lsh[i] = occ * computed_new_lsh;
         new_chain_tips[i] = occ * new_chain_tip_local;
+        new_ct_commits[i] = occ * new_ct_commit_local;
     }
 
     // ---- 3. hash-roots bind the per-slot arrays into single PI fields ----
     assert(sponge_16(prev_lsh) == prev_lsh_root);
     assert(sponge_16(new_lsh) == new_lsh_root);
     assert(sponge_16(new_chain_tips) == new_chain_tips_root);
+    assert(sponge_16(new_ct_commits) == new_ct_commits_root);
 }
