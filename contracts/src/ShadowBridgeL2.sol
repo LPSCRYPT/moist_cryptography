@@ -70,11 +70,21 @@ contract ShadowBridgeL2 {
     }
 
     /// Bridge a SOLVED shadow from L2 to L1.
+    /// `l1Recipient` is the address that owns the L1 mirror after delivery;
+    /// MUST be non-zero. Pre-audit, the L1 mirror was always minted to the
+    /// L2 caller (msg.sender), which broke contract-wallet flows where the
+    /// L2 caller has no controller on L1 (audit M-08). Callers that want
+    /// the prior behaviour pass msg.sender explicitly.
     /// `revealedPi` is the serialized solve PI bytes; its exact length
     /// is determined by the v2 solve circuit and validated off-chain
     /// by the L1 indexer.
-    function bridgeShadow(uint256 shadowId, bytes calldata revealedPi) external {
+    function bridgeShadow(
+        uint256 shadowId,
+        address l1Recipient,
+        bytes calldata revealedPi
+    ) external {
         if (l1Mirror == address(0)) revert L1MirrorNotSet();
+        if (l1Recipient == address(0)) revert ZeroAddress();
         if (shadowToken.ownerOf(shadowId) != msg.sender) revert NotShadowOwner();
         if (!shadowToken.isSolved(shadowId)) revert NotSolved();
         if (revealedPi.length == 0 || revealedPi.length % 32 != 0) revert BadRevealedPi();
@@ -84,7 +94,7 @@ contract ShadowBridgeL2 {
 
         ShadowMirrorL1.BridgePayload memory p;
         p.shadowId = shadowId;
-        p.recipient = msg.sender;
+        p.recipient = l1Recipient;
         p.ecdhPubX = s.ecdhPubX;
         p.ecdhPubY = s.ecdhPubY;
         p.t10Hi = shadowToken.shadowT10(shadowId, 0);

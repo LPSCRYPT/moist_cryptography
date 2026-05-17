@@ -110,7 +110,7 @@ contract BridgeShadowTest is Test {
 
         vm.recordLogs();
         vm.prank(alice);
-        bridge.bridgeShadow(shadowId, pi);
+        bridge.bridgeShadow(shadowId, alice, pi);
 
         // Post: ownership transferred to bridge.
         assertEq(st.ownerOf(shadowId), address(bridge), "bridge custody");
@@ -149,13 +149,13 @@ contract BridgeShadowTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(ShadowBridgeL2.NotSolved.selector);
-        bridge.bridgeShadow(freshId, _revealedPi());
+        bridge.bridgeShadow(freshId, alice, _revealedPi());
     }
 
     function test_bridgeShadow_reverts_when_not_owner() public {
         vm.prank(mallory);
         vm.expectRevert(ShadowBridgeL2.NotShadowOwner.selector);
-        bridge.bridgeShadow(shadowId, _revealedPi());
+        bridge.bridgeShadow(shadowId, mallory, _revealedPi());
     }
 
     function test_bridgeShadow_reverts_when_l1_mirror_unset() public {
@@ -166,7 +166,7 @@ contract BridgeShadowTest is Test {
         );
         vm.prank(alice);
         vm.expectRevert(ShadowBridgeL2.L1MirrorNotSet.selector);
-        freshBridge.bridgeShadow(shadowId, _revealedPi());
+        freshBridge.bridgeShadow(shadowId, alice, _revealedPi());
     }
 
     function test_bridgeShadow_reverts_on_bad_revealed_pi_length() public {
@@ -174,14 +174,14 @@ contract BridgeShadowTest is Test {
         bytes memory pi = new bytes(33);   // 1 odd byte
         vm.prank(alice);
         vm.expectRevert(ShadowBridgeL2.BadRevealedPi.selector);
-        bridge.bridgeShadow(shadowId, pi);
+        bridge.bridgeShadow(shadowId, alice, pi);
     }
 
     function test_bridgeShadow_reverts_on_zero_length_revealed_pi() public {
         bytes memory pi = new bytes(0);
         vm.prank(alice);
         vm.expectRevert(ShadowBridgeL2.BadRevealedPi.selector);
-        bridge.bridgeShadow(shadowId, pi);
+        bridge.bridgeShadow(shadowId, alice, pi);
     }
 
     /// Gas regression: bridgeShadow does an ERC-721 transferFrom (custody to
@@ -195,7 +195,7 @@ contract BridgeShadowTest is Test {
         st.approve(address(bridge), shadowId);
         vm.prank(alice);
         uint256 gasBefore = gasleft();
-        bridge.bridgeShadow(shadowId, pi);
+        bridge.bridgeShadow(shadowId, alice, pi);
         uint256 used = gasBefore - gasleft();
         assertLt(used, 1_000_000, "bridgeShadow gas regressed past 1M");
     }

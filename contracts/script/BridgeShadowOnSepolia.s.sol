@@ -28,6 +28,9 @@ contract BridgeShadowOnSepolia is Script {
         address brAddr  = vm.envAddress("L2_BRIDGE");
         uint256 shadowId = uint256(vm.envBytes32("SHADOW_ID"));
         bytes memory revealedPi = vm.readFileBinary(vm.envString("PI_PATH"));
+        // L1 mirror recipient. Falls back to msg.sender if not set, which
+        // preserves pre-audit behaviour for EOA-controlled flows.
+        address l1Recipient = vm.envOr("L1_RECIPIENT", msg.sender);
 
         require(revealedPi.length > 0 && revealedPi.length % 32 == 0,
             "revealedPi must be non-empty + multiple of 32");
@@ -54,7 +57,7 @@ contract BridgeShadowOnSepolia is Script {
             console.log("approved bridge for shadow");
         }
 
-        br.bridgeShadow(shadowId, revealedPi);
+        br.bridgeShadow(shadowId, l1Recipient, revealedPi);
 
         vm.stopBroadcast();
 

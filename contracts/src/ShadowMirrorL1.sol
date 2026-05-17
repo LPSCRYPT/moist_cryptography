@@ -124,14 +124,30 @@ contract ShadowMirrorL1 is ERC721 {
     }
 
     /// Round-trip: burn L1 mirror, send unbridge message back to L2.
-    /// Only the current owner may initiate.
+    /// Only the current owner may initiate. `l2Recipient` MUST be non-zero
+    /// because `ShadowBridgeL2.unbridgeShadow` does a normal ERC-721
+    /// `transferFrom(bridge, l2Recipient, shadowId)` which reverts for
+    /// `to == address(0)` -- the burn would otherwise complete but the L2
+    /// transfer would revert, stranding the L2 token in bridge custody
+    /// with no L1 owner left to retry (audit M-07).
+    ///
+    /// Clearing `mintedFromBridge[shadowId]` is the round-trip fix per
+    /// audit H-06: pre-fix, the flag was set-once and never cleared, so a
+    /// legitimate re-bridge after a successful round-trip would call
+    /// `mintFromBridge` again, get AlreadyMinted, and lock the L2 token
+    /// in `ShadowBridgeL2` permanently. Per-message replay protection is
+    /// provided by the OP-Stack messenger itself (each sendMessage gets
+    /// a unique message hash and the relay-side dedup catches duplicates).
     function burnAndUnbridge(uint256 shadowId, address l2Recipient) external {
         if (l2Bridge == address(0)) revert L2BridgeNotSet();
+        if (l2Recipient == address(0)) revert ZeroAddress();
         if (ownerOf(shadowId) != msg.sender) revert NotMirrorOwner();
 
         _burn(shadowId);
         delete _mirrors[shadowId];
         delete _revealedPi[shadowId];
+        // Allow a future bridgeShadow cycle to re-mint the L1 mirror.
+        mintedFromBridge[shadowId] = false;
 
         bytes memory message = abi.encodeWithSignature(
             "unbridgeShadow(uint256,address)",

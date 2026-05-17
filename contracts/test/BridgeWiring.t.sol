@@ -273,6 +273,81 @@ contract BridgeWiringTest is Test {
         br.unbridgeShadow(sid, alice);
     }
 
+    // ============== audit M-07: burnAndUnbridge zero-recipient guard ==============
+
+    /// Audit M-07: pre-fix, ShadowMirrorL1.burnAndUnbridge accepted
+    /// l2Recipient == address(0). The burn would land, then the L2 side
+    /// would revert in ERC-721 transferFrom(_, address(0), _), stranding
+    /// the L2 token in bridge custody with no L1 owner left to retry.
+    /// Now MUST revert before any state change.
+    function test_burnAndUnbridge_reverts_when_l2Recipient_is_zero() public {
+        (ShadowMirrorL1 mirror, ShadowBridgeL2 br, ) = _wiredPair();
+        StubMessenger(L1_MESSENGER).setXSender(address(br));
+        uint256 sid = uint256(0xACE2);
+        ShadowMirrorL1.BridgePayload memory p = _payload(sid, alice);
+        vm.prank(L1_MESSENGER);
+        mirror.mintFromBridge(p);
+        // owner attempts to unbridge to zero
+        vm.prank(alice);
+        vm.expectRevert(ShadowMirrorL1.ZeroAddress.selector);
+        mirror.burnAndUnbridge(sid, address(0));
+        // mirror state preserved (no partial burn)
+        assertEq(mirror.ownerOf(sid), alice, "alice still owns mirror");
+        assertTrue(mirror.mintedFromBridge(sid), "marker still set");
+    }
+
+    // ============== audit M-08: bridgeShadow requires non-zero L1 recipient ==============
+
+    /// Audit M-08: pre-fix, bridgeShadow always minted the L1 mirror to
+    /// msg.sender (the L2 caller). Contract wallets / multisigs whose L2
+    /// address has no L1 controller produce an unreachable mirror. The
+    /// caller now passes l1Recipient explicitly; address(0) is rejected.
+    function test_bridgeShadow_reverts_when_l1Recipient_is_zero() public {
+        (, ShadowBridgeL2 br, ) = _wiredPair();
+        // We don't actually need a solved shadow; the zero check fires first.
+        // But we do need l1Mirror set (it is, via _wiredPair) and a non-empty PI
+        // so we don't trip BadRevealedPi.
+        bytes memory pi = new bytes(32);
+        vm.prank(alice);
+        vm.expectRevert(ShadowBridgeL2.ZeroAddress.selector);
+        br.bridgeShadow(uint256(0xDEAD), address(0), pi);
+    }
+
+    // ============== audit H-06: round-trip + re-bridge does not strand L2 ==============
+
+    /// Audit H-06: pre-fix, ShadowMirrorL1.mintedFromBridge was set-once and
+    /// never cleared. The first round-trip (mint -> burnAndUnbridge ->
+    /// unbridgeShadow) succeeded, but the SECOND bridgeShadow on the same
+    /// shadow would call mintFromBridge again, hit AlreadyMinted, and lock
+    /// the L2 token forever in ShadowBridgeL2's custody. burnAndUnbridge
+    /// now clears the marker so a future cycle can mint the mirror fresh.
+    function test_round_trip_bridgeShadow_then_rebridge_does_not_strand() public {
+        (ShadowMirrorL1 mirror, ShadowBridgeL2 br, ) = _wiredPair();
+        StubMessenger(L1_MESSENGER).setXSender(address(br));
+        uint256 sid = uint256(0xC0FFEE01);
+
+        // ---- Cycle 1: mint L1 mirror ----
+        ShadowMirrorL1.BridgePayload memory p = _payload(sid, alice);
+        vm.prank(L1_MESSENGER);
+        mirror.mintFromBridge(p);
+        assertEq(mirror.ownerOf(sid), alice, "cycle 1 mint");
+        assertTrue(mirror.mintedFromBridge(sid), "marker set after cycle 1");
+
+        // ---- Round-trip: alice burns + unbridges ----
+        vm.prank(alice);
+        mirror.burnAndUnbridge(sid, alice);
+        assertFalse(mirror.mintedFromBridge(sid), "marker CLEARED on burnAndUnbridge");
+
+        // ---- Cycle 2: same shadowId re-bridges and re-mints L1 mirror ----
+        // (The L2 side's bridge state is not modeled here -- we just verify
+        //  that the L1 contract no longer rejects with AlreadyMinted.)
+        ShadowMirrorL1.BridgePayload memory p2 = _payload(sid, mallory);
+        vm.prank(L1_MESSENGER);
+        mirror.mintFromBridge(p2);
+        assertEq(mirror.ownerOf(sid), mallory, "cycle 2 mint to new recipient");
+        assertTrue(mirror.mintedFromBridge(sid), "marker set after cycle 2");
+    }
+
     // ============== helpers ==============
 
     function _freshL2Bridge() internal returns (ShadowBridgeL2 br) {

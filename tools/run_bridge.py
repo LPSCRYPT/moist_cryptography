@@ -259,8 +259,8 @@ def main() -> int:
     assert len(revealed_pi_bytes) == 261 * 32, f"expected 261*32 bytes, got {len(revealed_pi_bytes)}"
 
     bridge_rcpt = cast_send(
-        [bridge_addr, "bridgeShadow(uint256,bytes)",
-         str(sid), "0x" + revealed_pi_bytes.hex()],
+        [bridge_addr, "bridgeShadow(uint256,address,bytes)",
+         str(sid), owner, "0x" + revealed_pi_bytes.hex()],
         L2_RPC, owner_sk, gas_limit=2_000_000,
     )
     bridge_tx = bridge_rcpt.get("transactionHash")
