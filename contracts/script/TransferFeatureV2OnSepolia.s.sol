@@ -8,7 +8,7 @@ import {FeatureNFT} from "../src/FeatureNFT.sol";
 /// FeatureNFT, using a fixture produced by
 /// `tools/build_transfer_feature_v2_fixture.py`.
 ///
-/// PI layout (8 fields, frozen by FeatureNFT.transferFeature):
+/// PI layout (9 fields, frozen by FeatureNFT.transferFeature):
 ///   PI[0] feature_id        — keccak-derived per-carrier id
 ///   PI[1] next_pk_x         — recipient pubkey x (must match KeyRegistry)
 ///   PI[2] next_pk_y         — recipient pubkey y
@@ -17,6 +17,7 @@ import {FeatureNFT} from "../src/FeatureNFT.sol";
 ///   PI[5] palette_commit    — must equal `f.paletteCommit`
 ///   PI[6] type_idx          — must equal `f.typeIdx`
 ///   PI[7] origin_face_id    — must equal `f.originFaceId`
+///   PI[8] new_ct_commit     — contract recomputes sponge_39(c2) and asserts ==
 ///
 /// Idempotency: skip if `_ownerOf(featureId)` is already the recipient.
 ///
@@ -30,7 +31,8 @@ import {FeatureNFT} from "../src/FeatureNFT.sol";
 contract TransferFeatureV2OnSepolia is Script {
     using stdJson for string;
 
-    uint256 internal constant TRANSFER_FEATURE_PI_LEN = 8;
+    uint256 internal constant TRANSFER_FEATURE_PI_LEN = 9;
+    uint256 internal constant TRANSFER_FEATURE_C2_BYTES = 39 * 32;
 
     function run() external {
         address fnAddr = vm.envAddress("FN_ADDRESS");
@@ -75,8 +77,11 @@ contract TransferFeatureV2OnSepolia is Script {
         console.logBytes32(expNewLsh);
         console.log("  ^ new_lsh (post-tx)");
 
+        bytes memory c2 = vm.readFileBinary(string.concat(fix, "/c2.bin"));
+        require(c2.length == TRANSFER_FEATURE_C2_BYTES, "c2 length mismatch");
+
         vm.startBroadcast();
-        fn.transferFeature(featureId, recipient, proof, pi);
+        fn.transferFeature(featureId, recipient, proof, pi, c2);
         vm.stopBroadcast();
 
         // Post-broadcast verification.

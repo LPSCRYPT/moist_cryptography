@@ -374,18 +374,14 @@ contract MintShadowE2ETest is Test {
     function test_mintShadow_reverts_when_originFaceIds_tampered() public {
         _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
-        bytes32 supplied = bytes32(uint256(args.originFaceIds[3]) ^ 1);
-        bytes32 expected = args.originFaceIds[3];
-        args.originFaceIds[3] = supplied;
+        args.originFaceIds[3] = bytes32(uint256(args.originFaceIds[3]) ^ 1);
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ShadowToken.OriginFaceIdMismatch.selector,
-                uint8(3),
-                expected,
-                supplied
-            )
-        );
+        // EIP-170 budget consolidation: H-05 originFaceId mismatch reverts
+        // with the existing `InvalidProof` selector rather than a dedicated
+        // error. The contract has STATICCALL'd Poseidon2YulHash2 already, so
+        // the revert IS the proof-bound check firing -- the loss is only the
+        // error name's diagnostic payload, not the soundness guarantee.
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
         st.mintShadow(args);
     }
 

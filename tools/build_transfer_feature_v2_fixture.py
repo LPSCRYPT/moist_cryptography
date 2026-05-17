@@ -161,7 +161,7 @@ def build_transfer_witness(seed: bytes, slot_idx: int, image_commit: int,
     assert k_old_check == old_k, "owner_sk does not recover old_k from old_c1"
 
     return {
-        # PI (8)
+        # PI (9) -- post envelope-binding cutover (audit H-02 PI[8])
         "feature_id":      mint["feature_id"],
         "next_pk_x":       recipient_pk[0],
         "next_pk_y":       recipient_pk[1],
@@ -170,6 +170,7 @@ def build_transfer_witness(seed: bytes, slot_idx: int, image_commit: int,
         "palette_commit":  mint["palette_commit"],
         "type_idx":        mint["type_idx"],
         "origin_face_id":  mint["origin_face_id"],
+        "new_ct_commit_pi": new_ct_commit,
 
         # witness
         "plaintext":         old_plaintext,
@@ -214,7 +215,8 @@ def write_prover_toml(w: dict, out: Path) -> None:
         f'new_lsh        = {fhex(w["new_lsh"])}',
         f'palette_commit = {fhex(w["palette_commit"])}',
         f'type_idx       = {fhex(w["type_idx"])}',
-        f'origin_face_id = {fhex(w["origin_face_id"])}',
+        f'origin_face_id   = {fhex(w["origin_face_id"])}',
+        f'new_ct_commit_pi = {fhex(w["new_ct_commit_pi"])}',
         # witness
         render_array("plaintext", w["plaintext"]),
         f'old_state_commit = {fhex(w["old_state_commit"])}',
@@ -267,6 +269,8 @@ def main() -> None:
     ap.add_argument("--out-seed", default="transfer_feature_v2_a_slot0")
     ap.add_argument("--no-prove", action="store_true",
                     help="just write witness JSON; skip nargo execute / bb prove")
+    ap.add_argument("--rebuild-verifier", action="store_true",
+                    help="after prove+verify, regenerate contracts/src/TransferFeatureV2Verifier.sol")
     args = ap.parse_args()
 
     seed = args.mint_seed.encode()
@@ -345,6 +349,20 @@ def main() -> None:
          "--scheme", "ultra_honk",
          "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=300)
     print("  bb verify: ok")
+
+    if args.rebuild_verifier:
+        print("[5b/6] bb write_solidity_verifier")
+        verifier_tmp = target_dir / "TransferFeatureV2Verifier.tmp.sol"
+        run([BB, "write_solidity_verifier",
+             "-k", str(target_dir / "vk"),
+             "-o", str(verifier_tmp),
+             "--verifier_target", "evm"], CIRCUIT_DIR, timeout=300)
+        verifier_dst = ROOT / "contracts" / "src" / "TransferFeatureV2Verifier.sol"
+        text = verifier_tmp.read_text().replace(
+            "contract HonkVerifier", "contract TransferFeatureV2Verifier")
+        verifier_dst.write_text(text)
+        verifier_tmp.unlink()
+        print(f"  wrote {verifier_dst}")
 
     print(f"[6/6] save fixture artifacts")
     (fix_dir / "proof.bin").write_bytes(proof_path.read_bytes())

@@ -4,7 +4,7 @@
 //
 // Spec: STAGING_REFACTOR/2026-04-27_transfer_feature_v2_design.md
 //
-// Public inputs (8 Fields, frozen by FeatureNFT.transferFeature):
+// Public inputs (9 Fields, frozen by FeatureNFT.transferFeature):
 //   PI[0]   feature_id         (transcript-only here; chain checks storage)
 //   PI[1]   next_pk_x          (recipient pubkey x)
 //   PI[2]   next_pk_y          (recipient pubkey y)
@@ -13,6 +13,10 @@
 //   PI[5]   palette_commit     (transcript-only; chain immutability check)
 //   PI[6]   type_idx           (chain-tip salt + transcript)
 //   PI[7]   origin_face_id     (chain-tip salt + transcript)
+//   PI[8]   new_ct_commit      (audit H-02: contract recomputes sponge_39(c2)
+//                              and asserts equality with this PI so the
+//                              emitted ciphertext is proof-bound at the byte
+//                              level, not just transitively via new_lsh)
 //
 // Witness (private):
 //   plaintext[39]              (unchanged through rotation)
@@ -90,15 +94,16 @@ fn keystream_39(k: Field) -> [Field; 39] {
 // ---- main ----
 
 fn main(
-    // public inputs (8) -- order matches FeatureNFT PI[0..8]
-    feature_id:      pub Field,
-    next_pk_x:       pub Field,
-    next_pk_y:       pub Field,
-    old_lsh:         pub Field,
-    new_lsh:         pub Field,
-    palette_commit:  pub Field,
-    type_idx:        pub Field,
-    origin_face_id:  pub Field,
+    // public inputs (9) -- order matches FeatureNFT PI[0..9]
+    feature_id:        pub Field,
+    next_pk_x:         pub Field,
+    next_pk_y:         pub Field,
+    old_lsh:           pub Field,
+    new_lsh:           pub Field,
+    palette_commit:    pub Field,
+    type_idx:          pub Field,
+    origin_face_id:    pub Field,
+    new_ct_commit_pi:  pub Field,
 
     // witness
     plaintext:        [Field; 39],
@@ -181,6 +186,11 @@ fn main(
     }
     let new_state_commit = sponge_39(plaintext); // == old_state_commit
     let new_ct_commit    = sponge_39(new_ct);
+    // Bind the public new_ct_commit to the witness sponge (audit H-02).
+    // The contract recomputes sponge_39(c2) over emitted bytes and
+    // asserts equality with PI[8]; this assert closes the circuit-side
+    // half of that binding.
+    assert(new_ct_commit == new_ct_commit_pi);
 
     // ---- 7. counter advance ----
     let new_count = old_count + 1;

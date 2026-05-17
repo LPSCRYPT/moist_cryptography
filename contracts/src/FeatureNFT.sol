@@ -6,6 +6,7 @@ import {IVerifier} from "./IVerifier.sol";
 import {IFeatureNFT} from "./IFeatureNFT.sol";
 import {KeyRegistry} from "./KeyRegistry.sol";
 import {PausableMixin} from "./PausableMixin.sol";
+import {IShadowToken} from "./IShadowToken.sol";
 
 /**
  * @title  FeatureNFT (v2 carrier)
@@ -72,7 +73,19 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     /// PI[5]    paletteCommit                 (asserted unchanged)
     /// PI[6]    typeIdx                       (asserted unchanged)
     /// PI[7]    originFaceId                  (asserted unchanged)
-    uint256 public constant TRANSFER_FEATURE_PI_LEN = 8;
+    /// transfer_feature_v2 proof PI layout (9 fields, audit envelope-binding):
+    ///   PI[0]    featureId
+    ///   PI[1,2]  next_pk_x, next_pk_y
+    ///   PI[3]    old_liveStateHashCheckpoint
+    ///   PI[4]    new_liveStateHashCheckpoint
+    ///   PI[5]    paletteCommit
+    ///   PI[6]    typeIdx
+    ///   PI[7]    originFaceId
+    ///   PI[8]    new_ct_commit (audit H-02; recomputed from c2 calldata)
+    uint256 public constant TRANSFER_FEATURE_PI_LEN = 9;
+    /// Per-slot plaintext length in bytes (39 Fr Fields). Used to size the
+    /// c2 calldata in `transferFeature`.
+    uint256 internal constant TRANSFER_FEATURE_C2_BYTES = 39 * 32;
 
 
     /// bn254 Fr field modulus. featureId is reduced mod FR_MOD so PI[0]
@@ -154,10 +167,14 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         uint256 indexed newHostShadowId,
         uint8   indexed newHostSlotIdx
     );
+    /// Emitted on a successful `transferFeature`. `c2` is the new ECIES
+    /// ciphertext under the recipient's pubkey; recipient decrypts off
+    /// chain. Bound to the proof via PI[8] = sponge_39(c2) (audit H-02).
     event FeatureTransferred(
         uint256 indexed featureId,
         address indexed to,
-        bytes32 newLiveStateHashCheckpoint
+        bytes32 newLiveStateHashCheckpoint,
+        bytes   c2
     );
     event FeatureInsertedOwnerRotated(
         uint256 indexed featureId,
@@ -192,6 +209,8 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     error TransferToZeroAddress();
     error KeyRegistryNotSet();
     error RecipientNotRegistered(address recipient);
+    error BadC2Length(uint256 got, uint256 want);
+    error CiphertextDigestMismatch(bytes32 expected, bytes32 supplied);
 
     // ============== ctor ==============
 
@@ -342,13 +361,15 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         uint256 featureId,
         address to,
         bytes calldata proof,
-        bytes32[] calldata pi
+        bytes32[] calldata pi,
+        bytes calldata c2
     ) external whenNotPaused {
         if (to == address(0)) revert TransferToZeroAddress();
         if (_ownerOf(featureId) != msg.sender) revert NotFeatureOwner();
         Feature storage f = _features[featureId];
         if (f.isInserted) revert CustodyLocked(featureId);
         if (pi.length != TRANSFER_FEATURE_PI_LEN) revert BadPILen(pi.length, TRANSFER_FEATURE_PI_LEN);
+        if (c2.length != TRANSFER_FEATURE_C2_BYTES) revert BadC2Length(c2.length, TRANSFER_FEATURE_C2_BYTES);
 
         IVerifier v = transferFeatureVerifier;
         if (address(v) == address(0)) revert VerifierNotSet();
@@ -361,6 +382,18 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         if (pi[7] != f.originFaceId) revert InvalidProof();
         _requirePkMatches(to, pi[1], pi[2]);
 
+        // Envelope-binding cutover (audit H-02): bind emitted c2 to the
+        // proof-bound new_ct_commit (PI[8]). The transfer_feature_v2 circuit
+        // exposes sponge_39(c2) = new_ct_commit as PI[8]; the contract
+        // recomputes the same sponge over emitted bytes via ShadowToken's
+        // Yul wrapper and asserts equality before invoking the verifier.
+        {
+            address yul = IShadowToken(shadowToken).yulSponge();
+            if (yul == address(0)) revert VerifierNotSet();
+            bytes32 c2Digest = _sponge39Via(yul, c2);
+            if (c2Digest != pi[8]) revert CiphertextDigestMismatch(pi[8], c2Digest);
+        }
+
         try v.verify(proof, pi) returns (bool ok) {
             if (!ok) revert InvalidProof();
         } catch {
@@ -368,9 +401,27 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         }
 
         f.liveStateHashCheckpoint = pi[4];
-        emit FeatureTransferred(featureId, to, pi[4]);
+        emit FeatureTransferred(featureId, to, pi[4], c2);
 
         _update(to, featureId, address(0));
+    }
+
+    /// STATICCALL the Yul Poseidon2 sponge_39 wrapper at `yul` over `c2`
+    /// calldata. Mirrors `ShadowToken._sponge` byte-for-byte; duplicated
+    /// here because FN keeps its own minimal interface to ShadowToken
+    /// and cannot reuse internals.
+    function _sponge39Via(address yul, bytes calldata data) internal view returns (bytes32 digest) {
+        uint256 len = data.length;
+        assembly ("memory-safe") {
+            let mptr := mload(0x40)
+            calldatacopy(mptr, data.offset, len)
+            let ok := staticcall(gas(), yul, mptr, len, 0, 32)
+            if iszero(ok) {
+                returndatacopy(0, 0, returndatasize())
+                revert(0, returndatasize())
+            }
+            digest := mload(0)
+        }
     }
 
     // ============== revealPaletteAtSolve (privileged: ShadowToken-only) ==============

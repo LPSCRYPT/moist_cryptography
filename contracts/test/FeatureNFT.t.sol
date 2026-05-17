@@ -289,10 +289,11 @@ contract FeatureNFTv2Test is Test {
             owner
         );
         bytes memory proof = hex"";
-        bytes32[] memory pi = new bytes32[](8);
+        bytes32[] memory pi = new bytes32[](9);
+        bytes memory c2;
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(FeatureNFT.CustodyLocked.selector, fid));
-        fn.transferFeature(fid, stranger, proof, pi);
+        fn.transferFeature(fid, stranger, proof, pi, c2);
     }
 
     function test_transferFeature_revertsWhenNotOwner() public {
@@ -305,10 +306,11 @@ contract FeatureNFTv2Test is Test {
         fn.extractFromShadow(fid, SHADOW_A, 0, LSH_FINAL);
 
         bytes memory proof = hex"";
-        bytes32[] memory pi = new bytes32[](8);
+        bytes32[] memory pi = new bytes32[](9);
+        bytes memory c2;
         vm.prank(stranger);
         vm.expectRevert(FeatureNFT.NotFeatureOwner.selector);
-        fn.transferFeature(fid, stranger, proof, pi);
+        fn.transferFeature(fid, stranger, proof, pi, c2);
     }
 
     function test_transferFeature_revertsWhenVerifierUnset() public {
@@ -321,10 +323,11 @@ contract FeatureNFTv2Test is Test {
         fn.extractFromShadow(fid, SHADOW_A, 0, LSH_FINAL);
 
         bytes memory proof = hex"";
-        bytes32[] memory pi = new bytes32[](8);
+        bytes32[] memory pi = new bytes32[](9);
+        bytes memory c2 = new bytes(39 * 32);
         vm.prank(owner);
         vm.expectRevert(FeatureNFT.VerifierNotSet.selector);
-        fn.transferFeature(fid, stranger, proof, pi);
+        fn.transferFeature(fid, stranger, proof, pi, c2);
     }
 
     function test_transferFeature_revertsBadPILen() public {
@@ -338,9 +341,10 @@ contract FeatureNFTv2Test is Test {
 
         bytes memory proof = hex"";
         bytes32[] memory pi = new bytes32[](7); // wrong length
+        bytes memory c2;
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(FeatureNFT.BadPILen.selector, 7, 8));
-        fn.transferFeature(fid, stranger, proof, pi);
+        vm.expectRevert(abi.encodeWithSelector(FeatureNFT.BadPILen.selector, 7, 9));
+        fn.transferFeature(fid, stranger, proof, pi, c2);
     }
 
     // ---- end-to-end lifecycle: mint -> extract -> insert different shadow ----

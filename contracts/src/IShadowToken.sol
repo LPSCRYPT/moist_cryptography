@@ -32,4 +32,8 @@ interface IShadowToken {
     function shadowOf(uint256 shadowId) external view returns (Shadow memory);
     function manifestOf(uint256 shadowId) external view returns (ManifestEntry[16] memory);
     function shadowT10(uint256 shadowId, uint256 i) external view returns (bytes32);
+    /// Address of the deployed `Poseidon2YulSponge` wrapper. FeatureNFT uses
+    /// this for byte-level c2 binding in `transferFeature` (audit H-02)
+    /// without keeping its own copy.
+    function yulSponge() external view returns (address);
 }

@@ -238,15 +238,12 @@ contract ShadowToken is ERC721, PausableMixin {
     error TransferGated();
     error NotImplementedYet();
 
-    /// Audit H-05: emitted when a caller-supplied `originFaceIds[i]`
-    /// at `mintShadow` does not match the canonical derivation
-    /// `poseidon2_hash_2(imageCommit, i)`.
-    error OriginFaceIdMismatch(uint8 slotIdx, bytes32 expected, bytes32 supplied);
-
-    /// Audit H-01/H-02: emitted when emitted ciphertext / plaintext
-    /// bytes do not match the proof-bound digest (`sponge_39`).
-    error CiphertextDigestMismatch(bytes32 expected, bytes32 supplied);
-    error PlaintextDigestMismatch(uint8 slotIdx, bytes32 expected, bytes32 supplied);
+    /// Envelope-binding cutover (audit H-01/H-02): emitted when an emitted
+    /// byte payload (c2 or solve plaintext) fails to recompute to its
+    /// proof-bound digest. Audit H-05 (originFaceId) reuses `InvalidProof`
+    /// since the bytecode budget under EIP-170 doesn't allow a third
+    /// dedicated error.
+    error DigestMismatch(bytes32 expected, bytes32 supplied);
 
     // ============== ctor ==============
 
@@ -532,9 +529,7 @@ contract ShadowToken is ERC721, PausableMixin {
         // the gap and also lets `originFaceIdOf(image,i)` honestly recompute.
         bytes32 originFaceId = args.originFaceIds[i];
         bytes32 expectedFaceId = _hash2(args.imageCommit, bytes32(i));
-        if (expectedFaceId != originFaceId) {
-            revert OriginFaceIdMismatch(uint8(i), expectedFaceId, originFaceId);
-        }
+        if (expectedFaceId != originFaceId) revert InvalidProof();
 
         // Bind emitted c2 to the proof-bound ctCommit (audit H-02).
         // The mint proof binds args.ctCommits[i] via PI[5] =
@@ -987,7 +982,7 @@ contract ShadowToken is ERC721, PausableMixin {
 
         // Envelope-binding cutover (audit H-02): bind emitted c2 to
         // proof-bound newCtCommit before any state change. Reverts with
-        // CiphertextDigestMismatch if sponge_39(args.c2) != args.newCtCommit.
+        // DigestMismatch if sponge_39(args.c2) != args.newCtCommit.
         _assertCtCommitBinding(args.c2, args.newCtCommit);
 
         // ---- 3. apply: slot OCCUPIED, carrier inserted ----
@@ -1345,11 +1340,11 @@ contract ShadowToken is ERC721, PausableMixin {
                     revert BadC2Length(args.plaintexts[i].length, MAX_PLAINTEXT_FIELDS_PER_SLOT * 32);
                 }
                 // Bind emitted plaintext bytes to the proof-bound stateCommit
-                // (audit H-01). Reverts with PlaintextDigestMismatch before
+                // (audit H-01). Reverts with DigestMismatch before
                 // any reveal event fires.
                 bytes32 ptDigest = bytes32(_sponge(args.plaintexts[i]));
                 if (ptDigest != args.stateCommits[i]) {
-                    revert PlaintextDigestMismatch(uint8(i), args.stateCommits[i], ptDigest);
+                    revert DigestMismatch(args.stateCommits[i], ptDigest);
                 }
             } else {
                 if (args.plaintexts[i].length != 0) {
@@ -1543,12 +1538,12 @@ contract ShadowToken is ERC721, PausableMixin {
     }
 
     /// Bind `c2` calldata to the proof-bound `expected` sponge_39 digest.
-    /// Reverts with `CiphertextDigestMismatch` on disagreement. Factored
+    /// Reverts with `DigestMismatch` on disagreement. Factored
     /// out so call sites stay under the EVM stack-depth ceiling (the mint
     /// + insert + batch entry points already carry a lot of locals).
     function _assertCtCommitBinding(bytes calldata c2, bytes32 expected) internal view {
         bytes32 got = bytes32(_sponge(c2));
-        if (got != expected) revert CiphertextDigestMismatch(expected, got);
+        if (got != expected) revert DigestMismatch(expected, got);
     }
 
     // ============== verifier rotation slot ids ==============
