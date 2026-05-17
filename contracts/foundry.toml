@@ -11,3 +11,14 @@ remappings = [
   "forge-std/=../lib/forge-std/src/",
 ]
 fs_permissions = [{ access = "read", path = "./test/fixtures" }]
+
+# CI build profile: production contracts only, no test harnesses.
+# Used by the size gate (audit L-05). Pre-fix `forge build --sizes`
+# included TestableShadowToken (25,180 B) which exceeds EIP-170 even
+# though it never gets deployed to production. The CI size gate now
+# runs under this profile so a real production-size regression fails
+# the build, while test-only harnesses are allowed to exceed the cap.
+[profile.ci-sizes]
+src = "src"
+test = "src"  # exclude the test/ directory from compilation entirely
+script = "src"

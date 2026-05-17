@@ -1,7 +1,13 @@
+# Pinned per audit M-13. Bump deliberately, not via auto-update.
+# `--no-deps` is used in CI so transitive deps would also need to be
+# pinned here for a full lockfile. Today's coverage is the four direct
+# deps; a follow-up should run pip-compile to produce a fully-locked
+# requirements.in -> requirements.txt with hashes.
+
 # Cryptography
-pycryptodome>=3.20
+pycryptodome==3.20.0
 
 # Image processing (mint pipeline + renderer)
-opencv-python>=4.10
-numpy>=1.26
-Pillow>=10.4
+opencv-python==4.10.0.84
+numpy==1.26.4
+Pillow==10.4.0

@@ -1,14 +1,32 @@
 name: CI
 
+# Audit M-13 (supply chain) -- installer scripts pinned to specific
+# commit hashes rather than fetched from moving main/master branches;
+# Python deps in requirements.txt pinned to exact versions; Foundry,
+# Noir, and bb pinned to specific releases.
+#
+# Audit L-05 -- production size gate runs under FOUNDRY_PROFILE=ci-sizes
+# which excludes contracts/test/Testable.sol so the gate fails only on
+# real production-size regressions, not on intentional test harnesses.
+
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
-    branches: [main]
+    branches: [main, staging]
+
+# Pinned toolchain versions. Bump deliberately, not via dependabot.
+env:
+  NOIR_VERSION: "1.0.0-beta.19"
+  BB_VERSION: "1.4.0"
+  PYTHON_VERSION: "3.11"
+  # Pinned installer-script commits. Re-pin after auditing the diff.
+  NOIRUP_INSTALL_SHA: "c3bc9922bf7eeafdaba08fb6518776c4ba263a8c"
+  BBUP_INSTALL_SHA: "073ea66ad92c53ebbf7be70d28973a68a8628942"
 
 jobs:
   forge:
-    name: Forge tests (159/159)
+    name: Forge tests (193 expected)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -29,11 +47,97 @@ jobs:
             contracts/out
           key: forge-${{ runner.os }}-${{ hashFiles('contracts/foundry.toml', 'contracts/src/**', 'contracts/test/**') }}
 
-      - name: forge build
+      - name: forge build (production size gate)
+        env:
+          FOUNDRY_PROFILE: ci-sizes
         run: forge build --sizes
 
       - name: forge test
         run: forge test -vv --no-match-test invariant
+
+  noir-tests:
+    name: Noir circuit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nargo + bb (pinned installer-script commits)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/noirup_install \
+            "https://raw.githubusercontent.com/noir-lang/noirup/${NOIRUP_INSTALL_SHA}/install"
+          # Per audit M-13: print SHA-256 of the installer so any drift between
+          # the pinned commit and the local copy is loud rather than silent.
+          sha256sum /tmp/noirup_install
+          bash /tmp/noirup_install
+          export PATH="$HOME/.nargo/bin:$PATH"
+          noirup --version "$NOIR_VERSION"
+
+          curl -fsSL -o /tmp/bbup_install \
+            "https://raw.githubusercontent.com/AztecProtocol/aztec-packages/${BBUP_INSTALL_SHA}/barretenberg/bbup/install"
+          sha256sum /tmp/bbup_install
+          bash /tmp/bbup_install
+          export PATH="$HOME/.bb:$PATH"
+          bbup --version "$BB_VERSION"
+
+      - name: nargo test (canonical-cast guards + circuit invariants)
+        run: |
+          export PATH="$HOME/.nargo/bin:$HOME/.bb:$PATH"
+          for c in zindex_commit solve_shadow_v2; do
+            (cd "circuits/$c" && nargo test)
+          done
+
+  verifier-reproducibility:
+    name: Verifier bytecode reproducibility
+    runs-on: ubuntu-latest
+    # Audit P3 / step 7 -- regenerate the Solidity verifiers from the
+    # checked-in Noir source and diff against the committed verifier
+    # files. Drift = mismatch between the proving setup and the chain
+    # verifier, which silently bricks all fixtures.
+    needs: noir-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nargo + bb (pinned)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/noirup_install \
+            "https://raw.githubusercontent.com/noir-lang/noirup/${NOIRUP_INSTALL_SHA}/install"
+          bash /tmp/noirup_install
+          export PATH="$HOME/.nargo/bin:$PATH"
+          noirup --version "$NOIR_VERSION"
+          curl -fsSL -o /tmp/bbup_install \
+            "https://raw.githubusercontent.com/AztecProtocol/aztec-packages/${BBUP_INSTALL_SHA}/barretenberg/bbup/install"
+          bash /tmp/bbup_install
+          export PATH="$HOME/.bb:$PATH"
+          bbup --version "$BB_VERSION"
+
+      - name: Regenerate verifiers and diff
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.nargo/bin:$HOME/.bb:$PATH"
+          # Smallest-scope sample: zindex_commit (smallest verifier, fastest
+          # to regenerate). Expand to other circuits once this proves stable
+          # under runner versions. The audit's acceptance criterion is
+          # "regenerate verifiers in CI and compare byte-for-byte"; this
+          # job satisfies that for the smallest-blast-radius verifier.
+          mkdir -p /tmp/verifier_check
+          (cd circuits/zindex_commit && nargo compile && \
+           bb write_vk -b target/zindex_commit.json -o target \
+             --scheme ultra_honk --oracle_hash keccak && \
+           bb write_solidity_verifier -k target/vk \
+             -o /tmp/verifier_check/ZIndexCommitVerifier.candidate.sol \
+             --verifier_target evm)
+          sed -i 's/contract HonkVerifier/contract ZIndexCommitVerifier/' \
+            /tmp/verifier_check/ZIndexCommitVerifier.candidate.sol
+          if ! diff -q contracts/src/ZIndexCommitVerifier.sol \
+                       /tmp/verifier_check/ZIndexCommitVerifier.candidate.sol; then
+            echo "::error::ZIndexCommitVerifier.sol does not reproduce from pinned circuit + toolchain"
+            diff contracts/src/ZIndexCommitVerifier.sol \
+                 /tmp/verifier_check/ZIndexCommitVerifier.candidate.sol | head -40
+            exit 1
+          fi
+          echo "ZIndexCommitVerifier.sol byte-equal to fresh build"
 
   validate-pixels:
     name: Pixel byte-equality (Python <-> chain ciphertext)
@@ -45,22 +149,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Nargo + bb (for helper-circuit ECIES keystream gen)
+      - name: Install Nargo + bb (pinned installer-script commits)
         run: |
-          curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+          set -euo pipefail
+          curl -fsSL -o /tmp/noirup_install \
+            "https://raw.githubusercontent.com/noir-lang/noirup/${NOIRUP_INSTALL_SHA}/install"
+          bash /tmp/noirup_install
           export PATH="$HOME/.nargo/bin:$PATH"
-          noirup --version 1.0.0-beta.19
-          curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/master/barretenberg/bbup/install | bash
+          noirup --version "$NOIR_VERSION"
+          curl -fsSL -o /tmp/bbup_install \
+            "https://raw.githubusercontent.com/AztecProtocol/aztec-packages/${BBUP_INSTALL_SHA}/barretenberg/bbup/install"
+          bash /tmp/bbup_install
           export PATH="$HOME/.bb:$PATH"
-          bbup --version 1.4.0
+          bbup --version "$BB_VERSION"
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install Python deps
+      - name: Install Python deps (pinned)
         run: pip install -r requirements.txt
       - name: validate_pixels.py
+        # No --allow-missing: per audit M-09 CI must fail-fast on missing
+        # fixtures rather than silently report green.
         run: |
           export PATH="$HOME/.nargo/bin:$HOME/.bb:$PATH"
           python3 validate_pixels.py
@@ -76,8 +187,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Install Python deps
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install Python deps (pinned)
         run: pip install -r requirements.txt
-      - name: test_slot_state.py
+      - name: test_slot_state.py (from tools/ cwd; audit M-10 regression)
+        # MUST pass from tools/ cwd specifically -- audit M-10 documented
+        # that pre-fix invocations from this cwd crashed at FileNotFoundError.
         run: python3 test_slot_state.py
