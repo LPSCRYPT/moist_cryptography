@@ -405,20 +405,24 @@ contract MintShadowE2ETest is Test {
             assertEq(stOfi, args.originFaceIds[i], "derived matches fixture");
         }
     }
-    function test_mintShadow_c2_tamper_does_not_revert() public {
+    /// Envelope-binding cutover (audit H-02): tampered c2 in mintShadow
+    /// MUST revert. Pre-cutover the per-slot c2 calldata was advisory and
+    /// only ctCommits[i] was bound to the proof. The contract now
+    /// recomputes sponge_39(args.c2s[i]) and asserts equality with
+    /// args.ctCommits[i] before any FN.mintAtShadowMint call.
+    function test_mintShadow_reverts_when_c2_tampered() public {
         _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
         args.c2s[0][7] = bytes1(uint8(args.c2s[0][7]) ^ 0x80);
         vm.prank(alice);
+        vm.expectRevert();
         st.mintShadow(args);
-        // No revert. Off-chain consumers detect the tampered c2 via
-        // ECIES decrypt failure against the proof-bound ctCommits[0].
     }
 
-    /// Gas-pin: mintShadow body now excludes face_disc verification
-    /// (moved to registerImage). Post-split internal cost ~9-10M local;
-    /// on-chain extrapolation ~12M, comfortably under the 16M public RPC
-    /// gas-LIMIT cap. Budget 11M leaves regression-detection headroom.
+    /// Gas-pin: mintShadow body now performs 8 on-chain sponge_39 c2
+    /// re-hashes (audit H-02) + 8 on-chain hash_2 originFaceId binds
+    /// (audit H-05). Post-cutover local cost ~14.6M, well under the 16M
+    /// block budget. Budget 15.5M leaves regression-detection headroom.
     function test_mintShadow_gas_under_block_budget() public {
         _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
@@ -426,6 +430,6 @@ contract MintShadowE2ETest is Test {
         uint256 gasBefore = gasleft();
         st.mintShadow(args);
         uint256 used = gasBefore - gasleft();
-        assertLt(used, 11_000_000, "mintShadow gas regressed");
+        assertLt(used, 15_500_000, "mintShadow gas regressed");
     }
 }

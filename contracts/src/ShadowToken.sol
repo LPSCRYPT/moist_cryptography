@@ -535,6 +535,15 @@ contract ShadowToken is ERC721, PausableMixin {
         if (expectedFaceId != originFaceId) {
             revert OriginFaceIdMismatch(uint8(i), expectedFaceId, originFaceId);
         }
+
+        // Bind emitted c2 to the proof-bound ctCommit (audit H-02).
+        // The mint proof binds args.ctCommits[i] via PI[5] =
+        // sponge_8_pad16(ctCommits), but does NOT bind the emitted c2
+        // calldata. Recompute sponge_39 of args.c2s[i] and assert equality
+        // with args.ctCommits[i] BEFORE any state write or downstream
+        // FN.mintAtShadowMint call. Factored into a helper to keep this
+        // function's local-variable count under the EVM stack ceiling.
+        _assertCtCommitBinding(args.c2s[i], args.ctCommits[i]);
         uint256 featureId = fn.mintAtShadowMint(
             shadowId,
             uint8(i),
@@ -631,10 +640,7 @@ contract ShadowToken is ERC721, PausableMixin {
         // newCtCommit before applying state. Tampered c2 reverts before any
         // mutation lands, so every emitted byte is proof-bound at the
         // byte level.
-        bytes32 c2Digest = bytes32(_sponge(args.c2));
-        if (c2Digest != args.newCtCommit) {
-            revert CiphertextDigestMismatch(args.newCtCommit, c2Digest);
-        }
+        _assertCtCommitBinding(args.c2, args.newCtCommit);
 
         // ---- 3. apply state change ----
         bytes32 prevLSH = m.liveStateHash;
@@ -1516,6 +1522,15 @@ contract ShadowToken is ERC721, PausableMixin {
             }
             digest := mload(0)
         }
+    }
+
+    /// Bind `c2` calldata to the proof-bound `expected` sponge_39 digest.
+    /// Reverts with `CiphertextDigestMismatch` on disagreement. Factored
+    /// out so call sites stay under the EVM stack-depth ceiling (the mint
+    /// + insert + batch entry points already carry a lot of locals).
+    function _assertCtCommitBinding(bytes calldata c2, bytes32 expected) internal view {
+        bytes32 got = bytes32(_sponge(c2));
+        if (got != expected) revert CiphertextDigestMismatch(expected, got);
     }
 
     // ============== verifier rotation slot ids ==============
