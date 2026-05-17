@@ -36,9 +36,10 @@ verifier). Pipelines #3 and #4 preserved as historical references; see
     emits `FeaturePaletteRevealed(fid, commit, rgb_48b)` +
     `FeatureSlotRevealed(fid, shadowId, slotIdx, plaintext_1248b)`.
   * `ShadowToken.solve()` calls `revealPaletteAtSolve` per occupied slot,
-    then auto-extracts. Plaintext is advisory at the chain layer
-    (off-chain indexers verify `sponge_39(plaintext) == stateCommit`,
-    where `stateCommit` is bound by the proof's PI[1]).
+    then auto-extracts. As of pipeline #6 (envelope-binding cutover) the
+    contract recomputes `sponge_39(plaintexts[i]) == stateCommits[i]` for
+    every occupied slot before firing any reveal event, so the emitted
+    plaintext bytes are bound to the proof's PI[1] at the byte level.
   * Removed: `revealPalette()` standalone fn, `palette_reveal_v2`
     circuit + verifier, `setPaletteRevealVerifier`. Replaced by the
     on-chain Yul sponge_17 + per-slot reveal at solve.

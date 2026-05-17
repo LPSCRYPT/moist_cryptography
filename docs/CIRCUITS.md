@@ -178,8 +178,11 @@ pi[7]     prev_ct_commit        (sponge_42 of c2_feat -- must match chain)
 > emits the per-slot plaintext at solve time, in addition to revealing the
 > z-permutation. The chain-bound check uses on-chain Yul Poseidon2
 > (`Poseidon2YulSpongePaletteSalt::sponge_17`), no per-carrier ZK proof.
-> Plaintext is advisory at the chain layer; off-chain indexers verify via
-> `sponge_39(plaintext) == stateCommit`. See
+> As of pipeline #6 (envelope-binding cutover) the contract recomputes
+> `sponge_39(plaintexts[i]) == stateCommits[i]` for every occupied slot
+> before firing any reveal event, so the emitted plaintexts are bound to
+> the proof's PI[1] at the byte level. Tampering with the wire bytes
+> reverts the entire solve tx.
 > [`REVEAL_AT_SOLVE_DESIGN.md`](REVEAL_AT_SOLVE_DESIGN.md) for the full
 > design and [`DEPLOYMENT.md`](DEPLOYMENT.md) for live tx hashes on
 > pipeline #5. The historical text below describes the v1 solve circuit

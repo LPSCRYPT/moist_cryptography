@@ -346,12 +346,15 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes        proofMint;
         bytes32      imageCommit;
         bytes[]      c2s;                   // 8 entries; each MAX_PLAINTEXT_FIELDS_PER_SLOT * 32 bytes;
-                                            //   ADVISORY (emitted in events for indexers; NOT sponge-checked on chain)
+                                            //   per-slot envelope of the ECIES ciphertext. As of the
+                                            //   envelope-binding cutover the contract recomputes
+                                            //   sponge_39(c2s[i]) per slot and asserts equality with
+                                            //   ctCommits[i] BEFORE any state write, so the emitted
+                                            //   bytes are byte-bound to the proof.
         bytes32[8]   ctCommits;             // 8 entries; sponge_39(c2[i]) per slot, computed off-chain by prover.
                                             //   The contract sponge_8_pad16's these and feeds the result into the
-                                            //   mint proof's PI[5]. The proof binds the witness's actual c2 -> ctCommit,
-                                            //   so a lying caller can't satisfy the proof while passing tampered ctCommits.
-                                            //   The c2 calldata bytes are emitted as advisory data only (see comment on c2s).
+                                            //   mint proof's PI[5]. The contract also recomputes sponge_39(c2s[i])
+                                            //   on chain and asserts equality with ctCommits[i] (envelope binding).
         bytes32[8]   liveStateHashInits;    // 8 entries; sponge_8_pad16 -> lsh_inits_root (PI[4])
         bytes32[8]   chainTips;             // 8 entries; sponge_8_pad16 -> chain_tips_root (PI[6])
         bytes32[8]   paletteCommits;        // 8 entries; stored on each FeatureNFT (no proof binding)
@@ -1261,25 +1264,23 @@ contract ShadowToken is ERC721, PausableMixin {
     /// for the canonical NFT image: per-slot 16-color palette + salt
     /// (chain-bound via on-chain `Poseidon2YulSpongePaletteSalt` against
     /// each carrier's stored `paletteCommit`), and per-slot 39-field
-    /// plaintext (advisory; emitted in FeatureSlotRevealed events. Bound
-    /// transitively through the solve proof's PI[1] which sponges the
-    /// caller-supplied stateCommits, and through the chain-stored
-    /// liveStateHash; off-chain indexers verify by recomputing
-    /// sponge_39(plaintext) == stateCommit and sponge_6(stateCommit,
-    /// ctCommit, c1.x, c1.y, count, chainTip) == liveStateHash).
+    /// plaintext. As of the envelope-binding cutover the contract recomputes
+    /// `sponge_39(plaintexts[i]) == stateCommits[i]` for every occupied slot
+    /// before firing any reveal event, so the emitted plaintext bytes are
+    /// bound to the proof's PI[1] at the byte level. `stateCommits[i]` is
+    /// bound by PI[1] = `sponge_16(stateCommits)`; `liveStateHash` is bound
+    /// transitively as `sponge_6(stateCommit, ctCommit, c1.x, c1.y, count,
+    /// chainTip)`.
     ///
-    /// Why advisory plaintexts: a per-slot on-chain sponge_39 binding
-    /// would cost ~730k gas/slot (~11.7M for max occupancy), pushing
-    /// solve over the 16M soft RPC cap. The chain still STORES enough
-    /// to anchor the binding (paletteCommit + liveStateHash); indexers
-    /// trivially verify in Python (~10ms total).
+    /// Gas cost: per-slot sponge_39 costs ~700K via the Yul wrapper, so
+    /// max-occupancy solve (16 slots) consumes ~22M gas. Production must
+    /// keep occupancy <= 10 at solve time or migrate to a fused sponge_624
+    /// wrapper that amortises the staticcall overhead.
     struct SolveArgs {
         uint256 shadowId;
         bytes   proof;                 // solve_shadow_v2 proof
         bytes[16]            plaintexts;    // 39-field plaintext per slot (1248 B each); empty for EMPTY slots.
-                                            //   ADVISORY: emitted in FeatureSlotRevealed events; not on-chain bound.
-                                            //   Caller MUST pass plaintexts consistent with the proof witness or
-                                            //   downstream indexers will reject the emit during verification.
+                                            //   BYTE-BOUND on chain via `sponge_39(plaintexts[i]) == stateCommits[i]`.
         bytes32[16]          stateCommits;  // per-slot sponge_39(plaintext[i]) for OCCUPIED; 0 for EMPTY.
                                             //   Caller-supplied; PROOF binds these via PI[1] = sponge_16(stateCommits).
         bytes32[16][16]      palettes;      // per-slot 16 RGB-as-Field colors (low 24 bits used);
@@ -1372,8 +1373,8 @@ contract ShadowToken is ERC721, PausableMixin {
     /// Per-slot palette + plaintext reveal. Calls FeatureNFT for each
     /// occupied slot; FeatureNFT verifies the palette commitment opens via
     /// on-chain Poseidon2 sponge_17 (cheap, ~440k/slot) and emits
-    /// FeaturePaletteRevealed + FeatureSlotRevealed events. Plaintext is
-    /// advisory at the chain level (see _validatePlaintextLengths).
+    /// FeaturePaletteRevealed + FeatureSlotRevealed events. Plaintext bytes
+    /// are byte-bound to the proof via _validatePlaintextLengths above.
     function _revealOccupiedSlots(SolveArgs calldata args) internal {
         IFeatureNFT fn = featureNFT;
         ManifestEntry[16] storage manifest = _manifests[args.shadowId];

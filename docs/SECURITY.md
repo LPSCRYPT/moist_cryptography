@@ -1,13 +1,15 @@
 # Security
 
-This document describes the security model of the **pipeline #5
-contract set** currently deployed to Base Sepolia (canonical addresses
-in [`DEPLOYMENT.md`](DEPLOYMENT.md)).
+This document describes the security model of the **pipeline #6
+contract set** (envelope-binding cutover; canonical addresses in
+[`DEPLOYMENT.md`](DEPLOYMENT.md)). Pipeline #5 is the prior live deployment
+and remains functionally unchanged but does NOT carry the byte-level binding
+this document describes.
 
 This is the security posture as it actually behaves on chain today, not
 as originally specified. Where current behaviour is weaker than the
 project's design goal, this document says so explicitly under
-"Advisory-payload boundary" and "Known limitations". An external audit
+"Envelope binding" and "Known limitations". An external audit
 artefact lives in `/audit/` (local-only, gitignored) and informs the
 limitations list.
 
@@ -39,36 +41,36 @@ The system rests on three primitives:
 | Per-owner | `_ownerOf(shadowId) == msg.sender` for owner-gated entries (mutateSlot, mutateBatch, extractSlot, insertFeature, transferShadow, solve, bridgeShadow) | unauthorised callers |
 | Per-batch | atomic-T10: every state-changing op refreshes `shadowT10` in the same tx via a bundled `shadow_t10` proof bound to the post-write LSH array | stale public view between mutation and T10 refresh |
 
-## Advisory-payload boundary (current behaviour)
+## Envelope binding (post-cutover)
 
-Several chain-emitted payloads are **proof-bound at the commitment level
-but not at the byte level**. The contract verifies that a Poseidon2
-commitment (`stateCommit`, `ctCommit`, `paletteCommit`) is consistent
-with the proof, but does not recompute the commitment from the emitted
-bytes inside the transaction. This means:
+Every byte payload the contract emits on a state-changing op is
+**bound to the proof at the byte level**: the contract recomputes the
+byte digest in the same transaction and asserts equality with the
+proof-bound commitment, before any state write or event emission.
+Tampering with the wire bytes after proof generation reverts the entire
+tx; a partial state advance is impossible.
 
-- **`FeatureSlotRevealed` plaintexts emitted by `solve()` are advisory.**
-  The proof binds the per-slot `stateCommit`; the event-emitted
-  39-field plaintext is not re-hashed on chain. Off-chain consumers
-  MUST recompute `sponge_39(plaintext) == stateCommit` before
-  rendering or trusting a reveal.
-- **`c2` ciphertext bytes** emitted by mint / mutate / insert /
-  transferShadow are also advisory in the same way. The proof binds
-  `ctCommit = sponge_39(c2)`, but the emitted `c2` is not recomputed
-  on chain. Off-chain decryption tooling must verify
-  `sponge_39(c2) == ctCommit` before attempting decryption.
-- **`c1.x / c1.y`** are folded into the proof's `liveStateHash` but
-  are not emitted as standalone proof-bound fields on every operation.
-  Consumers that need the ECIES ephemeral pubkey to decrypt must
-  reconstruct it from the on-chain `liveStateHash` witness.
+| Op | Bound bytes | Binding mechanism |
+|---|---|---|
+| `mintShadow` | per-slot `c2s[i]` (ECIES envelope) | contract `sponge_39(c2s[i]) == ctCommits[i]` (proof PI[5]) |
+| `mintShadow` | per-slot `originFaceIds[i]` | contract `poseidon2_hash_2(imageCommit, i) == originFaceIds[i]` via Yul `hash_2` staticcall |
+| `mutateSlot` | `c2` envelope | contract `sponge_39(c2) == newCtCommit` |
+| `mutateBatch` | per-entry `c2` | per-entry contract `sponge_39(e.c2) == e.newCtCommit` |
+| `insertFeature` | `c2` | contract `sponge_39(c2) == newCtCommit` |
+| `transferShadow` | per-slot `c2s[i]` | contract `sponge_39(c2s[i]) == newCtCommits[i]`; per-slot `sponge_16` over `newCtCommits` matches new PI[8] |
+| `transferFeature` | `c2` | contract `sponge_39(c2) == new_ct_commit_pi` (PI[8]) |
+| `solve` | per-occupied-slot `plaintexts[i]` | contract `sponge_39(plaintexts[i]) == stateCommits[i]` (proof PI[1]) |
 
-This is documented in `DEPLOYMENT.md` ("Reveal architecture") and
-acknowledged in the local audit (High-01, High-02). A binding cutover —
-recomputing emitted-byte digests on chain, or publishing a fully
-proof-bound envelope structure — is on the remediation roadmap. Until
-then, every consumer that displays or decrypts a chain-published
-payload MUST treat it as untrusted sidecar data and verify it against
-the proof-bound commitment.
+Empty slots (transferShadow, solve) require zero-length `c2`/`plaintexts`
+and zero-valued commitments; the circuit zeros the unoccupied entries
+(`new_ct_commits[i] = occupied * v`) and the chain-side sponge over those
+arrays catches any tampering.
+
+The salt envelope (`saltCt`, `c1.x`, `c1.y` in `transferFeature` calldata)
+remains a wire-format sidecar emitted for the owner's benefit; it is
+not byte-bound on chain because it is non-confidential and the owner
+can reconstruct it locally. Consumers that need the ECIES ephemeral
+pubkey for decryption recover it from the `liveStateHash` witness.
 
 ## Pause + verifier rotation
 
@@ -125,72 +127,48 @@ files in CI. The pipeline-#4 baseline reported:
 
 A local code-and-cryptography audit (`/audit/`, gitignored) identified
 several High-severity findings not visible to Slither, primarily
-around the advisory-payload boundary described above, z-index Field
-canonicality, mint plaintext geometry validation, and bridge
-round-trip custody. See "Known limitations" below.
+around z-index Field canonicality, mint plaintext geometry validation,
+and bridge round-trip custody. See "Known limitations" below.
 
 ## Known limitations
 
-1. **FeatureNFT's KeyRegistry pointer is unwired on the deployed
-   contract set.** `DeployShadowPipeline.s.sol` calls
-   `st.setKeyRegistry(kr)` but does not call `fn.setKeyRegistry(kr)`,
-   so `FeatureNFT.keyRegistry == address(0)`. Combined with
-   `_requirePkMatches`'s silent bypass on unset registry,
-   `transferFeature` currently performs no recipient-pk enforcement on
-   the live deployment. Workaround until remediated: the deployer
-   account holds the role required to call `fn.setKeyRegistry(kr)` and
-   should do so after every fresh pipeline deploy. The deploy script
-   will be patched to wire both contracts in the same broadcast.
-
-2. **Mint plaintext geometry is not validated in-circuit.**
-   `landmark_regions_v2` hashes and encrypts the 39-field plaintext
-   without decoding pose/dimensions/palette indices. The same
+1. **Mint plaintext geometry is not validated in-circuit.** (Audit H-04,
+   deferred.) `landmark_regions_v2` hashes and encrypts the 39-field
+   plaintext without decoding pose/dimensions/palette indices. The same
    validator exists in `mutate_slot` but is not shared with mint, so
    initial-state slots can commit to malformed plaintexts that later
    mutate operations would reject.
 
-3. **Z-index circuits cast `Field` to `u32` before range-checking, but
-   hash the original `Field`.** If a Noir cast truncates as documented,
-   a witness with high field bits set and low bits in `[0,15]` can
-   pass the bitmap permutation check while committing/packing a
-   non-canonical value. Affects `zindex_commit` and `solve_shadow_v2`.
-
-4. **Origin lineage IDs are caller-supplied on mint.** The
-   `landmark_regions_v2` circuit derives them privately as
-   `poseidon2(imageCommit, slotIdx)`, but `mintShadow` stores
-   caller-provided IDs without recomputing on chain. Indexers that
-   trust `originFaceId` for lineage claims need to recompute it
-   off-chain from `(imageCommit, slotIdx)`.
-
-5. **KeyRegistry accepts the `(0,0)` sentinel at registration.**
+2. **KeyRegistry accepts the `(0,0)` sentinel at registration.**
    `(0,0)` is documented as "unregistered", but `register` does not
    reject it, so an account can emit a `Registered` event while
    `isRegistered` still returns false.
 
-6. **Bridge `mintedFromBridge` is permanent.** Burn-and-unbridge does
-   not clear it, so a re-bridge after a legitimate L1→L2 unbridge
-   will lock the L2 token in `ShadowBridgeL2` while the second L1
-   `proveAndRelay` reverts `AlreadyMinted`.
+3. **ECIES inputs.** (Audit M-05, M-06, L-01, deferred to the same
+   redeploy as the envelope-binding cutover.) Circuits do not assert
+   `new_r != 0` or that stored Grumpkin public keys are valid
+   non-infinity points. Old keystream keys (`old_k` / `prev_k`) are
+   witnessed and proven consistent with `ctCommit`, but not derived
+   from `old_c1 * owner_sk` — so a leaked keystream key would let a
+   non-owner forge mutations that pass the proof, provided they also
+   know the owner's secret.
 
-7. **Bridge zero-address paths are unchecked.** `ShadowMirrorL1.burn`
-   does not reject `l2Recipient == address(0)`, and `ShadowBridgeL2`
-   always mints the L1 mirror to `msg.sender`. A contract-wallet L2
-   sender whose address is unreachable on L1 will get a stranded
-   mirror.
-
-8. **ECIES inputs.** Circuits do not assert `new_r != 0` or that
-   stored Grumpkin public keys are valid non-infinity points. Old
-   keystream keys (`old_k` / `prev_k`) are witnessed and proven
-   consistent with `ctCommit`, but not derived from `old_c1 * owner_sk`
-   — so a leaked keystream key would let a non-owner forge mutations
-   that pass the proof, provided they also know the owner's secret.
-
-9. **Bridge round-trip via OP messenger has 7-day L2→L1 finality**
+4. **Bridge round-trip via OP messenger has 7-day L2→L1 finality**
    (OP withdrawal challenge period). Fast bridges with external trust
    are not implemented.
 
-10. **No external audit.** Forge surface is 184/184 with real proofs
-    and no mocks. A third-party audit has not been commissioned.
+5. **No external audit.** Forge surface is 202/202 with real proofs
+   and no mocks. A third-party audit has not been commissioned.
+
+Closed by audit remediation pass 1 (pipeline #5):
+- H-03 z-index Field canonicality (cast-and-range guard added in-circuit).
+- H-06, M-07, M-08 bridge custody / zero-address / round-trip.
+- M-01..M-04 contract fixes including KeyRegistry wiring in DeployShadowPipeline.
+
+Closed by the envelope-binding cutover (pipeline #6):
+- H-01 solve plaintext byte-binding via `sponge_39` re-hash.
+- H-02 ECIES envelope byte-binding for every state-changing entry point.
+- H-05 origin lineage ID binding via on-chain `poseidon2_hash_2`.
 
 ## Reporting issues
 

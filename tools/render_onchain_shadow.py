@@ -110,9 +110,11 @@ PALETTE_REVEALED_TOPIC0 = "0xab2d50af1f432d428a788e90bfd3bdb85a1228883a22c743d48
 # event carries the 39-field plaintext (1248 bytes); indexers can render
 # the canonical NFT image WITHOUT any owner secret key, just by decoding
 # this event + the FeaturePaletteRevealed RGB.
-# Plaintext is ADVISORY at the chain layer; off-chain consumers MUST
-# verify by recomputing sponge_39(plaintext) and matching against the
-# bound stateCommit (chain-readable from the proof's PI[1] reconstruction).
+# As of pipeline #6 (envelope-binding cutover) the plaintext bytes are
+# byte-bound on chain: the contract recomputes sponge_39(plaintexts[i])
+# and asserts equality with the proof-bound stateCommits[i] before
+# emitting any reveal event. A tampered plaintext reverts the entire
+# solve tx.
 SLOT_REVEALED_TOPIC0 = "0xbede24c9a95917e60eb52a811beafa40f2319a66788254e0222abff12bb827c2"
 
 
@@ -226,9 +228,9 @@ def fetch_revealed_slots(rpc: str, fn_addr: str, shadow_id: int,
     on FeatureNFT for the given shadowId. Each occupied slot at solve time
     emits one event with the 39-field plaintext (1248 bytes).
 
-    The event payload is ADVISORY at the chain layer (see solve doc).
-    Indexers SHOULD verify sponge_39(plaintext) against the bound
-    stateCommit before trusting; this loader does not enforce.
+    The event payload is byte-bound to the proof on chain (Stage C.5,
+    envelope-binding cutover). sponge_39(plaintext) == stateCommit is
+    enforced by ShadowToken._validatePlaintextLengths before emit.
     """
     topic0 = SLOT_REVEALED_TOPIC0
     topic2 = "0x" + format(shadow_id, "064x")
