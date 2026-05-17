@@ -432,20 +432,32 @@ def encrypt_and_prove(
         f'k = "{hex(k)}"\n'
         f'r = "{hex(r)}"\n'
     )
-    (_SECRET_INBOX_CIRCUIT / "Prover.toml").write_text(prover_toml)
+    # Audit M-11: this Prover.toml contains the secret plaintext, key k, and
+    # nonce r. We restrict perms to 0600 immediately and delete the file as
+    # soon as prove+execute have read it. .gitignore separately ensures the
+    # path won't be accidentally committed.
+    prover_path = _SECRET_INBOX_CIRCUIT / "Prover.toml"
+    fd = os.open(str(prover_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(prover_toml)
+    try:
+        out = _run([NARGO, "execute"], _SECRET_INBOX_CIRCUIT, timeout=120)
+        outputs = _extract_outputs(out)
+        if len(outputs) < N:
+            raise RuntimeError(f"nargo execute returned {len(outputs)} outputs, expected >= {N}")
+        ct = [int(v, 16) for v in outputs[:N]]
 
-    out = _run([NARGO, "execute"], _SECRET_INBOX_CIRCUIT, timeout=120)
-    outputs = _extract_outputs(out)
-    if len(outputs) < N:
-        raise RuntimeError(f"nargo execute returned {len(outputs)} outputs, expected >= {N}")
-    ct = [int(v, 16) for v in outputs[:N]]
-
-    _run([BB, "prove",
-          "-b", "target/secret_inbox.json",
-          "-w", "target/secret_inbox.gz",
-          "-k", "target/vk/vk",
-          "-o", "target/proof",
-          "--oracle_hash", "keccak"], _SECRET_INBOX_CIRCUIT, timeout=180)
+        _run([BB, "prove",
+              "-b", "target/secret_inbox.json",
+              "-w", "target/secret_inbox.gz",
+              "-k", "target/vk/vk",
+              "-o", "target/proof",
+              "--oracle_hash", "keccak"], _SECRET_INBOX_CIRCUIT, timeout=180)
+    finally:
+        try:
+            prover_path.unlink()
+        except FileNotFoundError:
+            pass
 
     proof_bytes = (_SECRET_INBOX_CIRCUIT / "target" / "proof" / "proof").read_bytes()
     pi_bytes = (_SECRET_INBOX_CIRCUIT / "target" / "proof" / "public_inputs").read_bytes()
@@ -480,8 +492,16 @@ def _cmd_keygen(args: argparse.Namespace) -> int:
     kp = generate_keypair(seed=seed)
     out = json.dumps(kp.to_json(), indent=2)
     if args.out:
-        pathlib.Path(args.out).write_text(out + "\n")
-        print(f"wrote {args.out}", file=sys.stderr)
+        # Audit M-12: keypair JSON contains the Grumpkin secret scalar.
+        # Create the file with 0600 from the start (don't rely on umask),
+        # so a key file is never world-readable even briefly.
+        out_path = pathlib.Path(args.out)
+        fd = os.open(str(out_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(out + "\n")
+        # If the file pre-existed with broader perms, tighten it now.
+        os.chmod(out_path, 0o600)
+        print(f"wrote {args.out} (mode 0600)", file=sys.stderr)
     else:
         print(out)
     return 0

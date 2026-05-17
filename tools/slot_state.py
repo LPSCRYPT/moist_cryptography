@@ -38,7 +38,22 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
+REPO_ROOT = REPO.parent  # /tools/.. -> repo root
 sys.path.insert(0, str(REPO))
+
+
+def _spec_path(raw: str | Path) -> Path:
+    """Resolve a spec-file-supplied path against the repo root, not cwd.
+
+    Per audit M-10: spec JSON files store paths like
+    `contracts/test/fixtures/atomic_mint/...` which are repo-relative.
+    Callers that ran `cd tools && python3 test_slot_state.py` got
+    FileNotFoundError because Path(raw) is cwd-relative.
+
+    Absolute paths pass through unchanged. Relative paths anchor to
+    the repo root regardless of cwd."""
+    p = Path(raw)
+    return p if p.is_absolute() else REPO_ROOT / p
 
 from secret_inbox import G, GRUMPKIN_ORDER, ec_mul  # noqa: E402
 from v2_circuit_helpers import (  # noqa: E402
@@ -71,7 +86,7 @@ def _h(s: str) -> int:
 
 def _build_mint_slot(spec_root: dict, slot_idx: int) -> dict:
     """Mint state via reconstruct_mint_slot_state, plus mutation_count=0."""
-    mint_fix = Path(spec_root["mint_fixture"])
+    mint_fix = _spec_path(spec_root["mint_fixture"])
     mint_meta = json.loads((mint_fix / "meta.json").read_text())
     image_commit = int(mint_meta["image_commit"], 16)
     palette_commit = int(mint_meta["palette_commits"][slot_idx], 16)
@@ -268,7 +283,7 @@ def _resolve_src_mint_fixture(spec_root: dict, fixture: Path, fmeta: dict) -> Pa
     src_shadow = fmeta["src_shadow_id"]
     host_shadow = fmeta["host_shadow_id"]
     if src_shadow == host_shadow:
-        return Path(spec_root["mint_fixture"])
+        return _spec_path(spec_root["mint_fixture"])
     raise SystemExit(
         f"insert fixture {fixture} has cross-shadow src ({src_shadow} -> "
         f"{host_shadow}); slot spec must include 'src_mint_fixture' override.")
@@ -284,12 +299,12 @@ def build_occupied_slots(spec_path: Path) -> tuple[dict, dict]:
         if kind == "mint":
             occupied[slot] = _build_mint_slot(spec, slot)
         elif kind == "post-mutate-single":
-            occupied[slot] = _post_mutate_single(spec, slot, Path(entry["fixture"]))
+            occupied[slot] = _post_mutate_single(spec, slot, _spec_path(entry["fixture"]))
         elif kind == "post-mutate-batch":
-            occupied[slot] = _post_mutate_batch(spec, slot, Path(entry["fixture"]),
+            occupied[slot] = _post_mutate_batch(spec, slot, _spec_path(entry["fixture"]),
                                                  entry["position"])
         elif kind == "post-insert":
-            occupied[slot] = _post_insert(spec, slot, Path(entry["fixture"]))
+            occupied[slot] = _post_insert(spec, slot, _spec_path(entry["fixture"]))
         else:
             raise SystemExit(f"unknown slot kind: {kind!r}")
     return spec, occupied

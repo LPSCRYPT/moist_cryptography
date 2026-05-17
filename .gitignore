@@ -55,6 +55,9 @@ circuits/shadow_t10/Prover.toml
 circuits/transfer_shadow_v2/Prover.toml
 circuits/solve_shadow_v2/Prover.toml
 circuits/landmark_regions_v2/Prover.toml
+# Audit M-11: secret_inbox writes plaintext+key+nonce into Prover.toml.
+# Track only the .example variant; never commit a real prove cycle's inputs.
+circuits/secret_inbox/Prover.toml
 
 
 # Local audit outputs

@@ -162,6 +162,9 @@ def assemble_face_png(per_region_bytes: list[bytes], region_geom: list[tuple[int
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", default=str(ROOT / "runs" / "validation_renders"))
+    ap.add_argument("--allow-missing", action="store_true",
+                    help="Skip (instead of fail) sections whose fixture dirs are absent. "
+                         "Default is to fail-fast on missing required fixtures (audit M-09).")
     args = ap.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -171,6 +174,19 @@ def main() -> int:
     print(" Phase 2 pixel-equality validation")
     print("=" * 68)
     all_ok = True
+
+    def _missing(label: str, path: Path) -> bool:
+        """Per audit M-09: missing required fixtures must NOT silently skip."""
+        if path.exists():
+            return False
+        if args.allow_missing:
+            print(f"  {DIM}skip ({label}): fixture not found at {path}{RESET}")
+            return True
+        print(f"  FAIL ({label}): required fixture not found at {path}")
+        print(f"         re-run the upstream builder, or pass --allow-missing")
+        nonlocal all_ok
+        all_ok = False
+        return True
 
     # =========================================================================
     # SECTION 1: alice0 mint -- chain bytes equal Python simulation
@@ -253,8 +269,8 @@ def main() -> int:
     # SECTION 2: transfer_shadow -- bob's c2 decrypts to same bytes
     # =========================================================================
     print(f"\n{DIM}--- 2. transfer_shadow: bob's c2 decrypts to alice's plaintext ---{RESET}")
-    if not TRANSFER_SHADOW_DIR.exists():
-        print(f"  {DIM}skip: fixture not found at {TRANSFER_SHADOW_DIR}{RESET}")
+    if _missing("transfer_shadow", TRANSFER_SHADOW_DIR):
+        pass
     else:
         bob_fix = json.loads((TRANSFER_SHADOW_DIR / "fixture.json").read_text())
         bob_sk = int(bob_fix["bob_sk"], 16)
@@ -288,8 +304,8 @@ def main() -> int:
     # SECTION 3: extract_slot -- carol's feature_c2 == canonical region payload
     # =========================================================================
     print(f"\n{DIM}--- 3. extract_slot (slot 3 / nose): carol's feature_c2 == canonical ---{RESET}")
-    if not EXTRACT_SLOT_DIR.exists():
-        print(f"  {DIM}skip: fixture not found at {EXTRACT_SLOT_DIR}{RESET}")
+    if _missing("extract_slot", EXTRACT_SLOT_DIR):
+        pass
     else:
         ex_fix = json.loads((EXTRACT_SLOT_DIR / "fixture.json").read_text())
         carol_sk = int(ex_fix["carol_sk"], 16)
@@ -326,10 +342,10 @@ def main() -> int:
     # SECTION 4: transfer_feature -- dave's c2 decrypts to same payload as carol
     # =========================================================================
     print(f"\n{DIM}--- 4. transfer_feature: dave's c2 decrypts to carol's payload ---{RESET}")
-    if not TRANSFER_FEATURE_DIR.exists():
-        print(f"  {DIM}skip: fixture not found at {TRANSFER_FEATURE_DIR}{RESET}")
-    elif not EXTRACT_SLOT_DIR.exists():
-        print(f"  {DIM}skip: extract fixture missing (need carol's payload baseline){RESET}")
+    if _missing("transfer_feature", TRANSFER_FEATURE_DIR):
+        pass
+    elif _missing("transfer_feature/extract baseline", EXTRACT_SLOT_DIR):
+        pass
     else:
         tf_fix = json.loads((TRANSFER_FEATURE_DIR / "fixture.json").read_text())
         dave_sk = int(tf_fix["dave_sk"], 16)
