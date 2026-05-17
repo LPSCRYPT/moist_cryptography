@@ -315,17 +315,22 @@ contract SolveShadowE2ETest is Test {
         st.solve(args);
     }
 
-    /// reveal-update Option B: plaintext is ADVISORY at the chain layer.
-    /// Tampering args.plaintexts does NOT change args.stateCommits (which
-    /// is what the proof binds via PI[1]), so on-chain solve still passes.
-    /// Off-chain indexers MUST verify sponge_39(plaintext) == stateCommit
-    /// before trusting the FeatureSlotRevealed event payload.
-    function test_solve_plaintext_tamper_does_not_revert() public {
+    /// Envelope-binding cutover (audit H-01): the canonical behavioural-
+    /// change marker. Pre-cutover, args.plaintexts was advisory and chain
+    /// accepted any plaintext bytes -- the proof bound only stateCommits
+    /// via PI[1]. Post-cutover, the contract recomputes sponge_39 of every
+    /// occupied plaintext and asserts equality with the corresponding
+    /// stateCommit BEFORE any FeatureSlotRevealed event fires.
+    function test_solve_reverts_when_plaintext_tampered() public {
         ShadowToken.SolveArgs memory args = _buildArgs();
         uint8 sIdx = occupiedIdxs[0];
         args.plaintexts[sIdx][100] = bytes1(uint8(args.plaintexts[sIdx][100]) ^ 1);
+        // Snapshot pre-state so we can prove revert atomicity.
+        bool solvedBefore = st.isSolved(args.shadowId);
         vm.prank(alice);
-        st.solve(args);  // chain accepts; emit is advisory only
+        vm.expectRevert();
+        st.solve(args);
+        assertEq(st.isSolved(args.shadowId), solvedBefore, "shadow unchanged on tampered-plaintext revert");
     }
 
     /// reveal-update: tampering a palette color makes sponge_palette_salt

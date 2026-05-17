@@ -1328,17 +1328,28 @@ contract ShadowToken is ERC721, PausableMixin {
         emit ShadowSolved(args.shadowId, msg.sender, s.zIndexRevealed);
     }
 
-    /// Per-slot length consistency: OCCUPIED slots must carry a full
-    /// 39-field plaintext; EMPTY slots must carry zero-length plaintext.
-    /// We do NOT sponge_39 on chain -- soundness comes from the proof's
-    /// PI[1] binding to caller-supplied stateCommits + the off-chain
-    /// indexer-side recompute against chain-stored liveStateHash.
+    /// Per-slot length consistency + plaintext↔stateCommit binding (audit
+    /// H-01). OCCUPIED slots must carry a full 39-field plaintext whose
+    /// sponge_39 digest equals the caller-supplied `stateCommits[i]`. The
+    /// proof binds `stateCommits` via PI[1] = sponge_16(stateCommits), so
+    /// the chain of equalities is:
+    ///   emitted_plaintext[i]  --(this check)-->  stateCommits[i]
+    ///   stateCommits[i]        --(proof PI[1])-->  proof witness state_commit[i]
+    ///   proof witness          --(circuit)-->     pre-solve liveStateHash
+    /// EMPTY slots must carry zero-length plaintext + zero stateCommit.
     function _validatePlaintextLengths(SolveArgs calldata args) internal view {
         ManifestEntry[16] storage manifest = _manifests[args.shadowId];
         for (uint256 i = 0; i < N_SLOTS; i++) {
             if (manifest[i].kind == SlotKind.OCCUPIED) {
                 if (args.plaintexts[i].length != MAX_PLAINTEXT_FIELDS_PER_SLOT * 32) {
                     revert BadC2Length(args.plaintexts[i].length, MAX_PLAINTEXT_FIELDS_PER_SLOT * 32);
+                }
+                // Bind emitted plaintext bytes to the proof-bound stateCommit
+                // (audit H-01). Reverts with PlaintextDigestMismatch before
+                // any reveal event fires.
+                bytes32 ptDigest = bytes32(_sponge(args.plaintexts[i]));
+                if (ptDigest != args.stateCommits[i]) {
+                    revert PlaintextDigestMismatch(uint8(i), args.stateCommits[i], ptDigest);
                 }
             } else {
                 if (args.plaintexts[i].length != 0) {
