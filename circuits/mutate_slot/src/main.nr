@@ -307,28 +307,37 @@ fn main(
     }
     assert(sponge_39(old_ct) == old_ct_commit);
 
-    // ---- 4. owner_sk recovers old_k from old_c1 ----
-    // ECIES-Pohlig: shared_old = old_c1 * owner_sk; mask_old = poseidon2_hash_2(shared_old.x, shared_old.y);
-    //               old_k_committed_in_c2_scalar = old_k + mask_old (folded into old_ct_commit's preimage in
-    //               extract_slot's design but we don't need the c2_scalar separately here).
-    // For mutate_slot, the constraint that matters is "the owner could decrypt the
-    // old c2 and recover old_k". We satisfy it by: the prover supplies owner_sk and old_k
-    // independently; the chain's `old_live_state_hash` ties together (state_commit, ct_commit,
-    // c1, count, chain_tip), and we already re-derived state from old_k via the encryption
-    // round trip. The fact that the prover supplied a consistent (old_plaintext, old_k) tuple
-    // proves they had access to the same key set used at the previous mutation.
+    // ---- 4. owner_sk binding + old_k ECDH derivation ----
     //
-    // Note: this is weaker than asserting "prover knows owner_sk". If we want a hard "only
-    // the holder of owner_sk can mutate" we must additionally bind owner_pk to the proof.
-    // We do that next:
+    // Two bindings, both required for soundness of "the caller is the
+    // current owner AND knew the previous ciphertext's key":
+    //
+    //   (a) owner_sk * G == owner_pk_x/y
+    //       Caller controls the secret key matching the on-chain owner pk.
+    //
+    //   (b) owner_sk * old_c1 -> kdf -> equals witnessed old_k
+    //       (audit M-05) Asserts old_k was actually derivable from
+    //       (old_c1, owner_sk) via ECIES-Pohlig, not just supplied as a
+    //       freestanding witness. Without this, a non-owner who leaked a
+    //       past keystream key could mutate the slot. Pairs with M-06's
+    //       on-curve check on old_c1.
     let sk_scalar = EmbeddedCurveScalar::from_field(owner_sk);
     let derived_pk = fixed_base_scalar_mul(sk_scalar);
     assert(derived_pk.x == owner_pk_x);
     assert(derived_pk.y == owner_pk_y);
-    // M-06: old_c1 is witnessed -- bound to chain via old_live_state_hash
-    // sponge above, but the sponge accepts any field. Assert on-curve so
-    // any future EC use (M-05) operates on a real Grumpkin point.
+
+    // M-06: old_c1 must be on Grumpkin before feeding MSM below.
     assert_on_grumpkin(old_c1_x, old_c1_y);
+
+    // M-05: derive old_k from (owner_sk, old_c1) and bind to witness.
+    let old_c1_pt = EmbeddedCurvePoint {
+        x: old_c1_x,
+        y: old_c1_y,
+        is_infinite: false,
+    };
+    let shared_old = multi_scalar_mul([old_c1_pt], [sk_scalar]);
+    let old_k_derived = kdf(KDF_ROLE_PLAINTEXT, shared_old.x, shared_old.y);
+    assert(old_k == old_k_derived);
 
     // ---- 5. new plaintext well-formedness ----
     assert_pose_byte_dims(new_plaintext, w_new as u32, h_new as u32);

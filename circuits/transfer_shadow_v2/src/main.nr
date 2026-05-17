@@ -221,6 +221,34 @@ fn main(
         let prev_ct_commit_recomputed = sponge_39(prev_ct);
         assert(occ * (prev_ct_commit_recomputed - prev_ct_commit[i]) == 0);
 
+        // M-05: bind prev_k[i] to ECDH(prev_owner_sk, prev_c1[i]) for
+        // occupied slots. Without this, prev_k is a freestanding witness
+        // and a non-owner who leaked a past keystream could rotate the
+        // slot. Pairs with the on-curve check below; both gated on occ.
+        //
+        // Empty slots: the fixture builder seeds prev_c1 with Grumpkin
+        // generator G so the multi_scalar_mul blackbox accepts the input
+        // (Noir's blackbox rejects off-curve points at proof-gen time --
+        // gating is not enough). The `occ * ...` gate only masks the
+        // resulting equality constraint, which is what we want for empty
+        // slots whose witness owner_k is meaningless.
+        //
+        // sk_scalar is the prev_owner_sk scalar computed at section 0.
+        // The redundant gated on-curve check below is kept as in-circuit
+        // documentation that occupied slots' prev_c1 must satisfy the
+        // curve equation; M-06's pattern.
+        let prev_c1_curve_lhs =
+            prev_c1_y[i] * prev_c1_y[i] - prev_c1_x[i] * prev_c1_x[i] * prev_c1_x[i] + 17;
+        assert(occ * prev_c1_curve_lhs == 0);
+        let prev_c1_pt = EmbeddedCurvePoint {
+            x: prev_c1_x[i],
+            y: prev_c1_y[i],
+            is_infinite: false,
+        };
+        let shared_prev = multi_scalar_mul([prev_c1_pt], [sk_scalar]);
+        let prev_k_derived = kdf(KDF_ROLE_PLAINTEXT, shared_prev.x, shared_prev.y);
+        assert(occ * (prev_k[i] - prev_k_derived) == 0);
+
         // M-06: r != 0 rejects the degenerate (c1 = O, shared = O) envelope.
         // Unconditional across all 16 slots; the fixture builder must supply
         // a nonzero placeholder for empty slots (the computed work is masked

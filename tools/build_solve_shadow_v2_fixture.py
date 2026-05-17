@@ -104,8 +104,13 @@ def build_witness(seed: bytes, n_occupied: int) -> dict:
     is_occupied = [0] * 16
     plaintexts: list[list[int]] = [[0] * PLAINTEXT_FIELDS for _ in range(16)]
     prev_ct_commit = [0] * 16
-    prev_c1_x = [0] * 16
-    prev_c1_y = [0] * 16
+    # M-05/M-06: empty slots must seed prev_c1 with an on-curve point so
+    # Noir's multi_scalar_mul blackbox accepts the input. G is the cheapest
+    # valid placeholder; the per-slot key-binding constraint
+    # `occ * (owner_k[i] - kdf(sk*c1)) == 0` is gated by occ=0 so the
+    # resulting MSM output is irrelevant in empty slots.
+    prev_c1_x = [G[0]] * 16
+    prev_c1_y = [G[1]] * 16
     prev_mutation_count = [0] * 16
     prev_chain_tip = [0] * 16
     owner_k_arr = [0] * 16

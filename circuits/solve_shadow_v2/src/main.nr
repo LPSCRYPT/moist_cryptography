@@ -26,8 +26,8 @@
 
 use std::hash::poseidon2_permutation;
 use std::embedded_curve_ops::{
-    EmbeddedCurveScalar,
-    fixed_base_scalar_mul,
+    EmbeddedCurvePoint, EmbeddedCurveScalar,
+    multi_scalar_mul, fixed_base_scalar_mul,
 };
 
 global PLAINTEXT_FIELDS: u32 = 39;
@@ -59,6 +59,29 @@ fn keystream_39(k: Field) -> [Field; 39] {
     ks
 }
 
+// ---- KDF domain separation (audit L-01) ----
+//
+// solve_shadow_v2 doesn't ENCRYPT a new envelope, but it must VERIFY that
+// the witnessed owner_k[i] is the same value the previous holder derived
+// from ECDH(owner_sk, prev_c1[i]). To do that check it needs the same
+// global domain tag and role tag used everywhere else in the v2 pipeline.
+// MUST stay byte-for-byte identical with v2_circuit_helpers.py::kdf and
+// every other v2 circuit's `kdf`.
+global KDF_DOMAIN_V2: Field = 0x4d4f495354_4b44465632; // ASCII "MOISTKDFV2"
+global KDF_ROLE_PLAINTEXT: Field = 1;
+
+fn kdf(role: Field, shared_x: Field, shared_y: Field) -> Field {
+    let out = poseidon2_permutation([KDF_DOMAIN_V2, role, shared_x, shared_y], 4);
+    out[0]
+}
+
+// ---- ECIES well-formedness (audit M-06) ----
+//
+// The on-curve check for prev_c1[i] (y^2 = x^3 - 17) is inlined inside
+// the per-slot loop, gated on occ, because empty slots may carry
+// off-curve zero coordinates and the MSM output is irrelevant in that
+// case. owner_pk is constrained on-curve transitively via owner_sk * G
+// == owner_pk_x/y below.
 fn sponge_6(a: Field, b: Field, c: Field, d: Field, e: Field, f: Field) -> Field {
     let mut s: [Field; 4] = [0, 0, 0, 0];
     s[0] = s[0] + a;
@@ -153,6 +176,27 @@ fn main(
         }
         let ct_commit_recomputed = sponge_39(ct);
         assert(occ * (ct_commit_recomputed - prev_ct_commit[i]) == 0);
+
+        // M-05: bind owner_k[i] to ECDH(owner_sk, prev_c1[i]) for occupied
+        // slots. Without this, owner_k is a freestanding witness and a
+        // non-owner who leaked any past keystream key could publish a
+        // solve proof that reveals the slot under a forged "key".
+        // Empty slots: the fixture builder seeds prev_c1 with Grumpkin
+        // generator G so the multi_scalar_mul blackbox accepts the input
+        // (Noir's blackbox rejects off-curve points at proof-gen time --
+        // gating is not enough). The `occ * ...` gate masks the equality
+        // constraint for empty slots whose witness owner_k is meaningless.
+        let prev_c1_curve_lhs =
+            prev_c1_y[i] * prev_c1_y[i] - prev_c1_x[i] * prev_c1_x[i] * prev_c1_x[i] + 17;
+        assert(occ * prev_c1_curve_lhs == 0);
+        let prev_c1_pt = EmbeddedCurvePoint {
+            x: prev_c1_x[i],
+            y: prev_c1_y[i],
+            is_infinite: false,
+        };
+        let shared_prev = multi_scalar_mul([prev_c1_pt], [sk_scalar]);
+        let owner_k_derived = kdf(KDF_ROLE_PLAINTEXT, shared_prev.x, shared_prev.y);
+        assert(occ * (owner_k[i] - owner_k_derived) == 0);
 
         // 3c. lsh reconstruction (occupied only).
         let lsh_recomputed = sponge_6(
