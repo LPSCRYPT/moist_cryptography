@@ -76,9 +76,17 @@ fn keystream_39(k: Field) -> [Field; 39] {
     }
     ks
 }
+// ---- KDF domain separation (audit L-01) ----
+//
+// Single global domain tag for every ECIES shared-secret -> keystream-key
+// derivation in the v2 pipeline. Mirrors v2_circuit_helpers.py::kdf and
+// every other v2 circuit's `kdf` byte-for-byte. See landmark_regions_v2
+// for full rationale.
+global KDF_DOMAIN_V2: Field = 0x4d4f495354_4b44465632; // ASCII "MOISTKDFV2"
+global KDF_ROLE_PLAINTEXT: Field = 1;
 
-fn poseidon2_hash_2(a: Field, b: Field) -> Field {
-    let out = poseidon2_permutation([a, b, 0, 0], 4);
+fn kdf(role: Field, shared_x: Field, shared_y: Field) -> Field {
+    let out = poseidon2_permutation([KDF_DOMAIN_V2, role, shared_x, shared_y], 4);
     out[0]
 }
 
@@ -203,7 +211,7 @@ fn main(
         let r_scalar = EmbeddedCurveScalar::from_field(new_r[i]);
         let new_c1 = fixed_base_scalar_mul(r_scalar);
         let shared = multi_scalar_mul([recipient_pk], [r_scalar]);
-        let mask_new = poseidon2_hash_2(shared.x, shared.y);
+        let mask_new = kdf(KDF_ROLE_PLAINTEXT, shared.x, shared.y);
         // For occupied slots: new_k must equal the deterministic mask key.
         assert(occ * (new_k[i] - mask_new) == 0);
 

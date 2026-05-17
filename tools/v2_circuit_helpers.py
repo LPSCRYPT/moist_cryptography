@@ -73,6 +73,41 @@ def poseidon2_hash_2(x: int, y: int) -> int:
     return poseidon2_perm(x, y, 0, 0)[0]
 
 
+# ---- KDF domain separation (audit L-01) ----
+#
+# Single global domain tag for every ECIES shared-secret -> keystream-key
+# derivation in the v2 pipeline. Distinguishes KDF outputs from any other
+# Poseidon2 hash use in the codebase (chain-tip extension, lineage IDs,
+# state commits) so a chance collision between an ECDH shared x-coord and
+# an unrelated Poseidon2 output cannot leak the keystream key.
+#
+# Role tags distinguish the plaintext keystream KDF from the salt-envelope
+# KDF so the same (c1, owner_pk) pair derives two cryptographically
+# independent keys. 0 is forbidden as a role to dodge accidental-zero
+# witness collisions.
+#
+# Tag is ASCII "MOISTKDFV2" packed little-endian-byte (readable in calldata
+# dumps); both circuits and on-chain verifier bake the value into proofs,
+# so a future change requires a full pipeline redeploy + fixture regen.
+
+KDF_DOMAIN_V2: int = 0x4d4f495354_4b44465632  # ASCII "MOISTKDFV2"
+KDF_ROLE_PLAINTEXT: int = 1
+KDF_ROLE_SALT: int = 2
+
+
+def kdf(role: int, shared_x: int, shared_y: int) -> int:
+    """Derive a 32-byte keystream key from an ECDH-shared point.
+
+    Mirrors the Noir `kdf(role, shared_x, shared_y)` helper in every v2
+    circuit. Must stay byte-for-byte identical with the circuit-side
+    implementation; changing the constant or the permutation shape breaks
+    every stored ciphertext.
+    """
+    if role == 0:
+        raise ValueError("role=0 is reserved (forbidden as KDF domain separator)")
+    return poseidon2_perm(KDF_DOMAIN_V2, role, shared_x, shared_y)[0]
+
+
 # ---- keystream_39 (CTR mode, matches circuit's `keystream_39`) ----
 
 def keystream_39(k: int) -> list[int]:
@@ -185,7 +220,7 @@ def chain_step(prev_chain_tip: int, new_state_commit: int, new_ct_commit: int,
 # encrypt(plaintext, owner_pk, r):
 #     c1 = r * G
 #     shared = r * owner_pk = sk * c1
-#     k = poseidon2_hash_2(shared.x, shared.y)
+#     k = kdf(KDF_ROLE_PLAINTEXT, shared.x, shared.y)   (audit L-01)
 #     keystream = keystream_39(k)
 #     c2 = plaintext + keystream  (Field-wise, mod P)
 #
@@ -201,7 +236,7 @@ def ecies_encrypt_v2(plaintext_fields: list[int], owner_pk: tuple[int, int], r: 
     shared = ec_mul(owner_pk, r)
     if c1 is None or shared is None:
         raise ValueError("ec_mul produced identity")
-    k = poseidon2_hash_2(shared[0], shared[1])
+    k = kdf(KDF_ROLE_PLAINTEXT, shared[0], shared[1])
     ks = keystream_39(k)
     c2 = [(p + s) % P for p, s in zip(plaintext_fields, ks)]
     return c1, c2, k
@@ -211,7 +246,7 @@ def ecies_decrypt_v2(c1: tuple[int, int], c2: list[int], owner_sk: int) -> tuple
     shared = ec_mul(c1, owner_sk)
     if shared is None:
         raise ValueError("ec_mul produced identity")
-    k = poseidon2_hash_2(shared[0], shared[1])
+    k = kdf(KDF_ROLE_PLAINTEXT, shared[0], shared[1])
     ks = keystream_39(k)
     plaintext = [(c - s) % P for c, s in zip(c2, ks)]
     return plaintext, k
@@ -272,7 +307,7 @@ def encrypt_salt_v2(salt: int, owner_pk: tuple[int, int], r: int
     Returns (c1, salt_ct, salt_k) where:
        c1     = r * G                       (ephemeral public point)
        shared = r * owner_pk                (= owner_sk * c1)
-       salt_k = poseidon2(shared.x, shared.y)
+       salt_k = kdf(KDF_ROLE_SALT, shared.x, shared.y)   (L-01 domain-separated)
        salt_ct = (salt + salt_k) mod P     (single-Field CTR)
 
     The owner decrypts via decrypt_salt_v2(c1, salt_ct, owner_sk).
@@ -281,7 +316,7 @@ def encrypt_salt_v2(salt: int, owner_pk: tuple[int, int], r: int
     shared = ec_mul(owner_pk, r)
     if c1 is None or shared is None:
         raise ValueError("ec_mul produced identity")
-    salt_k = poseidon2_hash_2(shared[0], shared[1])
+    salt_k = kdf(KDF_ROLE_SALT, shared[0], shared[1])
     salt_ct = (salt + salt_k) % P
     return c1, salt_ct, salt_k
 
@@ -291,7 +326,7 @@ def decrypt_salt_v2(c1: tuple[int, int], salt_ct: int, owner_sk: int) -> int:
     shared = ec_mul(c1, owner_sk)
     if shared is None:
         raise ValueError("ec_mul produced identity")
-    salt_k = poseidon2_hash_2(shared[0], shared[1])
+    salt_k = kdf(KDF_ROLE_SALT, shared[0], shared[1])
     return (salt_ct - salt_k) % P
 
 

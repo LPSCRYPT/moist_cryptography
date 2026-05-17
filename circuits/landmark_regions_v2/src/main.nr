@@ -19,7 +19,7 @@
 // Per-slot work for i in 0..8:
 //   - state_commit[i] = sponge_39(plaintext[i])
 //   - new ECIES: c1[i] = G * r[i]; shared = owner_pk * r[i]
-//                k[i]  = poseidon2_hash_2(shared.x, shared.y)
+//                k[i]  = kdf(KDF_ROLE_PLAINTEXT, shared.x, shared.y)   (audit L-01)
 //   - ks[i] = keystream_39(k[i])
 //   - ct[i] = plaintext[i] + ks[i]
 //   - ct_commit[i] = sponge_39(ct[i])
@@ -98,6 +98,30 @@ fn keystream_39(k: Field) -> [Field; 39] {
 
 fn poseidon2_hash_2(a: Field, b: Field) -> Field {
     let out = poseidon2_permutation([a, b, 0, 0], 4);
+    out[0]
+}
+
+// ---- KDF domain separation (audit L-01) ----
+//
+// Single global domain tag for every ECIES shared-secret -> keystream-key
+// derivation in the v2 pipeline. Distinguishes KDF outputs from any other
+// Poseidon2 hash use (chain-tip extension, lineage IDs, state commits) so
+// a chance collision between an ECDH shared x-coord and an unrelated
+// Poseidon2 output cannot leak the keystream key.
+//
+// Role tags distinguish the plaintext keystream KDF from the salt-envelope
+// KDF so the same (c1, owner_pk) pair derives two cryptographically
+// independent keys. The mint circuit only uses ROLE_PLAINTEXT (the salt
+// envelope is encrypted off-chain in tools/v2_circuit_helpers.py).
+//
+// MUST stay byte-for-byte identical with v2_circuit_helpers.py::kdf and
+// with every other v2 circuit's `kdf`. Changing the constant requires
+// pipeline redeploy + full fixture regen.
+global KDF_DOMAIN_V2: Field = 0x4d4f495354_4b44465632; // ASCII "MOISTKDFV2"
+global KDF_ROLE_PLAINTEXT: Field = 1;
+
+fn kdf(role: Field, shared_x: Field, shared_y: Field) -> Field {
+    let out = poseidon2_permutation([KDF_DOMAIN_V2, role, shared_x, shared_y], 4);
     out[0]
 }
 
@@ -208,7 +232,7 @@ fn main(
         let r_scalar = EmbeddedCurveScalar::from_field(new_r[i]);
         let c1 = fixed_base_scalar_mul(r_scalar);
         let shared = multi_scalar_mul([owner_pk], [r_scalar]);
-        let k_i = poseidon2_hash_2(shared.x, shared.y);
+        let k_i = kdf(KDF_ROLE_PLAINTEXT, shared.x, shared.y);
 
         // 2c. keystream + ciphertext
         let ks = keystream_39(k_i);

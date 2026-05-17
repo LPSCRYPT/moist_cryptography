@@ -52,10 +52,17 @@ fn sponge_39(e: [Field; 39]) -> Field {
     s = poseidon2_permutation(s, 4);
     s[0]
 }
+// ---- KDF domain separation (audit L-01) ----
+//
+// Single global domain tag for every ECIES shared-secret -> keystream-key
+// derivation in the v2 pipeline. Mirrors v2_circuit_helpers.py::kdf and
+// every other v2 circuit's `kdf` byte-for-byte. See landmark_regions_v2
+// for full rationale.
+global KDF_DOMAIN_V2: Field = 0x4d4f495354_4b44465632; // ASCII "MOISTKDFV2"
+global KDF_ROLE_PLAINTEXT: Field = 1;
 
-// Hash of (a, b) with capacity 0.
-fn poseidon2_hash_2(a: Field, b: Field) -> Field {
-    let out = poseidon2_permutation([a, b, 0, 0], 4);
+fn kdf(role: Field, shared_x: Field, shared_y: Field) -> Field {
+    let out = poseidon2_permutation([KDF_DOMAIN_V2, role, shared_x, shared_y], 4);
     out[0]
 }
 
@@ -163,7 +170,7 @@ fn main(
         is_infinite: false,
     };
     let shared_old = multi_scalar_mul([old_c1_pt], [owner_sk_scalar]);
-    let k_old_derived = poseidon2_hash_2(shared_old.x, shared_old.y);
+    let k_old_derived = kdf(KDF_ROLE_PLAINTEXT, shared_old.x, shared_old.y);
     assert(old_k == k_old_derived);
 
     // ---- 5. recipient envelope binding ----
@@ -175,7 +182,7 @@ fn main(
         is_infinite: false,
     };
     let shared_new = multi_scalar_mul([next_pk_pt], [r_scalar]);
-    let k_new_derived = poseidon2_hash_2(shared_new.x, shared_new.y);
+    let k_new_derived = kdf(KDF_ROLE_PLAINTEXT, shared_new.x, shared_new.y);
     assert(new_k == k_new_derived);
 
     // ---- 6. new ciphertext encoding ----

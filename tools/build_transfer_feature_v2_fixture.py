@@ -42,6 +42,7 @@ from v2_circuit_helpers import (  # noqa: E402
     P, PLAINTEXT_FIELDS,
     sponge_39, sponge_6, keystream_39,
     poseidon2_hash_2,
+    kdf, KDF_ROLE_PLAINTEXT,
     chain_step, live_state_hash,
     fhex, bx32,
 )
@@ -129,7 +130,7 @@ def build_transfer_witness(seed: bytes, slot_idx: int, image_commit: int,
     assert new_c1 is not None
     shared = ec_mul(recipient_pk, new_r)
     assert shared is not None
-    new_k = poseidon2_hash_2(shared[0], shared[1])
+    new_k = kdf(KDF_ROLE_PLAINTEXT, shared[0], shared[1])
 
     new_ks = keystream_39(new_k)
     new_ct = [(old_plaintext[i] + new_ks[i]) % P for i in range(PLAINTEXT_FIELDS)]
@@ -157,7 +158,7 @@ def build_transfer_witness(seed: bytes, slot_idx: int, image_commit: int,
     #    from old_c1. (mirrors the circuit's constraint #4)
     shared_old = ec_mul((old_c1_x, old_c1_y), mint["owner_sk"])
     assert shared_old is not None
-    k_old_check = poseidon2_hash_2(shared_old[0], shared_old[1])
+    k_old_check = kdf(KDF_ROLE_PLAINTEXT, shared_old[0], shared_old[1])
     assert k_old_check == old_k, "owner_sk does not recover old_k from old_c1"
 
     return {
