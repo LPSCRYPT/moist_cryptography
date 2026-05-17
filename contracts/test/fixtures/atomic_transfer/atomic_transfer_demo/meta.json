@@ -16,6 +16,8 @@
   "prev_owner_pk_y": "0x1056546d79f8d4db62d353deb13f675ee13998a838e6fc300905de2bce0457d4",
   "new_chain_tips_root": "0x099ae2bd3ac5565659c20f2cbdd303c40f075598db5f673f58b503ffd87a7c06",
   "new_ct_commits_root": "0x2f2f161497ad63ea0c0721f7f22a32c3e9ca3f95e0d562a74b62e554cf9be333",
+  "new_c1_x_root": "0x018e550fa0a45f32d48e9ba5888939af80db1350a4444987fdbde79cfe3f93b3",
+  "new_c1_y_root": "0x0e4d91daa6d14a7b4d6cf45caee62debfa81c63a35ce6e4bebfa4d5393f5e044",
   "prev_lsh": [
     "0x02b783ef65c8412b21b9090851427f595e9b4dd036afcb3c835806d72e2ef5df",
     "0x1b25ea94eaec8b88f931db3f0eb3c1783bff848e41a8f06d665bd40b3dd7a3f2",

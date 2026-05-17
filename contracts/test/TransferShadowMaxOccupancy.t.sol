@@ -94,7 +94,7 @@ contract TransferShadowMaxOccupancyTest is Test {
 
     function _loadProofsAndPi() internal {
         _proofTransfer = vm.readFileBinary(string.concat(FIX, "/proof_transfer.bin"));
-        bytes32[] memory piTransfer = _loadFields(string.concat(FIX, "/public_inputs_transfer.bin"), 9);
+        bytes32[] memory piTransfer = _loadFields(string.concat(FIX, "/public_inputs_transfer.bin"), 11);
         _proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
         bytes32[] memory piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), 20);
         shadowId = uint256(piTransfer[0]);
@@ -247,21 +247,18 @@ contract TransferShadowMaxOccupancyTest is Test {
         assertEq(sawSM, 16, "16 ShadowSlotMutated emitted (one per occupied slot)");
     }
 
-    /// Gas-pin at the high-water mark. Budget 22M leaves ~3M margin
-    /// over the projected ~19M baseline. If a refactor adds material
-    /// per-slot cost, this fails before deployment.
+    /// Gas-pin at the high-water mark. The audit fix binds and emits new_c1
+    /// envelopes and canonicalizes every transfer field, so the 16-slot path
+    /// is intentionally more expensive than the old 22M envelope-only budget.
+    /// Keep the pin below Ethereum's 30M block target with safety margin.
     function test_transferShadow_max_occupancy_gas_under_block_budget() public {
         vm.prank(alice);
         uint256 gasBefore = gasleft();
         st.transferShadow(args);
         uint256 used = gasBefore - gasleft();
-        // Real-chain block gas: 30M Ethereum / 60M Base. 22M is well under
-        // either; pinning at 22M catches a per-slot regression early.
-        // Envelope binding (Stage C.7): 16-occ + sponge_39 per slot adds ~10M.
-        // Budget 22M leaves headroom (was 11M pre-binding). 16-occupancy
-        // transferShadow now exceeds Base Sepolia 16M block budget on chain;
-        // production must keep occupancy <= 10 or migrate to a fused
-        // sponge_624 wrapper.
-        assertLt(used, 22_000_000, "max-occupancy transferShadow gas regressed");
+        // Current audited path is ~23.1M with 16 occupied slots. 25M catches
+        // material regressions while preserving deployability under a 30M
+        // Ethereum block target and a 60M Base block target.
+        assertLt(used, 25_000_000, "max-occupancy transferShadow gas regressed");
     }
 }

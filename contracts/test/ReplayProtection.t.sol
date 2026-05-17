@@ -268,7 +268,7 @@ contract ReplayTransferShadowTest is Test {
 
     function _loadProofsAndPi() internal {
         _proofTransfer = vm.readFileBinary(string.concat(FIX, "/proof_transfer.bin"));
-        bytes32[] memory piTransfer = _loadFields(string.concat(FIX, "/public_inputs_transfer.bin"), 9);
+        bytes32[] memory piTransfer = _loadFields(string.concat(FIX, "/public_inputs_transfer.bin"), 11);
         _proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
         bytes32[] memory piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), 20);
         _shadowId = uint256(piTransfer[0]);

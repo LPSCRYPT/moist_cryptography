@@ -303,8 +303,9 @@ contract TransferShadowE2ETest is Test {
         uint8 sIdx = occupiedIdxs[0];
         // Pre-state: shadow still owned by alice.
         assertEq(st.ownerOf(shadowId), alice);
-        // Flip one byte in the middle of the first occupied slot's c2.
-        args.c2s[sIdx][512] = bytes1(uint8(args.c2s[sIdx][512]) ^ 0x40);
+        // Flip the low byte of a c2 field so the field stays canonical but
+        // no longer matches the proof-bound ciphertext digest.
+        args.c2s[sIdx][543] = bytes1(uint8(args.c2s[sIdx][543]) ^ 0x01);
         vm.prank(alice);
         vm.expectRevert(ShadowToken.DigestMismatch.selector);
         st.transferShadow(args);

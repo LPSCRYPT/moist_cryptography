@@ -66,11 +66,23 @@ or anything that produces a new SNARK proof you also need:
 
 - [Nargo](https://github.com/noir-lang/noir) 1.0.0-beta.19 — `nargo execute`
   / `nargo compile`
-- [bb](https://github.com/AztecProtocol/aztec-packages) 1.4.0 — `bb prove`
+- [bb](https://github.com/AztecProtocol/aztec-packages) 5.0.0-nightly.20260419 — `bb prove`
   / `bb write_solidity_verifier`
 
-Both resolved from `PATH` first, falling back to `~/.nargo/bin/nargo` and
-`~/.bb/bb`. Override with `NARGO_PATH` / `BB_PATH` env vars.
+The repo-standard local install paths are `$HOME/.nargo/bin/nargo` and
+`$HOME/.bb/bb`. If `which nargo` or `which bb` fails, do not conclude the
+toolchain is unavailable until checking those paths and prepending them:
+
+```sh
+export PATH="$HOME/.nargo/bin:$HOME/.bb:$PATH"
+which nargo && nargo --version
+which bb && bb --version
+ls -la "$HOME/.nargo/bin/nargo" "$HOME/.bb/bb"
+```
+
+Fixture builders resolve both tools from `PATH`, falling back to
+`~/.nargo/bin/nargo` and `~/.bb/bb`. Override with `NARGO_PATH` /
+`BB_PATH` env vars when running in a different sandbox or CI image.
 
 ## Headline check: pixel byte-equality
 
