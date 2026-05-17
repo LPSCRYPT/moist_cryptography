@@ -124,21 +124,10 @@ fn main(
     assert(derived_pk.y == owner_pk_y);
 
     // ---- 1. z-perm distinctness via 16-bit bitmap ----
-    let mut bitmap: u32 = 0;
-    let mut packed: Field = 0;
-    let mut mul: Field = 1;
-    let sixteen: Field = 16;
-    for i in 0..N_SLOTS {
-        let v: u32 = z_perm[i] as u32;
-        assert(v < N_SLOTS);
-        let bit: u32 = (1 as u32) << v;
-        assert((bitmap & bit) == 0);
-        bitmap = bitmap | bit;
-        // pack as base-16 little-endian
-        packed = packed + z_perm[i] * mul;
-        mul = mul * sixteen;
-    }
-    assert(bitmap == 0xFFFF);
+    // Validates the permutation and returns its base-16 packed form.
+    // Factored into `validate_and_pack_zperm` so the canonical-cast guard
+    // is testable in isolation (see #[test] block at end of file).
+    let packed: Field = validate_and_pack_zperm(z_perm);
     assert(packed == z_perm_packed_pi);
 
     // ---- 2. z_index_commit matches chain (zindex_commit circuit's
@@ -184,4 +173,64 @@ fn main(
     // ---- 4. roots ----
     assert(sponge_16(state_commits) == state_commits_root);
     assert(sponge_16(prev_lsh) == lsh_root);
+}
+
+// Validate that `z_perm` is a true permutation of [0..16) and return its
+// base-16 little-endian packed encoding. Three invariants:
+//   (1) range:        each entry's low 32 bits lie in [0..16)
+//   (2) canonical:    each entry as Field equals its low-32-bit cast
+//                     (this rejects high-bit-set Fields whose low bits
+//                     happen to fall in range -- pre-fix bug)
+//   (3) distinct:     16-bit bitmap accumulator must end at 0xFFFF
+fn validate_and_pack_zperm(z_perm: [Field; N_SLOTS]) -> Field {
+    let mut bitmap: u32 = 0;
+    let mut packed: Field = 0;
+    let mut mul: Field = 1;
+    let sixteen: Field = 16;
+    for i in 0..N_SLOTS {
+        let v: u32 = z_perm[i] as u32;
+        assert(z_perm[i] == v as Field);   // canonical-cast guard
+        assert(v < N_SLOTS);                // range
+        let bit: u32 = (1 as u32) << v;
+        assert((bitmap & bit) == 0);        // distinctness
+        bitmap = bitmap | bit;
+        packed = packed + z_perm[i] * mul;  // base-16 LE pack
+        mul = mul * sixteen;
+    }
+    assert(bitmap == 0xFFFF);
+    packed
+}
+
+// ---- Canonical-cast regression tests ----
+// `nargo test` only; not compiled into the proving artifact.
+
+fn identity_zperm() -> [Field; 16] {
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+}
+
+#[test]
+fn test_zperm_happy_path_canonical() {
+    let z_perm = identity_zperm();
+    let packed = validate_and_pack_zperm(z_perm);
+    // identity perm packs to 0xFEDCBA9876543210 (base-16 LE: slot 0 = lowest nibble)
+    let expected: Field = 0xFEDCBA9876543210;
+    assert(packed == expected);
+}
+
+#[test(should_fail)]
+fn test_zperm_rejects_high_bit_field_with_canonical_low_bits() {
+    // Pre-fix bug: a Field with high bits set whose low 32 bits are in [0..16)
+    // could pass the bitmap check. The canonical-cast guard MUST reject it.
+    let mut z_perm = identity_zperm();
+    let high_bits_seven: Field = 4294967303;  // (1 << 32) + 7
+    z_perm[0] = high_bits_seven;  // was 0
+    z_perm[7] = 0;                // was 7; keeps low-bit bitmap distinct
+    let _ = validate_and_pack_zperm(z_perm);
+}
+
+#[test(should_fail)]
+fn test_zperm_rejects_oversized_value() {
+    let mut z_perm = identity_zperm();
+    z_perm[0] = 16;  // out of range
+    let _ = validate_and_pack_zperm(z_perm);
 }

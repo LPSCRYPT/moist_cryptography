@@ -45,6 +45,12 @@ fn main(
     let mut bitmap: u32 = 0;
     for i in 0..N_SLOTS {
         let v: u32 = perm[i] as u32;
+        // Canonical-cast guard: the bitmap is checked against `v` but the
+        // sponge below absorbs the original `perm[i]: Field`. Without this
+        // assert a hostile prover could supply a Field whose low 32 bits are
+        // in [0..16) while higher field bits carry arbitrary content, passing
+        // the bitmap check while committing a non-canonical permutation.
+        assert(perm[i] == v as Field);
         assert(v < N_SLOTS);
         // Power-of-two for `1 << v` without bit-shift on Field (use a u32
         // table-style pow2 since N_SLOTS is small).
@@ -58,4 +64,45 @@ fn main(
 
     // Bind the public commit.
     assert(sponge_16(perm) == new_z_commit);
+}
+
+// ---- Canonical-cast regression tests ----
+// `nargo test` only; not compiled into the proving artifact.
+
+fn identity_perm() -> [Field; 16] {
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+}
+
+#[test]
+fn test_happy_path_canonical_perm() {
+    let perm = identity_perm();
+    let commit = sponge_16(perm);
+    main(0, commit, perm);
+}
+
+#[test(should_fail)]
+fn test_rejects_high_bit_field_with_canonical_low_bits() {
+    // Hostile witness: perm[0] has low 32 bits == 7 (which would pass the
+    // bitmap check pre-fix) but high field bits non-zero. The sponge would
+    // absorb the full field value, producing a commitment that does NOT
+    // correspond to a permutation of [0..15]. The canonical-cast assert
+    // `perm[i] == v as Field` MUST reject this.
+    let mut perm: [Field; 16] = identity_perm();
+    // (1 << 32) + 7 -- low 32 bits = 7 (slot 0 is currently 0; we swap 0<->7)
+    let high_bits_seven: Field = 4294967303;
+    perm[0] = high_bits_seven;  // was 0
+    perm[7] = 0;                // was 7, keeps bitmap distinct under truncation
+    let commit = sponge_16(perm);
+    main(0, commit, perm);
+}
+
+#[test(should_fail)]
+fn test_rejects_oversized_canonical_value() {
+    // perm[i] outside [0..16) must fail the range check. Pre-fix this might
+    // have failed already via `v < N_SLOTS`; we keep the test for coverage.
+    let mut perm = identity_perm();
+    perm[0] = 16;
+    perm[1] = 1;  // currently 1; collision -- but range check fires first.
+    let commit = sponge_16(perm);
+    main(0, commit, perm);
 }

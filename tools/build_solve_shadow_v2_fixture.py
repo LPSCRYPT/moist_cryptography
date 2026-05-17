@@ -219,6 +219,8 @@ def main() -> None:
     ap.add_argument("--seed", default="solve_demo")
     ap.add_argument("--n-occupied", type=int, default=4)
     ap.add_argument("--no-prove", action="store_true")
+    ap.add_argument("--rebuild-verifier", action="store_true",
+                    help="After proving, regenerate contracts/src/SolveShadowVerifier.sol")
     args = ap.parse_args()
 
     seed = args.seed.encode()
@@ -255,6 +257,20 @@ def main() -> None:
          "-i", str(proof_dir / "public_inputs"),
          "--scheme", "ultra_honk", "--oracle_hash", "keccak"], CIRCUIT_DIR, timeout=300)
     print("[ok] proof verified")
+
+    if args.rebuild_verifier:
+        print("[8b/9] bb write_solidity_verifier")
+        verifier_tmp = target_dir / "SolveShadowVerifier.tmp.sol"
+        run([BB, "write_solidity_verifier",
+             "-k", str(target_dir / "vk"),
+             "-o", str(verifier_tmp),
+             "--verifier_target", "evm"], CIRCUIT_DIR, timeout=300)
+        verifier_dst = ROOT / "contracts" / "src" / "SolveShadowVerifier.sol"
+        text = verifier_tmp.read_text().replace(
+            "contract HonkVerifier", "contract SolveShadowVerifier")
+        verifier_dst.write_text(text)
+        verifier_tmp.unlink()
+        print(f"[wrote] {verifier_dst}")
 
     fix_dir = FIXTURE_DIR / args.seed
     fix_dir.mkdir(parents=True, exist_ok=True)
