@@ -63,27 +63,27 @@ contract ExtractInsertPreservationTest is Test {
     using stdJson for string;
 
     TestableShadowToken internal st;
-    TestableFeatureNFT  internal fn;
-    T10ShadowVerifier   internal vT10;
-    Poseidon2YulSponge  internal sponge;
+    TestableFeatureNFT internal fn;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
 
     string internal constant FIX = "./test/fixtures/atomic_extract/extract_demo";
 
     // Loaded from fixture meta.json
     uint256 internal shadowA;
-    uint8   internal slotInA;
+    uint8 internal slotInA;
     uint256 internal featureId;
-    uint8   internal typeIdx;
+    uint8 internal typeIdx;
     bytes32 internal originFaceId;
     bytes32 internal paletteCommit;
     bytes32 internal lshPre;
     bytes32[2] internal newT10;
-    bytes   internal proofT10;
+    bytes internal proofT10;
     bytes32[] internal piT10;
 
     // Synthetic destination shadow B (different id from A)
     uint256 internal constant SHADOW_B = 0xB0B_0CAFE;
-    uint8   internal constant SLOT_IN_B = 7;
+    uint8 internal constant SLOT_IN_B = 7;
 
     address internal alice = makeAddr("alice");
 
@@ -108,40 +108,33 @@ contract ExtractInsertPreservationTest is Test {
         }
 
         string memory meta = vm.readFile(string.concat(FIX, "/meta.json"));
-        shadowA       = meta.readUint(".shadow_id");
-        slotInA       = uint8(meta.readUint(".slot_idx"));
-        featureId     = meta.readUint(".feature_id");
-        typeIdx       = uint8(meta.readUint(".type_idx"));
-        originFaceId  = meta.readBytes32(".origin_face_id");
+        shadowA = meta.readUint(".shadow_id");
+        slotInA = uint8(meta.readUint(".slot_idx"));
+        featureId = meta.readUint(".feature_id");
+        typeIdx = uint8(meta.readUint(".type_idx"));
+        originFaceId = meta.readBytes32(".origin_face_id");
         paletteCommit = meta.readBytes32(".palette_commit");
-        lshPre        = meta.readBytes32(".lsh_pre");
-        newT10[0]     = meta.readBytes32(".t10_hi");
-        newT10[1]     = meta.readBytes32(".t10_lo");
+        lshPre = meta.readBytes32(".lsh_pre");
+        newT10[0] = meta.readBytes32(".t10_hi");
+        newT10[1] = meta.readBytes32(".t10_lo");
 
         // Seed shadow A: 1 carrier inserted at slot S_A with full metadata.
-        fn.seedFeature(
-            featureId, shadowA, slotInA, typeIdx,
-            originFaceId, paletteCommit, lshPre, alice
-        );
-        st.seedShadowAndSlot(
-            shadowA, alice,
-            bytes32(uint256(0xaa)), bytes32(uint256(0xbb)),
-            slotInA, featureId, lshPre
-        );
+        fn.seedFeature(featureId, shadowA, slotInA, typeIdx, originFaceId, paletteCommit, lshPre, alice);
+        st.seedShadowAndSlot(shadowA, alice, bytes32(uint256(0xaa)), bytes32(uint256(0xbb)), slotInA, featureId, lshPre);
     }
 
     /// Snapshot of the 4 immutables we expect preserved.
     struct Immutables {
-        uint8   typeIdx;
+        uint8 typeIdx;
         bytes32 originFaceId;
         bytes32 paletteCommit;
         // mintedAt is uint64; coerce to uint256 for compare convenience
-        uint64  mintedAt;
+        uint64 mintedAt;
     }
 
     function _snapImmutables() internal view returns (Immutables memory s) {
-        s.typeIdx       = fn.typeIdxOf(featureId);
-        s.originFaceId  = fn.originFaceIdOf(featureId);
+        s.typeIdx = fn.typeIdxOf(featureId);
+        s.originFaceId = fn.originFaceIdOf(featureId);
         s.paletteCommit = fn.paletteCommitOf(featureId);
         // FeatureNFT exposes mintedAt? Check interface; if not, derive
         // from a struct getter. Fall back to 0 if not exposed (it's
@@ -152,14 +145,10 @@ contract ExtractInsertPreservationTest is Test {
     }
 
     function _assertImmutablesEq(Immutables memory a, Immutables memory b, string memory label) internal {
-        assertEq(uint256(a.typeIdx), uint256(b.typeIdx),
-            string.concat("typeIdx changed at ", label));
-        assertEq(a.originFaceId, b.originFaceId,
-            string.concat("originFaceId changed at ", label));
-        assertEq(a.paletteCommit, b.paletteCommit,
-            string.concat("paletteCommit changed at ", label));
-        assertEq(uint256(a.mintedAt), uint256(b.mintedAt),
-            string.concat("mintedAt changed at ", label));
+        assertEq(uint256(a.typeIdx), uint256(b.typeIdx), string.concat("typeIdx changed at ", label));
+        assertEq(a.originFaceId, b.originFaceId, string.concat("originFaceId changed at ", label));
+        assertEq(a.paletteCommit, b.paletteCommit, string.concat("paletteCommit changed at ", label));
+        assertEq(uint256(a.mintedAt), uint256(b.mintedAt), string.concat("mintedAt changed at ", label));
     }
 
     function test_immutables_preserved_across_real_extract() public {
@@ -178,7 +167,8 @@ contract ExtractInsertPreservationTest is Test {
         // Carrier is now held: not inserted, checkpoint == slot's final LSH.
         assertFalse(fn.isInserted(featureId), "carrier released post-extract");
         assertEq(
-            fn.liveStateHashCheckpointOf(featureId), lshPre,
+            fn.liveStateHashCheckpointOf(featureId),
+            lshPre,
             "checkpoint == slot's pre-extract LSH (chain continuity anchor)"
         );
 
@@ -218,8 +208,11 @@ contract ExtractInsertPreservationTest is Test {
         vm.prank(alice);
         st.extractSlot(shadowA, slotInA, newT10, proofT10);
         assertFalse(fn.isInserted(featureId), "released");
-        assertEq(fn.liveStateHashCheckpointOf(featureId), lshSnapshot,
-            "checkpoint preserved (same value pre/post when slot lsh == seed)");
+        assertEq(
+            fn.liveStateHashCheckpointOf(featureId),
+            lshSnapshot,
+            "checkpoint preserved (same value pre/post when slot lsh == seed)"
+        );
         Immutables memory midA = _snapImmutables();
         _assertImmutablesEq(pre, midA, "post-extract");
 
@@ -239,10 +232,7 @@ contract ExtractInsertPreservationTest is Test {
         // Checkpoint stays at extract-time value (insert does NOT update
         // the checkpoint; the slot's authoritative lsh lives in the
         // ShadowToken manifest, not the carrier).
-        assertEq(
-            fn.liveStateHashCheckpointOf(featureId), lshSnapshot,
-            "checkpoint stays stale until next extract"
-        );
+        assertEq(fn.liveStateHashCheckpointOf(featureId), lshSnapshot, "checkpoint stays stale until next extract");
     }
 
     /// The single-host invariant: an inserted carrier cannot be

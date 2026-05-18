@@ -178,8 +178,8 @@ how a face was lived through.
 * **Noir 1.0.0-beta.19** — circuit DSL. Seven production circuits + two
   helper circuits used by the Python harness for in-circuit-equivalent
   Poseidon2 hashing.
-* **Aztec `bb` (barretenberg) 1.4.0** — UltraHonk-Keccak prover and
-  Solidity verifier generator (`bb write_solidity_verifier`).
+* **Aztec `bb` (barretenberg) 5.0.0-nightly.20260419** — UltraHonk-Keccak prover and
+  Solidity verifier generator (`bb write_solidity_verifier`). The pinned binary hash is checked by `tools/check_toolchain.py`.
 * **Poseidon2** over BN254 Fr — all on-chain commitments. Hand-written
   Yul sponge wrapper (`Poseidon2YulSponge.sol`) for gas-efficient
   binding checks.

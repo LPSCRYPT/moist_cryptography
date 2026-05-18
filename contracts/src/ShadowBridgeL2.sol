@@ -22,10 +22,13 @@ contract ShadowBridgeL2 {
     uint32 public constant DEFAULT_L1_GAS_LIMIT = 600_000;
     uint32 public constant DEFAULT_L2_GAS_LIMIT = 200_000;
 
-    enum BridgeState { OWNED_ON_L2, OWNED_ON_L1 }
+    enum BridgeState {
+        OWNED_ON_L2,
+        OWNED_ON_L1
+    }
 
     IShadowToken public immutable shadowToken;
-    IFeatureNFT  public immutable featureNFT;
+    IFeatureNFT public immutable featureNFT;
     address public l1Mirror;
     address public immutable deployer;
 
@@ -78,11 +81,7 @@ contract ShadowBridgeL2 {
     /// `revealedPi` is the serialized solve PI bytes; its exact length
     /// is determined by the v2 solve circuit and validated off-chain
     /// by the L1 indexer.
-    function bridgeShadow(
-        uint256 shadowId,
-        address l1Recipient,
-        bytes calldata revealedPi
-    ) external {
+    function bridgeShadow(uint256 shadowId, address l1Recipient, bytes calldata revealedPi) external {
         if (l1Mirror == address(0)) revert L1MirrorNotSet();
         if (l1Recipient == address(0)) revert ZeroAddress();
         if (shadowToken.ownerOf(shadowId) != msg.sender) revert NotShadowOwner();
@@ -114,10 +113,7 @@ contract ShadowBridgeL2 {
         bridged[shadowId] = BridgeState.OWNED_ON_L1;
         shadowToken.transferFrom(msg.sender, address(this), shadowId);
 
-        bytes memory message = abi.encodeWithSelector(
-            ShadowMirrorL1.mintFromBridge.selector,
-            p
-        );
+        bytes memory message = abi.encodeWithSelector(ShadowMirrorL1.mintFromBridge.selector, p);
 
         ICrossDomainMessenger(L2_MESSENGER).sendMessage(l1Mirror, message, DEFAULT_L1_GAS_LIMIT);
 

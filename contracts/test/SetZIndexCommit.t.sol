@@ -19,11 +19,11 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 contract SetZIndexCommitE2ETest is Test {
     using stdJson for string;
 
-    TestableShadowToken    internal st;
-    TestableFeatureNFT     internal fn;
-    ZIndexCommitVerifier   internal vZ;
-    T10ShadowVerifier      internal vT10;
-    Poseidon2YulSponge     internal sponge;
+    TestableShadowToken internal st;
+    TestableFeatureNFT internal fn;
+    ZIndexCommitVerifier internal vZ;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
 
     string internal constant FIX = "./test/fixtures/atomic_zindex/zidx_atomic_demo";
 
@@ -33,7 +33,7 @@ contract SetZIndexCommitE2ETest is Test {
     bytes32[] internal piT10;
 
     uint256 internal shadowId;
-    uint8   internal slotIdx;
+    uint8 internal slotIdx;
     bytes32 internal lshHeld;
     bytes32 internal newZCommit;
     bytes32[2] internal newT10;
@@ -56,27 +56,22 @@ contract SetZIndexCommitE2ETest is Test {
         st.setVerifier(st.SLOT_ZINDEX_COMMIT(), IVerifier(address(vZ)));
         st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
 
-        proofZ   = vm.readFileBinary(string.concat(FIX, "/proof_z.bin"));
-        piZ      = _loadFields(string.concat(FIX, "/public_inputs_z.bin"), Z_PI_LEN);
+        proofZ = vm.readFileBinary(string.concat(FIX, "/proof_z.bin"));
+        piZ = _loadFields(string.concat(FIX, "/public_inputs_z.bin"), Z_PI_LEN);
         proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
-        piT10    = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
+        piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
 
         string memory meta = vm.readFile(string.concat(FIX, "/meta.json"));
-        shadowId   = vm.parseJsonUint(meta, ".shadow_id");
-        slotIdx    = uint8(vm.parseJsonUint(meta, ".slot_idx"));
-        lshHeld    = vm.parseJsonBytes32(meta, ".lsh_held");
+        shadowId = vm.parseJsonUint(meta, ".shadow_id");
+        slotIdx = uint8(vm.parseJsonUint(meta, ".slot_idx"));
+        lshHeld = vm.parseJsonBytes32(meta, ".lsh_held");
         newZCommit = vm.parseJsonBytes32(meta, ".z_commit");
-        newT10[0]  = vm.parseJsonBytes32(meta, ".t10_hi");
-        newT10[1]  = vm.parseJsonBytes32(meta, ".t10_lo");
+        newT10[0] = vm.parseJsonBytes32(meta, ".t10_hi");
+        newT10[1] = vm.parseJsonBytes32(meta, ".t10_lo");
 
         // Seed: shadow with one OCCUPIED slot at lshHeld; default
         // zIndexCommit = 0. (No FeatureNFT seed needed; T10 only reads LSH.)
-        st.seedShadowAndSlot(
-            shadowId, alice,
-            bytes32(uint256(0xaa)),
-            bytes32(uint256(0xbb)),
-            slotIdx, 0xfeed, lshHeld
-        );
+        st.seedShadowAndSlot(shadowId, alice, bytes32(uint256(0xaa)), bytes32(uint256(0xbb)), slotIdx, 0xfeed, lshHeld);
     }
 
     function _loadFields(string memory path, uint256 expectedLen) internal returns (bytes32[] memory out) {
@@ -92,11 +87,7 @@ contract SetZIndexCommitE2ETest is Test {
 
     function _buildArgs() internal view returns (ShadowToken.SetZIndexCommitArgs memory args) {
         return ShadowToken.SetZIndexCommitArgs({
-            shadowId: shadowId,
-            newCommit: newZCommit,
-            proofZ: proofZ,
-            newT10: newT10,
-            proofT10: proofT10
+            shadowId: shadowId, newCommit: newZCommit, proofZ: proofZ, newT10: newT10, proofT10: proofT10
         });
     }
 

@@ -23,9 +23,9 @@ contract ExtractSlotE2ETest is Test {
     using stdJson for string;
 
     TestableShadowToken internal st;
-    TestableFeatureNFT  internal fn;
-    T10ShadowVerifier   internal vT10;
-    Poseidon2YulSponge  internal sponge;
+    TestableFeatureNFT internal fn;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
 
     string internal constant FIX = "./test/fixtures/atomic_extract/extract_demo";
 
@@ -33,9 +33,9 @@ contract ExtractSlotE2ETest is Test {
     bytes32[] internal piT10;
 
     uint256 internal shadowId;
-    uint8   internal slotIdx;
+    uint8 internal slotIdx;
     uint256 internal featureId;
-    uint8   internal typeIdx;
+    uint8 internal typeIdx;
     bytes32 internal originFaceId;
     bytes32 internal paletteCommit;
     bytes32 internal lshPre;
@@ -46,10 +46,7 @@ contract ExtractSlotE2ETest is Test {
     uint256 internal constant T10_PI_LEN = 20;
 
     event SlotExtracted(
-        uint256 indexed shadowId,
-        uint8   indexed slotIdx,
-        uint256 indexed featureId,
-        bytes32 finalLiveStateHash
+        uint256 indexed shadowId, uint8 indexed slotIdx, uint256 indexed featureId, bytes32 finalLiveStateHash
     );
     event ShadowT10Updated(uint256 indexed shadowId, bytes32 hi, bytes32 lo);
 
@@ -73,26 +70,20 @@ contract ExtractSlotE2ETest is Test {
 
         // Read meta.json for the rest.
         string memory meta = vm.readFile(string.concat(FIX, "/meta.json"));
-        shadowId      = vm.parseJsonUint(meta, ".shadow_id");
-        slotIdx       = uint8(vm.parseJsonUint(meta, ".slot_idx"));
-        featureId     = vm.parseJsonUint(meta, ".feature_id");
-        typeIdx       = uint8(vm.parseJsonUint(meta, ".type_idx"));
-        originFaceId  = vm.parseJsonBytes32(meta, ".origin_face_id");
+        shadowId = vm.parseJsonUint(meta, ".shadow_id");
+        slotIdx = uint8(vm.parseJsonUint(meta, ".slot_idx"));
+        featureId = vm.parseJsonUint(meta, ".feature_id");
+        typeIdx = uint8(vm.parseJsonUint(meta, ".type_idx"));
+        originFaceId = vm.parseJsonBytes32(meta, ".origin_face_id");
         paletteCommit = vm.parseJsonBytes32(meta, ".palette_commit");
-        lshPre        = vm.parseJsonBytes32(meta, ".lsh_pre");
-        newT10[0]     = vm.parseJsonBytes32(meta, ".t10_hi");
-        newT10[1]     = vm.parseJsonBytes32(meta, ".t10_lo");
+        lshPre = vm.parseJsonBytes32(meta, ".lsh_pre");
+        newT10[0] = vm.parseJsonBytes32(meta, ".t10_hi");
+        newT10[1] = vm.parseJsonBytes32(meta, ".t10_lo");
 
         // Seed: feature inserted, shadow + manifest with lshPre at slotIdx.
-        fn.seedFeature(
-            featureId, shadowId, slotIdx, typeIdx,
-            originFaceId, paletteCommit, lshPre, alice
-        );
+        fn.seedFeature(featureId, shadowId, slotIdx, typeIdx, originFaceId, paletteCommit, lshPre, alice);
         st.seedShadowAndSlot(
-            shadowId, alice,
-            bytes32(uint256(0xaa)),
-            bytes32(uint256(0xbb)),
-            slotIdx, featureId, lshPre
+            shadowId, alice, bytes32(uint256(0xaa)), bytes32(uint256(0xbb)), slotIdx, featureId, lshPre
         );
     }
 

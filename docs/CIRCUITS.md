@@ -285,7 +285,8 @@ a stale ciphertext are all blocked by these bindings.
 Each circuit lives in `circuits/<name>/` with `Nargo.toml` + `src/main.nr`.
 To rebuild a verifier from source you need
 [`nargo`](https://github.com/noir-lang/noir) 1.0.0-beta.19 and
-[`bb`](https://github.com/AztecProtocol/aztec-packages) 1.4.0:
+[`bb`](https://github.com/AztecProtocol/aztec-packages) 5.0.0-nightly.20260419
+(checked by `tools/check_toolchain.py`):
 
 ```sh
 cd circuits/transfer_shadow

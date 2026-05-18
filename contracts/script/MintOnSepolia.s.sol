@@ -2,8 +2,8 @@
 pragma solidity ^0.8.27;
 
 import {Script, console, stdJson} from "forge-std/Script.sol";
-import {ShadowToken}   from "../src/ShadowToken.sol";
-import {KeyRegistry}   from "../src/KeyRegistry.sol";
+import {ShadowToken} from "../src/ShadowToken.sol";
+import {KeyRegistry} from "../src/KeyRegistry.sol";
 
 /// @notice Real on-chain registerImage + mint against deployed contracts.
 ///
@@ -45,7 +45,7 @@ contract MintOnSepolia is Script {
     bytes32[8] private _paletteSaltCts;
     bytes32[8] private _saltC1Xs;
     bytes32[8] private _saltC1Ys;
-    bytes[]   private _c2s;
+    bytes[] private _c2s;
 
     function run() external {
         address stAddr = vm.envAddress("ST_ADDRESS");
@@ -70,8 +70,7 @@ contract MintOnSepolia is Script {
             console.log("KeyRegistry.register: tx broadcast");
         } else {
             (bytes32 hadX, bytes32 hadY) = kr.pkOf(msg.sender);
-            require(hadX == _ownerPkX && hadY == _ownerPkY,
-                "deployer already registered with a different pk");
+            require(hadX == _ownerPkX && hadY == _ownerPkY, "deployer already registered with a different pk");
             console.log("KeyRegistry.register: skipped (already registered)");
         }
 
@@ -112,35 +111,34 @@ contract MintOnSepolia is Script {
         bytes32[] memory piMint = _loadFields(string.concat(fix, "/public_inputs_mint.bin"), 7);
         _proofDisc = vm.readFileBinary(string.concat(fix, "/proof_disc.bin"));
         bytes32[] memory piDisc = _loadFields(string.concat(fix, "/public_inputs_disc.bin"), 1);
-        _proofT10  = vm.readFileBinary(string.concat(fix, "/proof_t10.bin"));
+        _proofT10 = vm.readFileBinary(string.concat(fix, "/proof_t10.bin"));
         bytes32[] memory piT10 = _loadFields(string.concat(fix, "/public_inputs_t10.bin"), 20);
 
         require(piDisc[0] == piMint[1], "imageCommit mismatch fixture");
 
         _expectedShadowId = uint256(piMint[0]);
-        _imageCommit      = piMint[1];
-        _ownerPkX         = piMint[2];
-        _ownerPkY         = piMint[3];
-        _t10[0]           = piT10[2];
-        _t10[1]           = piT10[3];
+        _imageCommit = piMint[1];
+        _ownerPkX = piMint[2];
+        _ownerPkY = piMint[3];
+        _t10[0] = piT10[2];
+        _t10[1] = piT10[3];
 
         string memory j = vm.readFile(string.concat(fix, "/meta.json"));
         _c2s = new bytes[](8);
         for (uint256 i = 0; i < 8; i++) {
             string memory idx = vm.toString(i);
-            _lshInits[i]       = j.readBytes32(string.concat(".lsh_inits[", idx, "]"));
-            _chainTips[i]      = j.readBytes32(string.concat(".chain_tips[", idx, "]"));
+            _lshInits[i] = j.readBytes32(string.concat(".lsh_inits[", idx, "]"));
+            _chainTips[i] = j.readBytes32(string.concat(".chain_tips[", idx, "]"));
             _paletteCommits[i] = j.readBytes32(string.concat(".palette_commits[", idx, "]"));
-            _originFaceIds[i]  = j.readBytes32(string.concat(".origin_face_ids[", idx, "]"));
-            _ctCommits[i]      = j.readBytes32(string.concat(".ct_commits[", idx, "]"));
+            _originFaceIds[i] = j.readBytes32(string.concat(".origin_face_ids[", idx, "]"));
+            _ctCommits[i] = j.readBytes32(string.concat(".ct_commits[", idx, "]"));
             _paletteSaltCts[i] = j.readBytes32(string.concat(".palette_salt_cts[", idx, "]"));
-            _saltC1Xs[i]       = j.readBytes32(string.concat(".salt_c1_xs[", idx, "]"));
-            _saltC1Ys[i]       = j.readBytes32(string.concat(".salt_c1_ys[", idx, "]"));
+            _saltC1Xs[i] = j.readBytes32(string.concat(".salt_c1_xs[", idx, "]"));
+            _saltC1Ys[i] = j.readBytes32(string.concat(".salt_c1_ys[", idx, "]"));
 
             bytes memory buf = new bytes(39 * 32);
             for (uint256 k = 0; k < 39; k++) {
-                bytes32 v = j.readBytes32(string.concat(
-                    ".c2_per_slot[", idx, "][", vm.toString(k), "]"));
+                bytes32 v = j.readBytes32(string.concat(".c2_per_slot[", idx, "][", vm.toString(k), "]"));
                 assembly { mstore(add(add(buf, 32), mul(k, 32)), v) }
             }
             _c2s[i] = buf;
@@ -148,18 +146,18 @@ contract MintOnSepolia is Script {
     }
 
     function _buildArgs() internal view returns (ShadowToken.MintShadowArgs memory args) {
-        args.proofMint   = _proofMint;
+        args.proofMint = _proofMint;
         args.imageCommit = _imageCommit;
         args.liveStateHashInits = _lshInits;
-        args.chainTips          = _chainTips;
-        args.paletteCommits     = _paletteCommits;
-        args.originFaceIds      = _originFaceIds;
-        args.ctCommits          = _ctCommits;
-        args.paletteSaltCts     = _paletteSaltCts;
-        args.saltC1Xs           = _saltC1Xs;
-        args.saltC1Ys           = _saltC1Ys;
-        args.c2s                = _c2s;
-        args.newT10   = _t10;
+        args.chainTips = _chainTips;
+        args.paletteCommits = _paletteCommits;
+        args.originFaceIds = _originFaceIds;
+        args.ctCommits = _ctCommits;
+        args.paletteSaltCts = _paletteSaltCts;
+        args.saltC1Xs = _saltC1Xs;
+        args.saltC1Ys = _saltC1Ys;
+        args.c2s = _c2s;
+        args.newT10 = _t10;
         args.proofT10 = _proofT10;
     }
 

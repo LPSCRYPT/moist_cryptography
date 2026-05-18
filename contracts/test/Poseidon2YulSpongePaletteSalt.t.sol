@@ -51,17 +51,17 @@ contract Poseidon2YulSpongePaletteSaltTest is Test {
     function test_sponge17_rejects_non_544_calldata() public {
         // 512 bytes (sponge_16 size) -> reject
         bytes memory buf = new bytes(512);
-        (bool ok, ) = address(sponge).staticcall(buf);
+        (bool ok,) = address(sponge).staticcall(buf);
         assertFalse(ok, "should revert on 512-byte input");
 
         // 576 bytes (one-too-many) -> reject
         buf = new bytes(576);
-        (ok, ) = address(sponge).staticcall(buf);
+        (ok,) = address(sponge).staticcall(buf);
         assertFalse(ok, "should revert on 576-byte input");
 
         // 544 bytes (correct size) -> ok (returns whatever, but doesn't revert)
         buf = new bytes(544);
-        (ok, ) = address(sponge).staticcall(buf);
+        (ok,) = address(sponge).staticcall(buf);
         assertTrue(ok, "544-byte input should not revert");
     }
 }

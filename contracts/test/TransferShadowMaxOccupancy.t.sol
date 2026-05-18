@@ -34,21 +34,21 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 contract TransferShadowMaxOccupancyTest is Test {
     using stdJson for string;
 
-    TestableShadowToken    internal st;
-    TestableFeatureNFT     internal fn;
+    TestableShadowToken internal st;
+    TestableFeatureNFT internal fn;
     TransferShadowVerifier internal vT;
-    T10ShadowVerifier      internal vT10;
-    Poseidon2YulSponge     internal sponge;
-    Poseidon2YulSponge16   internal sponge16;
-    KeyRegistry            internal kr;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
+    Poseidon2YulSponge16 internal sponge16;
+    KeyRegistry internal kr;
 
     string internal constant FIX = "./test/fixtures/atomic_transfer/atomic_transfer_max";
 
     address internal alice = makeAddr("alice");
-    address internal bob   = makeAddr("bob");
+    address internal bob = makeAddr("bob");
 
     uint256 internal shadowId;
-    uint256[] internal featureIds;       // 16 entries, indexed by slot
+    uint256[] internal featureIds; // 16 entries, indexed by slot
     ShadowToken.TransferShadowArgs internal args;
 
     // Storage-resident per-slot arrays to keep stack shallow.
@@ -57,16 +57,16 @@ contract TransferShadowMaxOccupancyTest is Test {
     uint256[16] internal _newC1X;
     uint256[16] internal _newC1Y;
     bytes32[16] internal _newChainTip;
-    uint16[16]  internal _newCount;
-    bytes[]     internal _c2s;
-    bytes32     internal _t10Hi;
-    bytes32     internal _t10Lo;
-    bytes       internal _proofTransfer;
-    bytes       internal _proofT10;
-    bytes32     internal _stashedRecipientPkX;
-    bytes32     internal _stashedRecipientPkY;
-    bytes32     internal _stashedPrevOwnerPkX;
-    bytes32     internal _stashedPrevOwnerPkY;
+    uint16[16] internal _newCount;
+    bytes[] internal _c2s;
+    bytes32 internal _t10Hi;
+    bytes32 internal _t10Lo;
+    bytes internal _proofTransfer;
+    bytes internal _proofT10;
+    bytes32 internal _stashedRecipientPkX;
+    bytes32 internal _stashedRecipientPkY;
+    bytes32 internal _stashedPrevOwnerPkX;
+    bytes32 internal _stashedPrevOwnerPkY;
 
     function setUp() public {
         _deployStack();
@@ -117,12 +117,12 @@ contract TransferShadowMaxOccupancyTest is Test {
         string memory j = vm.readFile(string.concat(FIX, "/meta.json"));
         for (uint256 i = 0; i < 16; i++) {
             string memory idx = vm.toString(i);
-            _newLsh[i]      = j.readBytes32(string.concat(".new_lsh[", idx, "]"));
-            _newCt[i]       = j.readBytes32(string.concat(".new_ct_commit[", idx, "]"));
-            _newC1X[i]      = uint256(j.readBytes32(string.concat(".new_c1_x[", idx, "]")));
-            _newC1Y[i]      = uint256(j.readBytes32(string.concat(".new_c1_y[", idx, "]")));
+            _newLsh[i] = j.readBytes32(string.concat(".new_lsh[", idx, "]"));
+            _newCt[i] = j.readBytes32(string.concat(".new_ct_commit[", idx, "]"));
+            _newC1X[i] = uint256(j.readBytes32(string.concat(".new_c1_x[", idx, "]")));
+            _newC1Y[i] = uint256(j.readBytes32(string.concat(".new_c1_y[", idx, "]")));
             _newChainTip[i] = j.readBytes32(string.concat(".new_chain_tip[", idx, "]"));
-            _newCount[i]    = uint16(j.readUint(string.concat(".new_mutation_count[", idx, "]")));
+            _newCount[i] = uint16(j.readUint(string.concat(".new_mutation_count[", idx, "]")));
         }
         // n_occupied = 16; occupied_idxs is the full [0..15] range.
         uint256[] memory occ = j.readUintArray(".occupied_idxs");
@@ -139,12 +139,11 @@ contract TransferShadowMaxOccupancyTest is Test {
             prevLshArr[i] = j.readBytes32(string.concat(".prev_lsh[", sIdxStr, "]"));
             prevCounts[i] = uint16(j.readUint(string.concat(".prev_mutation_count[", sIdxStr, "]")));
             prevTips[i] = j.readBytes32(string.concat(".prev_chain_tip[", sIdxStr, "]"));
-            featIds[i]   = uint256(keccak256(abi.encode(shadowId, occupiedIdxs[i], "feature")));
-            featureIds[i]= featIds[i];
+            featIds[i] = uint256(keccak256(abi.encode(shadowId, occupiedIdxs[i], "feature")));
+            featureIds[i] = featIds[i];
         }
         st.seedShadowMultiSlot(
-            shadowId, alice, _stashedPrevOwnerPkX, _stashedPrevOwnerPkY,
-            occupiedIdxs, featIds, prevLshArr
+            shadowId, alice, _stashedPrevOwnerPkX, _stashedPrevOwnerPkY, occupiedIdxs, featIds, prevLshArr
         );
         for (uint256 i = 0; i < 16; i++) {
             st.setSlotHistoryForTest(shadowId, occupiedIdxs[i], prevCounts[i], prevTips[i]);
@@ -152,7 +151,10 @@ contract TransferShadowMaxOccupancyTest is Test {
         for (uint256 i = 0; i < 16; i++) {
             uint8 sIdx = occupiedIdxs[i];
             fn.seedFeature(
-                featIds[i], shadowId, sIdx, uint8(i),
+                featIds[i],
+                shadowId,
+                sIdx,
+                uint8(i),
                 keccak256(abi.encode("origin", shadowId, sIdx)),
                 keccak256(abi.encode("palette", shadowId, sIdx)),
                 prevLshArr[i],
@@ -211,8 +213,11 @@ contract TransferShadowMaxOccupancyTest is Test {
         // Pre-state: alice owns shadow + 16 carriers.
         assertEq(st.ownerOf(shadowId), alice);
         for (uint256 i = 0; i < 16; i++) {
-            assertEq(uint256(st.slotOf(shadowId, uint8(i)).kind),
-                     uint256(ShadowToken.SlotKind.OCCUPIED), "all 16 slots occupied pre");
+            assertEq(
+                uint256(st.slotOf(shadowId, uint8(i)).kind),
+                uint256(ShadowToken.SlotKind.OCCUPIED),
+                "all 16 slots occupied pre"
+            );
             assertEq(fn.ownerOf(featureIds[i]), alice);
         }
 
@@ -227,8 +232,7 @@ contract TransferShadowMaxOccupancyTest is Test {
         assertEq(s.ecdhPubY, _stashedRecipientPkY, "ecdhPubY rotated");
 
         for (uint256 i = 0; i < 16; i++) {
-            assertEq(st.slotOf(shadowId, uint8(i)).liveStateHash, _newLsh[i],
-                     "slot LSH advanced");
+            assertEq(st.slotOf(shadowId, uint8(i)).liveStateHash, _newLsh[i], "slot LSH advanced");
             assertEq(fn.ownerOf(featureIds[i]), bob, "carrier owner rotated");
             assertTrue(fn.isInserted(featureIds[i]), "carrier still inserted");
             assertEq(fn.hostShadowIdOf(featureIds[i]), shadowId, "host unchanged");

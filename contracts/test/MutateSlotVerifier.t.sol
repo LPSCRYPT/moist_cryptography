@@ -20,7 +20,7 @@ contract MutateSlotVerifierTest is Test {
     bytes32[] internal pi;
 
     string internal constant PROOF_PATH = "./test/fixtures/mutate_slot/mutate_demo_v2/proof.bin";
-    string internal constant PI_PATH    = "./test/fixtures/mutate_slot/mutate_demo_v2/public_inputs.bin";
+    string internal constant PI_PATH = "./test/fixtures/mutate_slot/mutate_demo_v2/public_inputs.bin";
 
     uint256 internal constant EXPECTED_PI_LEN = 16;
 
@@ -29,8 +29,7 @@ contract MutateSlotVerifierTest is Test {
 
         proof = vm.readFileBinary(PROOF_PATH);
         bytes memory piRaw = vm.readFileBinary(PI_PATH);
-        require(piRaw.length == EXPECTED_PI_LEN * 32,
-            "PI fixture length mismatch (regenerate?)");
+        require(piRaw.length == EXPECTED_PI_LEN * 32, "PI fixture length mismatch (regenerate?)");
 
         pi = new bytes32[](EXPECTED_PI_LEN);
         for (uint256 i = 0; i < EXPECTED_PI_LEN; i++) {
@@ -50,7 +49,9 @@ contract MutateSlotVerifierTest is Test {
     function test_verify_rejects_corrupted_pi_owner_pk() public {
         // Corrupting PI[10] (owner_pk_x) breaks the binding asserted in-circuit.
         bytes32[] memory corrupted = new bytes32[](EXPECTED_PI_LEN);
-        for (uint256 i = 0; i < EXPECTED_PI_LEN; i++) corrupted[i] = pi[i];
+        for (uint256 i = 0; i < EXPECTED_PI_LEN; i++) {
+            corrupted[i] = pi[i];
+        }
         corrupted[10] = bytes32(uint256(corrupted[10]) ^ 1);
 
         // Verifier may revert OR return false; either is acceptable rejection.
@@ -64,7 +65,9 @@ contract MutateSlotVerifierTest is Test {
     function test_verify_rejects_corrupted_pi_new_lsh() public {
         // Corrupting PI[7] (new_live_state_hash) is the most direct chain-state lie.
         bytes32[] memory corrupted = new bytes32[](EXPECTED_PI_LEN);
-        for (uint256 i = 0; i < EXPECTED_PI_LEN; i++) corrupted[i] = pi[i];
+        for (uint256 i = 0; i < EXPECTED_PI_LEN; i++) {
+            corrupted[i] = pi[i];
+        }
         corrupted[7] = bytes32(uint256(corrupted[7]) ^ uint256(1) << 8);
 
         try v.verify(proof, corrupted) returns (bool ok) {

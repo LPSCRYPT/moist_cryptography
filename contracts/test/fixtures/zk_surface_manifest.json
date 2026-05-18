@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "notes": [
+    "External public input counts exclude the 8 pairing-point inputs appended inside generated UltraHonk verifiers.",
+    "byte_outputs entries are the authoritative map for calldata/event bytes that must be commitment-bound or explicitly classified as advisory."
+  ],
+  "surfaces": [
+    {
+      "name": "registerImage",
+      "contract_entrypoints": ["ShadowToken.registerImage"],
+      "circuit_dir": "circuits/landmark_regions_v2",
+      "verifier": "contracts/src/FaceDiscVerifier.sol",
+      "external_public_inputs": 1,
+      "byte_outputs": [
+        {"name": "imageCommit", "event": "ImageRegistered", "kind": "bytes32", "binding": "face_disc proof PI[0]"}
+      ],
+      "positive_tests": ["test_registerImage_succeeds_and_emits_event"],
+      "negative_tests": ["test_registerImage_reverts_when_proof_tampered"]
+    },
+    {
+      "name": "mintShadow",
+      "contract_entrypoints": ["ShadowToken.mintShadow"],
+      "circuit_dir": "circuits/landmark_regions_v2",
+      "verifier": "contracts/src/MintShadowVerifier.sol",
+      "external_public_inputs": 7,
+      "byte_outputs": [
+        {"name": "c2", "event": "ShadowSlotMutated", "kind": "bytes", "binding": "sponge_39(c2) == ctCommits[i]; sponge_16(ctCommits) == mint PI[5]"},
+        {"name": "originFaceId", "event": "ShadowSlotMutated", "kind": "bytes32", "binding": "hash2(imageCommit, slotIdx) checked on chain"},
+        {"name": "saltEnvelope", "event": "FeaturePaletteSaltEnvelope", "kind": "bytes32[3]", "binding": "advisory encrypted salt envelope emitted exactly; palette opening checked at reveal"}
+        ,{"name": "FeatureMinted metadata", "event": "FeatureMinted", "kind": "bytes32", "binding": "mint proof binds liveStateHash; paletteCommit is stored immutable metadata opened at solve"}
+        ,{"name": "ShadowMinted metadata", "event": "ShadowMinted", "kind": "bytes32", "binding": "mint proof PI[1] imageCommit and deterministic shadowId"}
+      ],
+      "positive_tests": ["test_mintShadow_success_creates_shadow_and_8_carriers"],
+      "negative_tests": ["test_mintShadow_reverts_when_c2_tampered", "test_mintShadow_reverts_when_c2_field_noncanonical", "test_mintShadow_reverts_when_ctCommits_tampered", "test_mintShadow_reverts_when_originFaceIds_tampered"]
+    },
+    {
+      "name": "mutateSlot",
+      "contract_entrypoints": ["ShadowToken.mutateSlot"],
+      "circuit_dir": "circuits/mutate_slot",
+      "verifier": "contracts/src/MutateSlotVerifier.sol",
+      "external_public_inputs": 16,
+      "byte_outputs": [
+        {"name": "newC2", "event": "ShadowSlotMutated", "kind": "bytes", "binding": "sponge_39(newC2) == PI[8] newCtCommit"},
+        {"name": "newLiveStateHash", "event": "ShadowSlotMutated", "kind": "bytes32", "binding": "mutate proof PI[7]"},
+        {"name": "newChainTip", "event": "ShadowSlotMutated", "kind": "bytes32", "binding": "mutate proof PI[14]"}
+      ],
+      "positive_tests": ["test_mutateSlot_success_advances_state_and_T10"],
+      "negative_tests": ["test_mutateSlot_reverts_when_c2_tampered", "test_mutateSlot_reverts_when_c2_field_noncanonical", "test_mutateSlot_reverts_when_newCtCommit_tampered", "test_mutateSlot_reverts_when_oldLsh_mismatch"]
+    },
+    {
+      "name": "mutateBatch",
+      "contract_entrypoints": ["ShadowToken.mutateBatch"],
+      "circuit_dir": "circuits/mutate_slot",
+      "verifier": "contracts/src/MutateSlotVerifier.sol",
+      "external_public_inputs": 16,
+      "byte_outputs": [
+        {"name": "newC2[]", "event": "ShadowSlotMutated", "kind": "bytes[]", "binding": "each sponge_39(newC2[i]) == each mutate PI[8]"}
+      ],
+      "positive_tests": ["test_mutateBatch_success_advances_two_slots_and_T10"],
+      "negative_tests": ["test_mutateBatch_reverts_when_entry_c2_tampered", "test_mutateBatch_reverts_when_entry_c2_field_noncanonical", "test_mutateBatch_reverts_when_first_proof_tampered", "test_mutateBatch_reverts_when_second_proof_tampered"]
+    },
+    {
+      "name": "solveShadow",
+      "contract_entrypoints": ["ShadowToken.solve"],
+      "circuit_dir": "circuits/solve_shadow_v2",
+      "verifier": "contracts/src/SolveShadowVerifier.sol",
+      "external_public_inputs": 7,
+      "byte_outputs": [
+        {"name": "plaintexts", "event": "FeatureSlotRevealed", "kind": "bytes[16]", "binding": "sponge_39(plaintext[i]) == stateCommits[i]; sponge_16(stateCommits) == solve PI[1]"},
+        {"name": "paletteRGB", "event": "FeaturePaletteRevealed", "kind": "bytes", "binding": "palette/salt sponge_17 equals stored paletteCommit; RGB fields must be uint24"},
+        {"name": "zIndexRevealed", "event": "ShadowSolved", "kind": "uint64", "binding": "solve proof PI[6]"}
+      ],
+      "positive_tests": ["test_solve_success_freezes_shadow_and_extracts_carriers"],
+      "negative_tests": ["test_solve_reverts_when_plaintext_tampered", "test_solve_reverts_when_plaintext_field_noncanonical", "test_solve_reverts_when_empty_slot_has_nonzero_plaintext", "test_solve_reverts_when_empty_slot_has_nonzero_state_commit"]
+    },
+    {
+      "name": "transferShadow",
+      "contract_entrypoints": ["ShadowToken.transferShadow"],
+      "circuit_dir": "circuits/transfer_shadow_v2",
+      "verifier": "contracts/src/TransferShadowVerifier.sol",
+      "external_public_inputs": 11,
+      "byte_outputs": [
+        {"name": "newC2[]", "event": "ShadowSlotMutated", "kind": "bytes[]", "binding": "each sponge_39(newC2[i]) == newCtCommits[i]; sponge_16(newCtCommits) == PI[8]"},
+        {"name": "newC1X[]", "event": "ShadowSlotEnvelope", "kind": "uint256[]", "binding": "canonical fields; sponge_16(newC1Xs) == PI[9]"},
+        {"name": "newC1Y[]", "event": "ShadowSlotEnvelope", "kind": "uint256[]", "binding": "canonical fields; sponge_16(newC1Ys) == PI[10]"}
+        ,{"name": "recipientPubKey", "event": "ShadowTransferred", "kind": "bytes32[2]", "binding": "recipient key registry values copied into transfer proof PI[1]/PI[2]"}
+      ],
+      "positive_tests": ["test_transferShadow_emits_bound_c1_envelopes_for_occupied_slots"],
+      "negative_tests": ["test_transferShadow_reverts_when_c2_tampered", "test_transferShadow_reverts_when_newC1X_tampered", "test_transferShadow_reverts_when_newC1Y_tampered", "test_transferShadow_reverts_when_empty_slot_has_c2", "test_transferShadow_reverts_when_empty_slot_has_newLiveStateHash", "test_transferShadow_reverts_when_empty_slot_has_newChainTip", "test_transferShadow_reverts_when_empty_slot_has_newMutationCount"]
+    },
+    {
+      "name": "insertFeature",
+      "contract_entrypoints": ["ShadowToken.insertFeature"],
+      "circuit_dir": "circuits/mutate_slot",
+      "verifier": "contracts/src/MutateSlotVerifier.sol",
+      "external_public_inputs": 16,
+      "byte_outputs": [
+        {"name": "newC2", "event": "ShadowSlotMutated", "kind": "bytes", "binding": "sponge_39(newC2) == mutate PI[8]"},
+        {"name": "checkpointLiveStateHash", "event": "ShadowFeatureInserted", "kind": "bytes32", "binding": "old live-state checkpoint consumed by mutate proof"}
+      ],
+      "positive_tests": ["test_insertFeature_success_advances_state_and_T10"],
+      "negative_tests": ["test_insertFeature_reverts_when_c2_tampered", "test_insertFeature_reverts_when_c2_field_noncanonical", "test_insertFeature_reverts_when_proof_public_input_tampered", "test_insertFeature_reverts_when_checkpoint_old_lsh_mismatch", "test_insertFeature_reverts_when_t10_public_input_tampered"]
+    },
+    {
+      "name": "setZIndexCommit",
+      "contract_entrypoints": ["ShadowToken.setZIndexCommit"],
+      "circuit_dir": "circuits/zindex_commit",
+      "verifier": "contracts/src/ZIndexCommitVerifier.sol",
+      "external_public_inputs": 2,
+      "byte_outputs": [
+        {"name": "newCommit", "event": "ShadowZIndexCommitSet", "kind": "bytes32", "binding": "zindex proof PI[1]"}
+      ],
+      "positive_tests": ["test_setZIndexCommit_success"],
+      "negative_tests": ["test_setZIndexCommit_reverts_when_z_proof_lies", "test_setZIndexCommit_reverts_when_T10_lies"]
+    },
+    {
+      "name": "FeatureNFT.transferFeature",
+      "contract_entrypoints": ["FeatureNFT.transferFeature"],
+      "circuit_dir": "circuits/transfer_feature_v2",
+      "verifier": "contracts/src/TransferFeatureV2Verifier.sol",
+      "external_public_inputs": 11,
+      "byte_outputs": [
+        {"name": "c2", "event": "FeatureTransferred", "kind": "bytes", "binding": "sponge_39(c2) == PI[8]"},
+        {"name": "newC1X", "event": "FeatureTransferred", "kind": "bytes32", "binding": "canonical field and equals PI[9]"},
+        {"name": "newC1Y", "event": "FeatureTransferred", "kind": "bytes32", "binding": "canonical field and equals PI[10]"}
+      ],
+      "positive_tests": ["test_transferFeature_v2_succeeds_against_real_verifier"],
+      "negative_tests": ["test_transferFeature_reverts_when_c2_tampered", "test_transferFeature_reverts_when_new_c1_tampered", "test_transferFeature_reverts_when_c2_field_noncanonical", "test_transferFeature_reverts_when_new_c1_field_noncanonical"]
+    }
+  ],
+  "allowlisted_verifiers": [
+    {"verifier": "contracts/src/ExtractSlotVerifier.sol", "reason": "No tracked real proof fixture currently exercises this legacy verifier; extractSlot uses T10 refresh in current tests."},
+    {"verifier": "contracts/src/T10ShadowVerifier.sol", "reason": "Verifier-only T10 refresh proof used by mint/mutate/transfer/insert/zindex entrypoints; no standalone byte-output surface."},
+    {"verifier": "contracts/src/TransferFeatureVerifier.sol", "reason": "Superseded by transfer_feature_v2; retained only until final bytecode/gas cleanup."}
+  ]
+}

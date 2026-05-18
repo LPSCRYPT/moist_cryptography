@@ -88,12 +88,7 @@ contract TestableShadowToken is ShadowToken {
 
     /// Synthetic mint without touching any manifest entry. Used by tests
     /// that need an empty manifest (e.g. insertFeature into a fresh shadow).
-    function seedShadowOnly(
-        uint256 shadowId,
-        address to,
-        bytes32 ecdhPubX,
-        bytes32 ecdhPubY
-    ) external {
+    function seedShadowOnly(uint256 shadowId, address to, bytes32 ecdhPubX, bytes32 ecdhPubY) external {
         Shadow storage s = _shadowsStorage(shadowId);
         s.ecdhPubX = ecdhPubX;
         s.ecdhPubY = ecdhPubY;
@@ -151,22 +146,13 @@ contract TestableShadowToken is ShadowToken {
         _mint(to, shadowId);
     }
 
-    function setSlotHistoryForTest(
-        uint256 shadowId,
-        uint8 slotIdx,
-        uint16 mutationCount,
-        bytes32 chainTip
-    ) external {
+    function setSlotHistoryForTest(uint256 shadowId, uint8 slotIdx, uint16 mutationCount, bytes32 chainTip) external {
         ManifestEntry storage m = _manifestStorage(shadowId, slotIdx);
         m.mutationCount = mutationCount;
         m.chainTip = chainTip;
     }
 
-    function _seedShadowHeader(
-        uint256 shadowId,
-        bytes32 ecdhPubX,
-        bytes32 ecdhPubY
-    ) private {
+    function _seedShadowHeader(uint256 shadowId, bytes32 ecdhPubX, bytes32 ecdhPubY) private {
         Shadow storage s = _shadowsStorage(shadowId);
         s.ecdhPubX = ecdhPubX;
         s.ecdhPubY = ecdhPubY;
@@ -203,12 +189,7 @@ contract TestableShadowToken is ShadowToken {
     /// chain state without driving the full solve flow (which requires
     /// a real solve_shadow_v2 proof). Spec criterion: bridge MUST work
     /// against v2 storage post-solve.
-    function setShadowSolvedForTest(
-        uint256 shadowId,
-        uint64 zIndexRevealed,
-        bytes32 t10Hi,
-        bytes32 t10Lo
-    ) external {
+    function setShadowSolvedForTest(uint256 shadowId, uint64 zIndexRevealed, bytes32 t10Hi, bytes32 t10Lo) external {
         Shadow storage s = _shadowsStorage(shadowId);
         s.solved = true;
         s.zIndexRevealed = zIndexRevealed;
@@ -252,11 +233,7 @@ contract TestableShadowToken is ShadowToken {
     /// entry occupies 2 storage slots (kind+featureId packed in slot0,
     /// liveStateHash in slot1; though Solidity actually packs `kind` and
     /// `featureId` differently -- see check below).
-    function _manifestStorage(uint256 shadowId, uint8 slotIdx)
-        private
-        pure
-        returns (ManifestEntry storage m)
-    {
+    function _manifestStorage(uint256 shadowId, uint8 slotIdx) private pure returns (ManifestEntry storage m) {
         uint256 mapSlot = _MANIFESTS_SLOT;
         bytes32 outerBase;
         assembly {

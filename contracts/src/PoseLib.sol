@@ -38,13 +38,7 @@ library PoseLib {
     /// obviously-bogus rotations (e.g. cos=sin=0 which would draw nothing).
     int256 internal constant ROT_TOLERANCE_Q30 = 1 << 20; // ~9.5e-4
 
-    function pack(
-        uint8 curX,
-        uint8 curY,
-        uint16 scaleQ88,
-        int16 cosQ15,
-        int16 sinQ15
-    ) internal pure returns (uint64) {
+    function pack(uint8 curX, uint8 curY, uint16 scaleQ88, int16 cosQ15, int16 sinQ15) internal pure returns (uint64) {
         if (curX >= 64) revert PoseFieldOutOfRange(0, curX);
         if (curY >= 64) revert PoseFieldOutOfRange(1, curY);
         // scaleQ88 is uint16 already; cosQ15/sinQ15 are int16 — both fit 16 bits.
@@ -60,19 +54,13 @@ library PoseLib {
     function unpack(uint64 p)
         internal
         pure
-        returns (
-            uint8 curX,
-            uint8 curY,
-            uint16 scaleQ88,
-            int16 cosQ15,
-            int16 sinQ15
-        )
+        returns (uint8 curX, uint8 curY, uint16 scaleQ88, int16 cosQ15, int16 sinQ15)
     {
-        curX     = uint8(p & 0x3F);
-        curY     = uint8((p >> 6) & 0x3F);
+        curX = uint8(p & 0x3F);
+        curY = uint8((p >> 6) & 0x3F);
         scaleQ88 = uint16((p >> 12) & 0xFFFF);
-        cosQ15   = int16(uint16((p >> 28) & 0xFFFF));
-        sinQ15   = int16(uint16((p >> 44) & 0xFFFF));
+        cosQ15 = int16(uint16((p >> 28) & 0xFFFF));
+        sinQ15 = int16(uint16((p >> 44) & 0xFFFF));
         // Reserved bits 60..63 must be zero on read; not asserted here, but
         // pack() never sets them so any non-zero value implies tampering.
     }
@@ -87,13 +75,7 @@ library PoseLib {
         // Reserved bits 60..63 must be zero.
         if ((p >> 60) != 0) revert PoseFieldOutOfRange(5, p >> 60);
 
-        (
-            uint8 curX,
-            uint8 curY,
-            uint16 scaleQ88,
-            int16 cosQ15,
-            int16 sinQ15
-        ) = unpack(p);
+        (uint8 curX, uint8 curY, uint16 scaleQ88, int16 cosQ15, int16 sinQ15) = unpack(p);
 
         // curX/curY must be on the frame (not just within their 6-bit slot).
         if (curX >= FRAME_DIM) revert PoseFieldOutOfRange(0, curX);
@@ -121,7 +103,7 @@ library PoseLib {
     /// minimum to keep the renderer from drawing off-frame slot ANCHORS.
     /// (Bytes that spill past the frame are clipped by the renderer.)
     function requireOnFrame(uint64 p, uint8 regionW, uint8 regionH) internal pure {
-        (uint8 curX, uint8 curY, , , ) = unpack(p);
+        (uint8 curX, uint8 curY,,,) = unpack(p);
         uint256 maxX = uint256(curX) + uint256(regionW);
         uint256 maxY = uint256(curY) + uint256(regionH);
         if (maxX > FRAME_DIM) revert PoseOffFrame(0, maxX, FRAME_DIM);

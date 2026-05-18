@@ -39,9 +39,9 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 /// assert against it.
 contract BridgeShadowTest is Test {
     TestableShadowToken internal st;
-    TestableFeatureNFT  internal fn;
-    Poseidon2YulSponge  internal sponge;
-    ShadowBridgeL2      internal bridge;
+    TestableFeatureNFT internal fn;
+    Poseidon2YulSponge internal sponge;
+    ShadowBridgeL2 internal bridge;
 
     address internal constant L2_MESSENGER = 0x4200000000000000000000000000000000000007;
     address internal alice = makeAddr("alice");
@@ -49,12 +49,12 @@ contract BridgeShadowTest is Test {
     address internal l1Mirror = makeAddr("l1Mirror");
 
     uint256 internal shadowId;
-    bytes32 internal t10Hi  = bytes32(uint256(0x1111));
-    bytes32 internal t10Lo  = bytes32(uint256(0x2222));
+    bytes32 internal t10Hi = bytes32(uint256(0x1111));
+    bytes32 internal t10Lo = bytes32(uint256(0x2222));
     bytes32 internal ecdhPubX = bytes32(uint256(0xa1));
     bytes32 internal ecdhPubY = bytes32(uint256(0xa2));
     bytes32 internal zIndexCommit = bytes32(uint256(0xbeef));
-    uint64  internal zIndexRevealed = 0xfedcba9876543210;
+    uint64 internal zIndexRevealed = 0xfedcba9876543210;
 
     event ShadowBridged(uint256 indexed shadowId, address indexed sender, bytes32 messageHash);
 
@@ -160,10 +160,7 @@ contract BridgeShadowTest is Test {
 
     function test_bridgeShadow_reverts_when_l1_mirror_unset() public {
         // Deploy a fresh bridge without setL1Mirror.
-        ShadowBridgeL2 freshBridge = new ShadowBridgeL2(
-            IShadowToken(address(st)),
-            IFeatureNFT(address(fn))
-        );
+        ShadowBridgeL2 freshBridge = new ShadowBridgeL2(IShadowToken(address(st)), IFeatureNFT(address(fn)));
         vm.prank(alice);
         vm.expectRevert(ShadowBridgeL2.L1MirrorNotSet.selector);
         freshBridge.bridgeShadow(shadowId, alice, _revealedPi());
@@ -171,7 +168,7 @@ contract BridgeShadowTest is Test {
 
     function test_bridgeShadow_reverts_on_bad_revealed_pi_length() public {
         // length not a multiple of 32 -> BadRevealedPi
-        bytes memory pi = new bytes(33);   // 1 odd byte
+        bytes memory pi = new bytes(33); // 1 odd byte
         vm.prank(alice);
         vm.expectRevert(ShadowBridgeL2.BadRevealedPi.selector);
         bridge.bridgeShadow(shadowId, alice, pi);
@@ -205,8 +202,8 @@ contract BridgeShadowTest is Test {
 /// tests can assert the bridge wrote the expected payload.
 contract L2MessengerStub {
     address public lastTarget;
-    bytes   public lastMessage;
-    uint32  public lastGasLimit;
+    bytes public lastMessage;
+    uint32 public lastGasLimit;
 
     function sendMessage(address _target, bytes calldata _message, uint32 _minGasLimit) external {
         lastTarget = _target;

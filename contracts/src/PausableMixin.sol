@@ -49,7 +49,7 @@ abstract contract PausableMixin {
 
     // Per-slot rotation state. Slots are caller-defined uint8 ids.
     mapping(uint8 => address) public proposedVerifier;
-    mapping(uint8 => uint64)  public proposedAt;
+    mapping(uint8 => uint64) public proposedAt;
 
     // ============== modifiers ==============
 
@@ -94,7 +94,7 @@ abstract contract PausableMixin {
     /// each slot id means (e.g. 0 = mint, 1 = transfer_shadow, etc.).
     function proposeVerifier(uint8 slot, address newVerifier) external onlyPausableDeployer {
         proposedVerifier[slot] = newVerifier;
-        proposedAt[slot]       = uint64(block.timestamp);
+        proposedAt[slot] = uint64(block.timestamp);
         uint64 unlockAt = uint64(block.timestamp) + TIMELOCK_DURATION;
         emit VerifierProposed(slot, newVerifier, unlockAt);
     }
@@ -102,7 +102,7 @@ abstract contract PausableMixin {
     /// Cancel a pending rotation (deployer escape hatch).
     function cancelVerifierRotation(uint8 slot) external onlyPausableDeployer {
         proposedVerifier[slot] = address(0);
-        proposedAt[slot]       = 0;
+        proposedAt[slot] = 0;
         emit VerifierRotationCanceled(slot);
     }
 
@@ -112,14 +112,14 @@ abstract contract PausableMixin {
     /// the verifier address into its storage layout.
     function applyVerifier(uint8 slot) external {
         address newV = proposedVerifier[slot];
-        uint64  ts   = proposedAt[slot];
+        uint64 ts = proposedAt[slot];
         if (newV == address(0) || ts == 0) revert NoPendingRotation(slot);
         uint64 unlockAt = ts + TIMELOCK_DURATION;
         if (block.timestamp < unlockAt) {
             revert VerifierTimelockNotExpired(unlockAt, uint64(block.timestamp));
         }
         proposedVerifier[slot] = address(0);
-        proposedAt[slot]       = 0;
+        proposedAt[slot] = 0;
         _writeVerifierSlot(slot, newV);
         emit VerifierApplied(slot, newV);
     }
@@ -127,15 +127,11 @@ abstract contract PausableMixin {
     /// Emergency immediate apply when contract is paused. Bypasses the
     /// timelock since the contract is unusable while paused -- the timelock's
     /// "give users time to react" purpose doesn't apply.
-    function applyVerifierImmediate(uint8 slot)
-        external
-        onlyPausableDeployer
-        whenPaused
-    {
+    function applyVerifierImmediate(uint8 slot) external onlyPausableDeployer whenPaused {
         address newV = proposedVerifier[slot];
         if (newV == address(0)) revert NoPendingRotation(slot);
         proposedVerifier[slot] = address(0);
-        proposedAt[slot]       = 0;
+        proposedAt[slot] = 0;
         _writeVerifierSlot(slot, newV);
         emit VerifierApplied(slot, newV);
     }

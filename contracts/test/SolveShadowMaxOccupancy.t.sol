@@ -30,10 +30,10 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 contract SolveShadowMaxOccupancyTest is Test {
     using stdJson for string;
 
-    TestableShadowToken  internal st;
-    TestableFeatureNFT   internal fn;
-    SolveShadowVerifier  internal vS;
-    Poseidon2YulSponge   internal sponge;
+    TestableShadowToken internal st;
+    TestableFeatureNFT internal fn;
+    SolveShadowVerifier internal vS;
+    Poseidon2YulSponge internal sponge;
     Poseidon2YulSponge16 internal sponge16;
     Poseidon2YulSpongePaletteSalt internal sponge17;
 
@@ -52,7 +52,7 @@ contract SolveShadowMaxOccupancyTest is Test {
 
     uint256 internal constant SOLVE_PI_LEN = 7;
 
-    uint8[]   internal occupiedIdxs;
+    uint8[] internal occupiedIdxs;
     uint256[] internal featureIds;
     bytes32[16] internal prevLsh;
     uint8[16] internal zPerm;
@@ -74,13 +74,13 @@ contract SolveShadowMaxOccupancyTest is Test {
         st.setVerifier(st.SLOT_SOLVE_SHADOW(), IVerifier(address(vS)));
 
         proofSolve = vm.readFileBinary(string.concat(FIX, "/proof.bin"));
-        piSolve    = _loadFields(string.concat(FIX, "/public_inputs.bin"), SOLVE_PI_LEN);
+        piSolve = _loadFields(string.concat(FIX, "/public_inputs.bin"), SOLVE_PI_LEN);
 
-        shadowId     = uint256(piSolve[0]);
-        zPermPacked  = piSolve[2];
+        shadowId = uint256(piSolve[0]);
+        zPermPacked = piSolve[2];
         zIndexCommit = piSolve[3];
-        ownerPkX     = piSolve[5];
-        ownerPkY     = piSolve[6];
+        ownerPkX = piSolve[5];
+        ownerPkY = piSolve[6];
 
         _loadFromMeta();
         _seedChainState();
@@ -103,7 +103,7 @@ contract SolveShadowMaxOccupancyTest is Test {
         for (uint256 i = 0; i < 16; i++) {
             string memory idx = vm.toString(i);
             prevLsh[i] = j.readBytes32(string.concat(".prev_lsh[", idx, "]"));
-            zPerm[i]   = uint8(j.readUint(string.concat(".z_perm[", idx, "]")));
+            zPerm[i] = uint8(j.readUint(string.concat(".z_perm[", idx, "]")));
             stateCommits[i] = j.readBytes32(string.concat(".state_commits[", idx, "]"));
         }
         uint256[] memory occ = j.readUintArray(".occupied_idxs");
@@ -130,11 +130,16 @@ contract SolveShadowMaxOccupancyTest is Test {
         for (uint256 i = 0; i < 16; i++) {
             uint8 sIdx = occupiedIdxs[i];
             (bytes32[16] memory pal, bytes32 salt) = _genPaletteSalt(sIdx);
-            for (uint256 c = 0; c < 16; c++) palettes[sIdx][c] = pal[c];
+            for (uint256 c = 0; c < 16; c++) {
+                palettes[sIdx][c] = pal[c];
+            }
             paletteSalts[sIdx] = salt;
             bytes32 paletteCommit = _computePaletteCommit(pal, salt);
             fn.seedFeature(
-                featIds[i], shadowId, sIdx, uint8(i),
+                featIds[i],
+                shadowId,
+                sIdx,
+                uint8(i),
                 keccak256(abi.encode("origin", shadowId, sIdx)),
                 paletteCommit,
                 prevLsh[sIdx],
@@ -143,20 +148,14 @@ contract SolveShadowMaxOccupancyTest is Test {
         }
     }
 
-    function _genPaletteSalt(uint8 sIdx)
-        internal view returns (bytes32[16] memory palette, bytes32 salt)
-    {
+    function _genPaletteSalt(uint8 sIdx) internal view returns (bytes32[16] memory palette, bytes32 salt) {
         for (uint256 c = 0; c < 16; c++) {
-            palette[c] = bytes32(uint256(
-                uint24(uint256(keccak256(abi.encode("color", shadowId, sIdx, c))))
-            ));
+            palette[c] = bytes32(uint256(uint24(uint256(keccak256(abi.encode("color", shadowId, sIdx, c))))));
         }
         salt = bytes32(uint256(keccak256(abi.encode("salt", shadowId, sIdx))) % st.FR_MOD());
     }
 
-    function _computePaletteCommit(bytes32[16] memory palette, bytes32 salt)
-        internal view returns (bytes32 commit)
-    {
+    function _computePaletteCommit(bytes32[16] memory palette, bytes32 salt) internal view returns (bytes32 commit) {
         bytes memory buf = new bytes(17 * 32);
         for (uint256 i = 0; i < 16; i++) {
             bytes32 v = palette[i];
@@ -201,8 +200,7 @@ contract SolveShadowMaxOccupancyTest is Test {
 
         // Pre-state: 16 occupied + 16 inserted carriers.
         for (uint256 i = 0; i < 16; i++) {
-            assertEq(uint256(st.slotOf(shadowId, occupiedIdxs[i]).kind),
-                     uint256(ShadowToken.SlotKind.OCCUPIED));
+            assertEq(uint256(st.slotOf(shadowId, occupiedIdxs[i]).kind), uint256(ShadowToken.SlotKind.OCCUPIED));
             assertTrue(fn.isInserted(featureIds[i]));
         }
 
@@ -214,11 +212,11 @@ contract SolveShadowMaxOccupancyTest is Test {
         assertTrue(st.isSolved(shadowId), "solved");
         for (uint256 i = 0; i < 16; i++) {
             uint8 sIdx = occupiedIdxs[i];
-            assertEq(uint256(st.slotOf(shadowId, sIdx).kind),
-                     uint256(ShadowToken.SlotKind.EMPTY), "slot empty post-solve");
+            assertEq(
+                uint256(st.slotOf(shadowId, sIdx).kind), uint256(ShadowToken.SlotKind.EMPTY), "slot empty post-solve"
+            );
             assertFalse(fn.isInserted(featureIds[i]), "carrier extracted");
-            assertEq(fn.liveStateHashCheckpointOf(featureIds[i]), prevLsh[sIdx],
-                     "checkpoint synced to final lsh");
+            assertEq(fn.liveStateHashCheckpointOf(featureIds[i]), prevLsh[sIdx], "checkpoint synced to final lsh");
         }
 
         // 16 SlotExtracted events.

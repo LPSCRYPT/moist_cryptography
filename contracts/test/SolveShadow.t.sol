@@ -169,6 +169,20 @@ contract SolveShadowE2ETest is Test {
         }
     }
 
+    function _firstEmptySlot() internal view returns (uint8) {
+        for (uint8 slot = 0; slot < 16; slot++) {
+            bool occupied = false;
+            for (uint256 i = 0; i < occupiedIdxs.length; i++) {
+                if (occupiedIdxs[i] == slot) {
+                    occupied = true;
+                    break;
+                }
+            }
+            if (!occupied) return slot;
+        }
+        revert("no empty slot");
+    }
+
     function _seedChainState() internal {
         // Build occupied seed arrays.
         uint256[] memory featIds = new uint256[](occupiedIdxs.length);
@@ -433,6 +447,29 @@ contract SolveShadowE2ETest is Test {
         args.paletteSalts[sIdx] = bytes32(fr);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(FeatureNFT.NonCanonicalField.selector, uint256(16), fr));
+        st.solve(args);
+        assertFalse(st.isSolved(shadowId), "shadow remains unsolved");
+    }
+
+    function test_solve_reverts_when_empty_slot_has_nonzero_plaintext() public {
+        ShadowToken.SolveArgs memory args = _buildArgs();
+        uint8 sIdx = _firstEmptySlot();
+        args.plaintexts[sIdx] = new bytes(39 * 32);
+        _writeField(args.plaintexts[sIdx], 0, 1);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.BadC2Length.selector, uint256(39 * 32), uint256(0)));
+        st.solve(args);
+        assertFalse(st.isSolved(shadowId), "shadow remains unsolved");
+    }
+
+    function test_solve_reverts_when_empty_slot_has_nonzero_state_commit() public {
+        ShadowToken.SolveArgs memory args = _buildArgs();
+        uint8 sIdx = _firstEmptySlot();
+        args.stateCommits[sIdx] = bytes32(uint256(1));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.BadC2Length.selector, uint256(1), uint256(0)));
         st.solve(args);
         assertFalse(st.isSolved(shadowId), "shadow remains unsolved");
     }

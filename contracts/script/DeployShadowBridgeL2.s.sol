@@ -11,14 +11,11 @@ import {ShadowBridgeL2} from "../src/ShadowBridgeL2.sol";
 contract DeployShadowBridgeL2 is Script {
     function run() external {
         address shadowToken = vm.envAddress("SHADOW_TOKEN");
-        address featureNft  = vm.envAddress("FEATURE_NFT");
+        address featureNft = vm.envAddress("FEATURE_NFT");
         require(shadowToken != address(0), "SHADOW_TOKEN env required");
-        require(featureNft  != address(0), "FEATURE_NFT env required");
+        require(featureNft != address(0), "FEATURE_NFT env required");
         vm.startBroadcast();
-        ShadowBridgeL2 bridge = new ShadowBridgeL2(
-            IShadowToken(shadowToken),
-            IFeatureNFT(featureNft)
-        );
+        ShadowBridgeL2 bridge = new ShadowBridgeL2(IShadowToken(shadowToken), IFeatureNFT(featureNft));
         console.log("ShadowBridgeL2:", address(bridge));
         vm.stopBroadcast();
     }

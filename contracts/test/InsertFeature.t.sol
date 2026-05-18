@@ -306,6 +306,57 @@ contract InsertFeatureE2ETest is Test {
         assertFalse(fn.isInserted(featureId), "feature remains held");
     }
 
+    function _featureCheckpointSlot(uint256 id) internal returns (bytes32) {
+        bytes32 baseSlot = keccak256(abi.encode(id, uint256(12)));
+        bytes32 originalCheckpoint = fn.liveStateHashCheckpointOf(id);
+        bytes32 sentinel = bytes32(uint256(0xA11CE));
+        for (uint256 offset = 0; offset < 8; offset++) {
+            bytes32 slot = bytes32(uint256(baseSlot) + offset);
+            bytes32 oldWord = vm.load(address(fn), slot);
+            vm.store(address(fn), slot, sentinel);
+            bool matched = fn.liveStateHashCheckpointOf(id) == sentinel;
+            vm.store(address(fn), slot, oldWord);
+            if (matched) {
+                assertEq(fn.liveStateHashCheckpointOf(id), originalCheckpoint, "checkpoint restored after slot probe");
+                return slot;
+            }
+        }
+        revert("checkpoint slot not found");
+    }
+
+    function test_insertFeature_reverts_when_proof_public_input_tampered() public {
+        ShadowToken.InsertFeatureArgs memory args = _buildArgs();
+        args.proofInsert[args.proofInsert.length / 2] =
+            bytes1(uint8(args.proofInsert[args.proofInsert.length / 2]) ^ 0x01);
+
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.insertFeature(args);
+        assertFalse(fn.isInserted(featureId), "feature remains held");
+    }
+
+    function test_insertFeature_reverts_when_checkpoint_old_lsh_mismatch() public {
+        bytes32 checkpointSlot = _featureCheckpointSlot(featureId);
+        vm.store(address(fn), checkpointSlot, bytes32(uint256(oldLsh) ^ 1));
+        assertEq(fn.liveStateHashCheckpointOf(featureId), bytes32(uint256(oldLsh) ^ 1), "checkpoint tampered");
+
+        ShadowToken.InsertFeatureArgs memory args = _buildArgs();
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.insertFeature(args);
+        assertFalse(fn.isInserted(featureId), "feature remains held");
+    }
+
+    function test_insertFeature_reverts_when_t10_public_input_tampered() public {
+        ShadowToken.InsertFeatureArgs memory args = _buildArgs();
+        args.newT10[0] = bytes32(uint256(args.newT10[0]) ^ 1);
+
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.insertFeature(args);
+        assertFalse(fn.isInserted(featureId), "feature remains held");
+    }
+
     /// Gas regression: insertFeature does a mutate_slot verify (proves the
     /// re-encryption) + a T10 verify + manifest writes + carrier rotation.
     /// On-chain observed: ~7.3M (B7, E6). Cap at 9M.

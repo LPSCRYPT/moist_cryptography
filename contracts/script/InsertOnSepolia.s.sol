@@ -78,8 +78,7 @@ contract InsertOnSepolia is Script {
         // a clear error.
         bytes32 chainCheckpoint = fn.liveStateHashCheckpointOf(args.featureId);
         bytes32 fixtureOldLsh = _word(L.piIns, 6);
-        require(chainCheckpoint == fixtureOldLsh,
-            "checkpoint moved since fixture built");
+        require(chainCheckpoint == fixtureOldLsh, "checkpoint moved since fixture built");
 
         console.log("=== insertFeature broadcast ===");
         console.log("ST       :", stAddr);
@@ -110,36 +109,34 @@ contract InsertOnSepolia is Script {
 
     function _loadFixture(string memory fix) internal returns (Loaded memory L) {
         L.proofIns = vm.readFileBinary(string.concat(fix, "/proof_ins.bin"));
-        L.piIns    = vm.readFileBinary(string.concat(fix, "/public_inputs_ins.bin"));
+        L.piIns = vm.readFileBinary(string.concat(fix, "/public_inputs_ins.bin"));
         require(L.piIns.length == MUT_PI_LEN * 32, "bad insert PI length");
         L.proofT10 = vm.readFileBinary(string.concat(fix, "/proof_t10.bin"));
-        L.piT10    = vm.readFileBinary(string.concat(fix, "/public_inputs_t10.bin"));
+        L.piT10 = vm.readFileBinary(string.concat(fix, "/public_inputs_t10.bin"));
         require(L.piT10.length == T10_PI_LEN * 32, "bad T10 PI length");
-        L.newC2    = vm.readFileBinary(string.concat(fix, "/c2.bin"));
+        L.newC2 = vm.readFileBinary(string.concat(fix, "/c2.bin"));
     }
 
-    function _buildArgs(Loaded memory L)
-        internal pure returns (ShadowToken.InsertFeatureArgs memory args)
-    {
-        args.shadowId          = uint256(_word(L.piIns, 0));
-        args.slotIdx           = uint8(uint256(_word(L.piIns, 1)));
-        args.featureId         = uint256(_word(L.piIns, 2));
-        args.proofInsert       = L.proofIns;
+    function _buildArgs(Loaded memory L) internal pure returns (ShadowToken.InsertFeatureArgs memory args) {
+        args.shadowId = uint256(_word(L.piIns, 0));
+        args.slotIdx = uint8(uint256(_word(L.piIns, 1)));
+        args.featureId = uint256(_word(L.piIns, 2));
+        args.proofInsert = L.proofIns;
         // newC1{X,Y} are unused on chain (newLiveStateHash already binds c1
         // via the proof's sponge_6); kept zero like MutateOnSepolia.
-        args.newC1X            = 0;
-        args.newC1Y            = 0;
-        args.newLiveStateHash  = _word(L.piIns, 7);
-        args.newCtCommit       = _word(L.piIns, 8);
-        args.c2FieldCount      = uint16(L.newC2.length / 32);
-        args.c2                = L.newC2;
-        args.prevChainTip      = _word(L.piIns, 12);
-        args.newChainTip       = _word(L.piIns, 13);
+        args.newC1X = 0;
+        args.newC1Y = 0;
+        args.newLiveStateHash = _word(L.piIns, 7);
+        args.newCtCommit = _word(L.piIns, 8);
+        args.c2FieldCount = uint16(L.newC2.length / 32);
+        args.c2 = L.newC2;
+        args.prevChainTip = _word(L.piIns, 12);
+        args.newChainTip = _word(L.piIns, 13);
         args.prevMutationCount = uint16(uint256(_word(L.piIns, 14)));
-        args.newMutationCount  = uint16(uint256(_word(L.piIns, 15)));
-        args.newT10[0]         = _word(L.piT10, 2);
-        args.newT10[1]         = _word(L.piT10, 3);
-        args.proofT10          = L.proofT10;
+        args.newMutationCount = uint16(uint256(_word(L.piIns, 15)));
+        args.newT10[0] = _word(L.piT10, 2);
+        args.newT10[1] = _word(L.piT10, 3);
+        args.proofT10 = L.proofT10;
     }
 
     function _word(bytes memory raw, uint256 idx) internal pure returns (bytes32 word) {

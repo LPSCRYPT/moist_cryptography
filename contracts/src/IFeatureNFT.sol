@@ -62,12 +62,8 @@ interface IFeatureNFT {
     ///         and release custody. Called by ShadowToken inside
     ///         `extractSlot`. Reverts if the carrier is not currently
     ///         inserted at `(hostShadowId, hostSlotIdx)`.
-    function extractFromShadow(
-        uint256 featureId,
-        uint256 hostShadowId,
-        uint8 hostSlotIdx,
-        bytes32 finalLiveStateHash
-    ) external;
+    function extractFromShadow(uint256 featureId, uint256 hostShadowId, uint8 hostSlotIdx, bytes32 finalLiveStateHash)
+        external;
 
     /// @notice Re-install a held carrier into a new shadow's EMPTY slot.
     ///         Called by ShadowToken inside `insertFeature`. Reverts if
@@ -75,20 +71,12 @@ interface IFeatureNFT {
     ///         The slot's new `liveStateHash` is bound by the proof and
     ///         written by ShadowToken; the carrier's checkpoint stays
     ///         stale until the next extract.
-    function insertIntoShadow(
-        uint256 featureId,
-        uint256 newHostShadowId,
-        uint8 newHostSlotIdx
-    ) external;
+    function insertIntoShadow(uint256 featureId, uint256 newHostShadowId, uint8 newHostSlotIdx) external;
 
     /// @notice Privileged: rotate ERC-721 ownership of an inserted carrier
     ///         when its host shadow is being transferred. Bypasses the
     ///         custody lock; only ShadowToken may call.
-    function rotateInsertedOwner(
-        uint256 featureId,
-        uint256 expectedHostShadowId,
-        address to
-    ) external;
+    function rotateInsertedOwner(uint256 featureId, uint256 expectedHostShadowId, address to) external;
 
     /// @notice Privileged: open the carrier's `paletteCommit` to its 16
     ///         RGB colors and emit the per-slot plaintext, atomic with

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {Test, stdJson} from "forge-std/Test.sol";
-import {Poseidon2YulSponge}   from "../src/Poseidon2YulSponge.sol";
+import {Poseidon2YulSponge} from "../src/Poseidon2YulSponge.sol";
 import {Poseidon2YulSponge16} from "../src/Poseidon2YulSponge16.sol";
 
 /// @notice Cryptographic invariants we rely on across the v2 stack.
@@ -47,23 +47,22 @@ import {Poseidon2YulSponge16} from "../src/Poseidon2YulSponge16.sol";
 ///      mint chain-tip could collide with a transfer chain-tip and an
 ///      attacker could rebind ownership through fake mint.
 contract CryptoInvariantsTest is Test {
-    Poseidon2YulSponge   internal sponge;
+    Poseidon2YulSponge internal sponge;
     Poseidon2YulSponge16 internal sponge16;
 
     /// MUST equal `ShadowToken.MINT_TAG`. Pinned here so a divergence
     /// between contract + test + circuit + Python helper trips a test.
-    uint256 internal constant MINT_TAG_EXPECTED     = 0x910015e5abad43e0addedda7a;
+    uint256 internal constant MINT_TAG_EXPECTED = 0x910015e5abad43e0addedda7a;
 
     /// MUST equal `circuits/transfer_shadow_v2`'s TRANSFER_TAG and
     /// `tools/v2_circuit_helpers.TRANSFER_TAG`.
     uint256 internal constant TRANSFER_TAG_EXPECTED = 0x1ad75ffae4711a5fea7eed;
 
     /// bn254 Fr modulus (poseidon2 field).
-    uint256 internal constant FR_MOD =
-        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    uint256 internal constant FR_MOD = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
     function setUp() public {
-        sponge   = new Poseidon2YulSponge();
+        sponge = new Poseidon2YulSponge();
         sponge16 = new Poseidon2YulSponge16();
     }
 
@@ -101,9 +100,7 @@ contract CryptoInvariantsTest is Test {
     /// Build a length-N buffer with the first `prefix.length` fields
     /// set to `prefix` and the rest zero. Caller MUST pass a multiple
     /// of 32 for `nFields`.
-    function _padBuf(bytes32[] memory prefix, uint256 nFields)
-        internal pure returns (bytes memory)
-    {
+    function _padBuf(bytes32[] memory prefix, uint256 nFields) internal pure returns (bytes memory) {
         require(prefix.length <= nFields, "prefix > nFields");
         bytes memory buf = new bytes(nFields * 32);
         for (uint256 i = 0; i < prefix.length; i++) {
@@ -115,7 +112,9 @@ contract CryptoInvariantsTest is Test {
 
     function _hammingDist(uint256 a, uint256 b) internal pure returns (uint256 d) {
         uint256 x = a ^ b;
-        for (; x != 0; x &= x - 1) d++;
+        for (; x != 0; x &= x - 1) {
+            d++;
+        }
     }
 
     // ============== Tests: transcript distinctness ==============
@@ -126,7 +125,9 @@ contract CryptoInvariantsTest is Test {
     /// a deep generator bug.
     function test_sponge39_vs_sponge16_distinct_transcripts() public view {
         bytes32[] memory prefix = new bytes32[](8);
-        for (uint256 i = 0; i < 8; i++) prefix[i] = bytes32(uint256(0xdeadbeef + i));
+        for (uint256 i = 0; i < 8; i++) {
+            prefix[i] = bytes32(uint256(0xdeadbeef + i));
+        }
         uint256 r39 = _sponge39(_padBuf(prefix, 39));
         uint256 r16 = _sponge16(_padBuf(prefix, 16));
         assertTrue(r39 != r16, "sponge_39 and sponge_16 transcripts collide on shared prefix");
@@ -150,7 +151,9 @@ contract CryptoInvariantsTest is Test {
 
     function test_sponge39_deterministic() public view {
         bytes32[] memory in_ = new bytes32[](39);
-        for (uint256 i = 0; i < 39; i++) in_[i] = bytes32(uint256(i + 1));
+        for (uint256 i = 0; i < 39; i++) {
+            in_[i] = bytes32(uint256(i + 1));
+        }
         bytes memory buf = _padBuf(in_, 39);
         uint256 a = _sponge39(buf);
         uint256 b = _sponge39(buf);
@@ -159,7 +162,9 @@ contract CryptoInvariantsTest is Test {
 
     function test_sponge16_deterministic() public view {
         bytes32[] memory in_ = new bytes32[](16);
-        for (uint256 i = 0; i < 16; i++) in_[i] = bytes32(uint256(i * 7 + 3));
+        for (uint256 i = 0; i < 16; i++) {
+            in_[i] = bytes32(uint256(i * 7 + 3));
+        }
         bytes memory buf = _padBuf(in_, 16);
         uint256 a = _sponge16(buf);
         uint256 b = _sponge16(buf);
@@ -177,7 +182,7 @@ contract CryptoInvariantsTest is Test {
         in_[0] = bytes32(uint256(0x42));
         in_[1] = bytes32(uint256(0x7));
         bytes memory bufA = _padBuf(in_, 39);
-        in_[0] = bytes32(uint256(0x43));   // flip 1 bit
+        in_[0] = bytes32(uint256(0x43)); // flip 1 bit
         bytes memory bufB = _padBuf(in_, 39);
         uint256 a = _sponge39(bufA);
         uint256 b = _sponge39(bufB);
@@ -205,7 +210,7 @@ contract CryptoInvariantsTest is Test {
     /// this -- it's the difference between a meaningful hash and a
     /// degenerate identity.
     function test_sponge39_zero_input_not_zero() public view {
-        bytes memory buf = new bytes(39 * 32);   // all zero
+        bytes memory buf = new bytes(39 * 32); // all zero
         uint256 r = _sponge39(buf);
         assertTrue(r != 0, "sponge_39(zeros) == 0; sentinel pad missing");
     }
@@ -250,8 +255,7 @@ contract CryptoInvariantsTest is Test {
         assertTrue(MINT_TAG_EXPECTED != 0, "MINT_TAG must be nonzero");
         assertTrue(TRANSFER_TAG_EXPECTED != 0, "TRANSFER_TAG must be nonzero");
         assertTrue(
-            MINT_TAG_EXPECTED != TRANSFER_TAG_EXPECTED,
-            "MINT_TAG == TRANSFER_TAG; chain-tip domain separation broken"
+            MINT_TAG_EXPECTED != TRANSFER_TAG_EXPECTED, "MINT_TAG == TRANSFER_TAG; chain-tip domain separation broken"
         );
         assertLt(MINT_TAG_EXPECTED, FR_MOD, "MINT_TAG outside Fr");
         assertLt(TRANSFER_TAG_EXPECTED, FR_MOD, "TRANSFER_TAG outside Fr");
@@ -274,9 +278,6 @@ contract CryptoInvariantsTest is Test {
         uint256 chainCommit = _sponge39(c2);
         string memory j = vm.readFile("./test/fixtures/atomic_mutate/atomic_demo/meta.json");
         bytes32 expected = stdJson.readBytes32(j, ".new_ct_commit");
-        assertEq(
-            bytes32(chainCommit), expected,
-            "sponge_39 drifted: c2 sponge != fixture's new_ct_commit"
-        );
+        assertEq(bytes32(chainCommit), expected, "sponge_39 drifted: c2 sponge != fixture's new_ct_commit");
     }
 }

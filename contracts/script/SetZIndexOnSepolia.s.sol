@@ -28,14 +28,13 @@ contract SetZIndexOnSepolia is Script {
         address stAddr = vm.envAddress("ST_ADDRESS");
         Loaded memory L = _loadFixture(vm.envString("FIX"));
 
-        ShadowToken.SetZIndexCommitArgs memory args =
-            ShadowToken.SetZIndexCommitArgs({
-                shadowId: uint256(_word(L.piZ, 0)),
-                newCommit: _word(L.piZ, 1),
-                proofZ: L.proofZ,
-                newT10: [_word(L.piT10, 2), _word(L.piT10, 3)],
-                proofT10: L.proofT10
-            });
+        ShadowToken.SetZIndexCommitArgs memory args = ShadowToken.SetZIndexCommitArgs({
+            shadowId: uint256(_word(L.piZ, 0)),
+            newCommit: _word(L.piZ, 1),
+            proofZ: L.proofZ,
+            newT10: [_word(L.piT10, 2), _word(L.piT10, 3)],
+            proofT10: L.proofT10
+        });
 
         ShadowToken st = ShadowToken(stAddr);
         ShadowToken.Shadow memory s = st.shadowOf(args.shadowId);
@@ -62,11 +61,11 @@ contract SetZIndexOnSepolia is Script {
     }
 
     function _loadFixture(string memory fix) internal returns (Loaded memory L) {
-        L.proofZ   = vm.readFileBinary(string.concat(fix, "/proof_z.bin"));
-        L.piZ      = vm.readFileBinary(string.concat(fix, "/public_inputs_z.bin"));
+        L.proofZ = vm.readFileBinary(string.concat(fix, "/proof_z.bin"));
+        L.piZ = vm.readFileBinary(string.concat(fix, "/public_inputs_z.bin"));
         require(L.piZ.length == Z_PI_LEN * 32, "bad Z PI length");
         L.proofT10 = vm.readFileBinary(string.concat(fix, "/proof_t10.bin"));
-        L.piT10    = vm.readFileBinary(string.concat(fix, "/public_inputs_t10.bin"));
+        L.piT10 = vm.readFileBinary(string.concat(fix, "/public_inputs_t10.bin"));
         require(L.piT10.length == T10_PI_LEN * 32, "bad T10 PI length");
     }
 

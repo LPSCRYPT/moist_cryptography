@@ -35,25 +35,24 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 contract MutateBatchMaxBatchTest is Test {
     using stdJson for string;
 
-    TestableShadowToken    internal st;
-    TestableFeatureNFT     internal fn;
-    MutateSlotVerifier     internal vMut;
-    T10ShadowVerifier      internal vT10;
-    Poseidon2YulSponge     internal sponge;
-    Poseidon2YulSponge16   internal sponge16;
-    KeyRegistry            internal kr;
+    TestableShadowToken internal st;
+    TestableFeatureNFT internal fn;
+    MutateSlotVerifier internal vMut;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
+    Poseidon2YulSponge16 internal sponge16;
+    KeyRegistry internal kr;
 
-    string internal constant FIX =
-        "./test/fixtures/atomic_mutate_batch_max/atomic_mutate_batch_max_demo";
+    string internal constant FIX = "./test/fixtures/atomic_mutate_batch_max/atomic_mutate_batch_max_demo";
     uint256 internal constant N_BATCH = 8;
     uint256 internal constant MUT_PI_LEN = 16;
     uint256 internal constant T10_PI_LEN = 20;
 
-    bytes[N_BATCH]     internal proofs;
+    bytes[N_BATCH] internal proofs;
     bytes32[][N_BATCH] internal pis;
-    bytes[N_BATCH]     internal c2s;
-    bytes              internal proofT10;
-    bytes32[]          internal piT10;
+    bytes[N_BATCH] internal c2s;
+    bytes internal proofT10;
+    bytes32[] internal piT10;
 
     uint256 internal shadowId;
     uint8[N_BATCH] internal slots;
@@ -61,7 +60,7 @@ contract MutateBatchMaxBatchTest is Test {
     address internal alice = makeAddr("alice");
 
     function setUp() public {
-        sponge   = new Poseidon2YulSponge();
+        sponge = new Poseidon2YulSponge();
         sponge16 = new Poseidon2YulSponge16();
         st = new TestableShadowToken(address(sponge));
         fn = new TestableFeatureNFT(address(st));
@@ -79,11 +78,11 @@ contract MutateBatchMaxBatchTest is Test {
         for (uint256 i = 0; i < N_BATCH; i++) {
             string memory idx = vm.toString(i);
             proofs[i] = vm.readFileBinary(string.concat(FIX, "/proof_mut_", idx, ".bin"));
-            pis[i]    = _loadFields(string.concat(FIX, "/public_inputs_mut_", idx, ".bin"), MUT_PI_LEN);
-            c2s[i]    = vm.readFileBinary(string.concat(FIX, "/c2_", idx, ".bin"));
+            pis[i] = _loadFields(string.concat(FIX, "/public_inputs_mut_", idx, ".bin"), MUT_PI_LEN);
+            c2s[i] = vm.readFileBinary(string.concat(FIX, "/c2_", idx, ".bin"));
         }
         proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
-        piT10    = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
+        piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), T10_PI_LEN);
 
         shadowId = uint256(pis[0][0]);
         for (uint256 i = 0; i < N_BATCH; i++) {
@@ -94,11 +93,7 @@ contract MutateBatchMaxBatchTest is Test {
         _seedChainState();
     }
 
-    function _loadFields(string memory path, uint256 expectedLen)
-        internal
-        view
-        returns (bytes32[] memory out)
-    {
+    function _loadFields(string memory path, uint256 expectedLen) internal view returns (bytes32[] memory out) {
         bytes memory raw = vm.readFileBinary(path);
         require(raw.length == expectedLen * 32, "PI length mismatch");
         out = new bytes32[](expectedLen);
@@ -124,42 +119,39 @@ contract MutateBatchMaxBatchTest is Test {
         bytes32[] memory oldLshes = new bytes32[](N_BATCH);
         for (uint256 i = 0; i < N_BATCH; i++) {
             slotsDyn[i] = slots[i];
-            featIds[i]  = uint256(pis[i][2]);
+            featIds[i] = uint256(pis[i][2]);
             oldLshes[i] = pis[i][6];
         }
-        st.seedShadowMultiSlot(shadowId, alice, ownerPkX, ownerPkY,
-                               slotsDyn, featIds, oldLshes);
+        st.seedShadowMultiSlot(shadowId, alice, ownerPkX, ownerPkY, slotsDyn, featIds, oldLshes);
 
         for (uint256 i = 0; i < N_BATCH; i++) {
             fn.seedFeature(
-                featIds[i], shadowId, slots[i],
-                uint8(uint256(pis[i][3])),  // typeIdx
-                pis[i][4],                  // originFaceId
-                pis[i][5],                  // paletteCommit
-                pis[i][6],                  // initial LSH (irrelevant while inserted)
+                featIds[i],
+                shadowId,
+                slots[i],
+                uint8(uint256(pis[i][3])), // typeIdx
+                pis[i][4], // originFaceId
+                pis[i][5], // paletteCommit
+                pis[i][6], // initial LSH (irrelevant while inserted)
                 alice
             );
         }
     }
 
-    function _entry(uint256 i)
-        internal
-        view
-        returns (ShadowToken.MutateSlotEntry memory e)
-    {
+    function _entry(uint256 i) internal view returns (ShadowToken.MutateSlotEntry memory e) {
         bytes32[] memory pi = pis[i];
-        e.slotIdx           = slots[i];
-        e.proofMutate       = proofs[i];
-        e.newC1X            = uint256(0);
-        e.newC1Y            = uint256(0);
-        e.newLiveStateHash  = pi[7];
-        e.newCtCommit       = pi[8];
-        e.c2FieldCount      = uint16(uint256(pi[9]));
-        e.c2                = c2s[i];
-        e.prevChainTip      = pi[12];
-        e.newChainTip       = pi[13];
+        e.slotIdx = slots[i];
+        e.proofMutate = proofs[i];
+        e.newC1X = uint256(0);
+        e.newC1Y = uint256(0);
+        e.newLiveStateHash = pi[7];
+        e.newCtCommit = pi[8];
+        e.c2FieldCount = uint16(uint256(pi[9]));
+        e.c2 = c2s[i];
+        e.prevChainTip = pi[12];
+        e.newChainTip = pi[13];
         e.prevMutationCount = uint16(uint256(pi[14]));
-        e.newMutationCount  = uint16(uint256(pi[15]));
+        e.newMutationCount = uint16(uint256(pi[15]));
     }
 
     function _buildArgs() internal view returns (ShadowToken.MutateBatchArgs memory args) {
@@ -182,11 +174,7 @@ contract MutateBatchMaxBatchTest is Test {
         vm.prank(alice);
         st.mutateBatch(args);
         for (uint256 i = 0; i < N_BATCH; i++) {
-            assertEq(
-                st.slotOf(shadowId, slots[i]).liveStateHash,
-                pis[i][7],
-                "slot LSH not advanced"
-            );
+            assertEq(st.slotOf(shadowId, slots[i]).liveStateHash, pis[i][7], "slot LSH not advanced");
         }
     }
 
@@ -208,8 +196,7 @@ contract MutateBatchMaxBatchTest is Test {
         // catch a non-linear blow-up (loop overhead growing quadratically,
         // calldata cost shifts, etc.) but not pretend the path is OK.
         // If this fires below 35M, the practical N bound just got worse.
-        assertLt(used, 35_000_000,
-            "mutateBatch(N=8) gas regressed past 35M; non-linear cost suspected");
+        assertLt(used, 35_000_000, "mutateBatch(N=8) gas regressed past 35M; non-linear cost suspected");
 
         // Document the OBSERVED per-entry growth: subtract a fixed
         // overhead estimate (T10 verify ~1M + bookkeeping ~1M) and divide.
@@ -220,8 +207,7 @@ contract MutateBatchMaxBatchTest is Test {
         // At N=8, per-entry should match the N=2 measurement closely
         // (mostly the per-verify cost + per-slot SSTORE). If this drifts,
         // the verifier circuit changed.
-        assertLt(perEntry, 5_000_000,
-            "mutateBatch per-entry gas at N=8 exceeds 5M");
+        assertLt(perEntry, 5_000_000, "mutateBatch per-entry gas at N=8 exceeds 5M");
 
         emit log_named_uint("mutateBatch N=8 total gas", used);
         emit log_named_uint("mutateBatch N=8 per-entry gas (after 2M overhead)", perEntry);

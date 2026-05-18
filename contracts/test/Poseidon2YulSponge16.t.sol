@@ -29,20 +29,17 @@ contract Poseidon2YulSponge16Test is Test {
         assembly { result := mload(add(ret, 32)) }
         // Reference value computed by tools/v2_circuit_helpers.py::sponge_16
         // over [(i+1) * 0x12345678abcdef01 for i in range(16)].
-        assertEq(
-            result,
-            bytes32(uint256(0x1a6d6f967eb33d37443fe3cb7eb3e3343268bb3603613f800da2e256b256e471))
-        );
+        assertEq(result, bytes32(uint256(0x1a6d6f967eb33d37443fe3cb7eb3e3343268bb3603613f800da2e256b256e471)));
     }
 
     function test_sponge16_rejects_wrong_size() public {
         bytes memory input = new bytes(480); // 15 fields, not 16
-        (bool ok, ) = address(sponge).staticcall(input);
+        (bool ok,) = address(sponge).staticcall(input);
         assertFalse(ok, "sponge16 should reject non-512-byte calldata");
     }
 
     function test_sponge16_zeros_deterministic() public view {
-        bytes memory input = new bytes(512);  // all zeros
+        bytes memory input = new bytes(512); // all zeros
         (bool ok, bytes memory ret) = address(sponge).staticcall(input);
         assertTrue(ok);
         bytes32 result;

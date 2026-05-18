@@ -20,10 +20,8 @@ contract ExtractOnSepolia is Script {
         uint256 shadowId = vm.envUint("SHADOW_ID");
         uint8 slotIdx = uint8(vm.envUint("SLOT_IDX"));
 
-        bytes memory proofT10 = vm.readFileBinary(
-            string.concat(fix, "/proof_t10.bin"));
-        bytes memory rawPiT10 = vm.readFileBinary(
-            string.concat(fix, "/public_inputs_t10.bin"));
+        bytes memory proofT10 = vm.readFileBinary(string.concat(fix, "/proof_t10.bin"));
+        bytes memory rawPiT10 = vm.readFileBinary(string.concat(fix, "/public_inputs_t10.bin"));
         require(rawPiT10.length == T10_PI_LEN * 32, "bad T10 PI length");
 
         bytes32 t10Hi = _word(rawPiT10, 2);

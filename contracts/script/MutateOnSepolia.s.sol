@@ -49,8 +49,7 @@ contract MutateOnSepolia is Script {
 
         // Idempotency guard.
         ShadowToken.ManifestEntry memory m = st.slotOf(args.shadowId, args.slotIdx);
-        require(m.kind == ShadowToken.SlotKind.OCCUPIED,
-            "slot must be OCCUPIED for mutate");
+        require(m.kind == ShadowToken.SlotKind.OCCUPIED, "slot must be OCCUPIED for mutate");
         bytes32 expectedOldLsh = _word(L.piMut, 6);
         if (m.liveStateHash != expectedOldLsh) {
             console.log("SKIP: on-chain lsh != fixture old_lsh");
@@ -79,33 +78,31 @@ contract MutateOnSepolia is Script {
 
     function _loadFixture(string memory fix) internal returns (Loaded memory L) {
         L.proofMut = vm.readFileBinary(string.concat(fix, "/proof_mut.bin"));
-        L.piMut    = vm.readFileBinary(string.concat(fix, "/public_inputs_mut.bin"));
+        L.piMut = vm.readFileBinary(string.concat(fix, "/public_inputs_mut.bin"));
         require(L.piMut.length == MUT_PI_LEN * 32, "bad mutate PI length");
         L.proofT10 = vm.readFileBinary(string.concat(fix, "/proof_t10.bin"));
-        L.piT10    = vm.readFileBinary(string.concat(fix, "/public_inputs_t10.bin"));
+        L.piT10 = vm.readFileBinary(string.concat(fix, "/public_inputs_t10.bin"));
         require(L.piT10.length == T10_PI_LEN * 32, "bad T10 PI length");
-        L.newC2    = vm.readFileBinary(string.concat(fix, "/c2.bin"));
+        L.newC2 = vm.readFileBinary(string.concat(fix, "/c2.bin"));
     }
 
-    function _buildArgs(Loaded memory L)
-        internal pure returns (ShadowToken.MutateSlotArgs memory args)
-    {
-        args.shadowId          = uint256(_word(L.piMut, 0));
-        args.slotIdx           = uint8(uint256(_word(L.piMut, 1)));
-        args.proofMutate       = L.proofMut;
-        args.newC1X            = 0;
-        args.newC1Y            = 0;
-        args.newLiveStateHash  = _word(L.piMut, 7);
-        args.newCtCommit       = _word(L.piMut, 8);
-        args.c2FieldCount      = uint16(L.newC2.length / 32);
-        args.c2                = L.newC2;
-        args.prevChainTip      = _word(L.piMut, 12);
-        args.newChainTip       = _word(L.piMut, 13);
+    function _buildArgs(Loaded memory L) internal pure returns (ShadowToken.MutateSlotArgs memory args) {
+        args.shadowId = uint256(_word(L.piMut, 0));
+        args.slotIdx = uint8(uint256(_word(L.piMut, 1)));
+        args.proofMutate = L.proofMut;
+        args.newC1X = 0;
+        args.newC1Y = 0;
+        args.newLiveStateHash = _word(L.piMut, 7);
+        args.newCtCommit = _word(L.piMut, 8);
+        args.c2FieldCount = uint16(L.newC2.length / 32);
+        args.c2 = L.newC2;
+        args.prevChainTip = _word(L.piMut, 12);
+        args.newChainTip = _word(L.piMut, 13);
         args.prevMutationCount = uint16(uint256(_word(L.piMut, 14)));
-        args.newMutationCount  = uint16(uint256(_word(L.piMut, 15)));
-        args.newT10[0]         = _word(L.piT10, 2);
-        args.newT10[1]         = _word(L.piT10, 3);
-        args.proofT10          = L.proofT10;
+        args.newMutationCount = uint16(uint256(_word(L.piMut, 15)));
+        args.newT10[0] = _word(L.piT10, 2);
+        args.newT10[1] = _word(L.piT10, 3);
+        args.proofT10 = L.proofT10;
     }
 
     function _word(bytes memory raw, uint256 idx) internal pure returns (bytes32 word) {

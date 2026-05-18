@@ -11,15 +11,19 @@ contract PoseLibHarness {
     function pack(uint8 cx, uint8 cy, uint16 sc, int16 co, int16 si) external pure returns (uint64) {
         return PoseLib.pack(cx, cy, sc, co, si);
     }
+
     function requireSane(uint64 p) external pure {
         PoseLib.requireSane(p);
     }
+
     function requireOnFrame(uint64 p, uint8 w, uint8 h) external pure {
         PoseLib.requireOnFrame(p, w, h);
     }
+
     function identity(uint8 cx, uint8 cy) external pure returns (uint64) {
         return PoseLib.identity(cx, cy);
     }
+
     function unpack(uint64 p) external pure returns (uint8, uint8, uint16, int16, int16) {
         return PoseLib.unpack(p);
     }
@@ -55,7 +59,7 @@ contract PoseLibTest is Test {
     function test_PackUnpack_NegativeRotation() public view {
         // 23170^2 + 23170^2 = 1,073,712,200 ~= 2^30 = 1,073,741,824. Within tolerance.
         uint64 p = h.pack(5, 7, 256, int16(23170), int16(-23170));
-        (, , , int16 co, int16 si) = h.unpack(p);
+        (,,, int16 co, int16 si) = h.unpack(p);
         assertEq(co, int16(23170));
         assertEq(si, int16(-23170));
         h.requireSane(p);

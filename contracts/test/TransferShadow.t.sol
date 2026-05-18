@@ -434,6 +434,39 @@ contract TransferShadowE2ETest is Test {
         assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
     }
 
+    function test_transferShadow_reverts_when_empty_slot_has_newLiveStateHash() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        uint8 sIdx = _firstEmptySlot();
+        args.newLiveStateHashes[sIdx] = bytes32(uint256(1));
+
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.transferShadow(args);
+        assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
+    }
+
+    function test_transferShadow_reverts_when_empty_slot_has_newChainTip() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        uint8 sIdx = _firstEmptySlot();
+        args.newChainTips[sIdx] = bytes32(uint256(1));
+
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.transferShadow(args);
+        assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
+    }
+
+    function test_transferShadow_reverts_when_empty_slot_has_newMutationCount() public {
+        ShadowToken.TransferShadowArgs memory args = _buildArgs();
+        uint8 sIdx = _firstEmptySlot();
+        args.newMutationCounts[sIdx] = 1;
+
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        st.transferShadow(args);
+        assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
+    }
+
     /// Gas-pin: transferShadow rotates ownership for shadow + every
     /// occupied carrier + 16-slot LSH chain. Budget: 14M -- ~16% above
     /// current ~12.1M baseline (4 occupied slots).

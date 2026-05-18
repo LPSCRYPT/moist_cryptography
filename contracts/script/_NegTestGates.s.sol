@@ -28,24 +28,22 @@ contract _NegTestGates is Script {
     bytes32[8] private _paletteSaltCts;
     bytes32[8] private _saltC1Xs;
     bytes32[8] private _saltC1Ys;
-    bytes[]   private _c2s;
+    bytes[] private _c2s;
     bytes32[2] private _t10;
     bytes private _proofT10;
 
     function _loadFixture(string memory fix) internal {
         _proofMint = vm.readFileBinary(string.concat(fix, "/proof_mint.bin"));
-        _proofT10  = vm.readFileBinary(string.concat(fix, "/proof_t10.bin"));
-        bytes memory rawPiMint = vm.readFileBinary(
-            string.concat(fix, "/public_inputs_mint.bin"));
-        bytes memory rawPiT10 = vm.readFileBinary(
-            string.concat(fix, "/public_inputs_t10.bin"));
+        _proofT10 = vm.readFileBinary(string.concat(fix, "/proof_t10.bin"));
+        bytes memory rawPiMint = vm.readFileBinary(string.concat(fix, "/public_inputs_mint.bin"));
+        bytes memory rawPiT10 = vm.readFileBinary(string.concat(fix, "/public_inputs_t10.bin"));
         bytes32 piMint1;
         bytes32 piT10_2;
         bytes32 piT10_3;
         assembly {
-            piMint1 := mload(add(rawPiMint, add(0x20, mul(1, 32))))   // imageCommit
-            piT10_2 := mload(add(rawPiT10,  add(0x20, mul(2, 32))))   // t10 hi
-            piT10_3 := mload(add(rawPiT10,  add(0x20, mul(3, 32))))   // t10 lo
+            piMint1 := mload(add(rawPiMint, add(0x20, mul(1, 32)))) // imageCommit
+            piT10_2 := mload(add(rawPiT10, add(0x20, mul(2, 32)))) // t10 hi
+            piT10_3 := mload(add(rawPiT10, add(0x20, mul(3, 32)))) // t10 lo
         }
         _imageCommit = piMint1;
         _t10[0] = piT10_2;
@@ -54,38 +52,36 @@ contract _NegTestGates is Script {
         _c2s = new bytes[](8);
         for (uint256 i = 0; i < 8; i++) {
             string memory idx = vm.toString(i);
-            _lshInits[i]       = j.readBytes32(string.concat(".lsh_inits[", idx, "]"));
-            _chainTips[i]      = j.readBytes32(string.concat(".chain_tips[", idx, "]"));
+            _lshInits[i] = j.readBytes32(string.concat(".lsh_inits[", idx, "]"));
+            _chainTips[i] = j.readBytes32(string.concat(".chain_tips[", idx, "]"));
             _paletteCommits[i] = j.readBytes32(string.concat(".palette_commits[", idx, "]"));
-            _originFaceIds[i]  = j.readBytes32(string.concat(".origin_face_ids[", idx, "]"));
-            _ctCommits[i]      = j.readBytes32(string.concat(".ct_commits[", idx, "]"));
+            _originFaceIds[i] = j.readBytes32(string.concat(".origin_face_ids[", idx, "]"));
+            _ctCommits[i] = j.readBytes32(string.concat(".ct_commits[", idx, "]"));
             _paletteSaltCts[i] = j.readBytes32(string.concat(".palette_salt_cts[", idx, "]"));
-            _saltC1Xs[i]       = j.readBytes32(string.concat(".salt_c1_xs[", idx, "]"));
-            _saltC1Ys[i]       = j.readBytes32(string.concat(".salt_c1_ys[", idx, "]"));
+            _saltC1Xs[i] = j.readBytes32(string.concat(".salt_c1_xs[", idx, "]"));
+            _saltC1Ys[i] = j.readBytes32(string.concat(".salt_c1_ys[", idx, "]"));
             bytes memory buf = new bytes(39 * 32);
             for (uint256 k = 0; k < 39; k++) {
-                bytes32 v = j.readBytes32(string.concat(
-                    ".c2_per_slot[", idx, "][", vm.toString(k), "]"));
+                bytes32 v = j.readBytes32(string.concat(".c2_per_slot[", idx, "][", vm.toString(k), "]"));
                 assembly { mstore(add(add(buf, 32), mul(k, 32)), v) }
             }
             _c2s[i] = buf;
         }
     }
 
-    function _buildArgs(bytes32 overrideImageCommit
-        ) internal view returns (ShadowToken.MintShadowArgs memory args) {
-        args.proofMint   = _proofMint;
+    function _buildArgs(bytes32 overrideImageCommit) internal view returns (ShadowToken.MintShadowArgs memory args) {
+        args.proofMint = _proofMint;
         args.imageCommit = overrideImageCommit;
         args.liveStateHashInits = _lshInits;
-        args.chainTips          = _chainTips;
-        args.paletteCommits     = _paletteCommits;
-        args.originFaceIds      = _originFaceIds;
-        args.ctCommits          = _ctCommits;
-        args.paletteSaltCts     = _paletteSaltCts;
-        args.saltC1Xs           = _saltC1Xs;
-        args.saltC1Ys           = _saltC1Ys;
-        args.c2s                = _c2s;
-        args.newT10   = _t10;
+        args.chainTips = _chainTips;
+        args.paletteCommits = _paletteCommits;
+        args.originFaceIds = _originFaceIds;
+        args.ctCommits = _ctCommits;
+        args.paletteSaltCts = _paletteSaltCts;
+        args.saltC1Xs = _saltC1Xs;
+        args.saltC1Ys = _saltC1Ys;
+        args.c2s = _c2s;
+        args.newT10 = _t10;
         args.proofT10 = _proofT10;
     }
 
@@ -106,8 +102,7 @@ contract _NegTestGates is Script {
             assembly { sel := mload(add(err, 0x20)) }
             console.log("revert selector (4 bytes):");
             console.logBytes4(sel);
-            require(sel == ShadowToken.ImageNotRegistered.selector,
-                "expected ImageNotRegistered selector");
+            require(sel == ShadowToken.ImageNotRegistered.selector, "expected ImageNotRegistered selector");
             console.log("OK: ImageNotRegistered(bytes32) selector matched");
         }
 
@@ -121,8 +116,7 @@ contract _NegTestGates is Script {
             assembly { sel := mload(add(err, 0x20)) }
             console.log("revert selector (4 bytes):");
             console.logBytes4(sel);
-            require(sel == ShadowToken.AlreadyMinted.selector,
-                "expected AlreadyMinted selector");
+            require(sel == ShadowToken.AlreadyMinted.selector, "expected AlreadyMinted selector");
             console.log("OK: AlreadyMinted(bytes32) selector matched");
         }
 

@@ -30,9 +30,9 @@ contract ShadowMirrorL1 is ERC721 {
         bytes32 t10Hi;
         bytes32 t10Lo;
         bytes32 zIndexCommit;
-        uint64  zIndexRevealed;
+        uint64 zIndexRevealed;
         IShadowToken.ManifestEntry[16] manifest;
-        uint8[16]   typeIdxs;
+        uint8[16] typeIdxs;
         bytes32[16] originFaceIds;
         bytes32[16] paletteCommits;
     }
@@ -46,12 +46,12 @@ contract ShadowMirrorL1 is ERC721 {
         bytes32 t10Hi;
         bytes32 t10Lo;
         bytes32 zIndexCommit;
-        uint64  zIndexRevealed;
+        uint64 zIndexRevealed;
         IShadowToken.ManifestEntry[16] manifest;
-        uint8[16]   typeIdxs;
+        uint8[16] typeIdxs;
         bytes32[16] originFaceIds;
         bytes32[16] paletteCommits;
-        bytes       revealedPi;
+        bytes revealedPi;
     }
 
     mapping(uint256 => MirrorState) private _mirrors;
@@ -149,11 +149,7 @@ contract ShadowMirrorL1 is ERC721 {
         // Allow a future bridgeShadow cycle to re-mint the L1 mirror.
         mintedFromBridge[shadowId] = false;
 
-        bytes memory message = abi.encodeWithSignature(
-            "unbridgeShadow(uint256,address)",
-            shadowId,
-            l2Recipient
-        );
+        bytes memory message = abi.encodeWithSignature("unbridgeShadow(uint256,address)", shadowId, l2Recipient);
         ICrossDomainMessenger(l1Messenger).sendMessage(l2Bridge, message, DEFAULT_L2_GAS_LIMIT);
 
         emit ShadowUnmirrored(shadowId, l2Recipient);

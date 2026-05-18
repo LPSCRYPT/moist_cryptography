@@ -53,6 +53,7 @@ Wall-clock on M3: ~2 s (mutate proof + T10 proof; both small circuits).
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import subprocess
@@ -86,6 +87,18 @@ ROOT = REPO.parent
 FIXTURE_ROOT = ROOT / "contracts" / "test" / "fixtures" / "onchain_insert"
 
 
+def write_secret_file(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+    except Exception:
+        os.close(fd)
+        raise
+    atexit.register(lambda p=path: p.exists() and p.unlink())
+
+
 def render_array(name: str, vals) -> str:
     return f"{name} = [{', '.join(fhex(v) for v in vals)}]"
 
@@ -93,7 +106,6 @@ def render_array(name: str, vals) -> str:
 def write_mutate_prover_toml(w: dict) -> None:
     """Mirror build_mutate_slot_onchain.write_mutate_prover_toml field-for-field."""
     toml = MUT_DIR / "Prover.toml"
-    toml.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         f"shadow_id = {fhex(w['shadow_id'])}",
         f"slot_idx = {fhex(w['slot_idx'])}",
@@ -127,7 +139,7 @@ def write_mutate_prover_toml(w: dict) -> None:
         f"h_new = {fhex(w['h_new'])}",
         f"c2_field_count_w = {fhex(w['c2_field_count'])}",
     ]
-    toml.write_text("\n".join(lines) + "\n")
+    write_secret_file(toml, "\n".join(lines) + "\n")
 
 
 def run(cmd: list, cwd: Path, timeout: int = 1800) -> str:
@@ -404,12 +416,13 @@ def main() -> None:
     hi, lo = split_128(acc)
     print(f"[4/4] T10: post-insert  hi={hex(hi)[:18]}... lo={hex(lo)[:18]}...")
 
-    (T10_DIR / "Prover.toml").write_text(
+    write_secret_file(
+        T10_DIR / "Prover.toml",
         f"shadow_id = {fhex(host_shadow_id)}\n"
         f"z_index_commit = {fhex(z_commit)}\n"
         f"new_t10_hi = {fhex(hi)}\n"
         f"new_t10_lo = {fhex(lo)}\n"
-        f"live_state_hash = [{', '.join(fhex(v) for v in post_lsh)}]\n"
+        f"live_state_hash = [{', '.join(fhex(v) for v in post_lsh)}]\n",
     )
     proof_t10, pi_t10 = prove(T10_DIR, "shadow_t10.json")
 

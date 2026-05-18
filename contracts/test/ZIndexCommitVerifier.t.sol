@@ -15,7 +15,7 @@ contract ZIndexCommitVerifierTest is Test {
     bytes32[] internal pi;
 
     string internal constant PROOF_PATH = "./test/fixtures/zindex_commit/zidx_demo/proof.bin";
-    string internal constant PI_PATH    = "./test/fixtures/zindex_commit/zidx_demo/public_inputs.bin";
+    string internal constant PI_PATH = "./test/fixtures/zindex_commit/zidx_demo/public_inputs.bin";
     uint256 internal constant EXPECTED_PI_LEN = 2;
 
     function setUp() public {
@@ -39,7 +39,9 @@ contract ZIndexCommitVerifierTest is Test {
 
     function test_verify_rejects_tampered_z_commit() public {
         bytes32[] memory corrupted = new bytes32[](EXPECTED_PI_LEN);
-        for (uint256 i = 0; i < EXPECTED_PI_LEN; i++) corrupted[i] = pi[i];
+        for (uint256 i = 0; i < EXPECTED_PI_LEN; i++) {
+            corrupted[i] = pi[i];
+        }
         corrupted[1] = bytes32(uint256(corrupted[1]) ^ 1);
 
         try v.verify(proof, corrupted) returns (bool ok) {

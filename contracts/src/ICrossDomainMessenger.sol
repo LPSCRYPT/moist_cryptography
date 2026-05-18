@@ -20,11 +20,7 @@ pragma solidity ^0.8.27;
 /// our bridge endpoints gate calls on `(msg.sender == messenger &&
 /// messenger.xDomainMessageSender() == counterpart)`.
 interface ICrossDomainMessenger {
-    function sendMessage(
-        address target,
-        bytes calldata message,
-        uint32 minGasLimit
-    ) external;
+    function sendMessage(address target, bytes calldata message, uint32 minGasLimit) external;
 
     function xDomainMessageSender() external view returns (address);
 }

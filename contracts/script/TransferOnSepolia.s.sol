@@ -44,8 +44,8 @@ contract TransferOnSepolia is Script {
     struct Loaded {
         bytes proof;
         bytes proofT10;
-        bytes piT;          // raw 11x32 bytes
-        bytes piT10;        // raw 20x32 bytes
+        bytes piT; // raw 11x32 bytes
+        bytes piT10; // raw 20x32 bytes
         uint256 shadowId;
         address recipient;
         bytes32[2] newT10;
@@ -53,9 +53,9 @@ contract TransferOnSepolia is Script {
         bytes32[16] newChainTips;
         uint256[16] newC1Xs;
         uint256[16] newC1Ys;
-        uint16[16]  newCounts;
+        uint16[16] newCounts;
         bytes32[16] newCtCommits;
-        bytes[]     c2s;    // length 16 (empty bytes for empty slots)
+        bytes[] c2s; // length 16 (empty bytes for empty slots)
     }
 
     function run() external {
@@ -72,8 +72,9 @@ contract TransferOnSepolia is Script {
             return;
         }
         // Recipient must be registered in KeyRegistry; otherwise pkOf reverts.
-        require(kr.isRegistered(L.recipient),
-            "recipient not registered in KeyRegistry; ask them to call register() first");
+        require(
+            kr.isRegistered(L.recipient), "recipient not registered in KeyRegistry; ask them to call register() first"
+        );
 
         ShadowToken.TransferShadowArgs memory args = _buildArgs(L);
 
@@ -101,15 +102,15 @@ contract TransferOnSepolia is Script {
     }
 
     function _loadFixture(string memory fix) internal returns (Loaded memory L) {
-        L.proof    = vm.readFileBinary(string.concat(fix, "/proof.bin"));
-        L.piT      = vm.readFileBinary(string.concat(fix, "/public_inputs.bin"));
+        L.proof = vm.readFileBinary(string.concat(fix, "/proof.bin"));
+        L.piT = vm.readFileBinary(string.concat(fix, "/public_inputs.bin"));
         require(L.piT.length == TRANSFER_PI_LEN * 32, "bad transfer PI length");
         L.proofT10 = vm.readFileBinary(string.concat(fix, "/proof_t10.bin"));
-        L.piT10    = vm.readFileBinary(string.concat(fix, "/public_inputs_t10.bin"));
+        L.piT10 = vm.readFileBinary(string.concat(fix, "/public_inputs_t10.bin"));
         require(L.piT10.length == T10_PI_LEN * 32, "bad T10 PI length");
 
         string memory j = vm.readFile(string.concat(fix, "/meta.json"));
-        L.shadowId  = uint256(j.readBytes32(".host_shadow_id"));
+        L.shadowId = uint256(j.readBytes32(".host_shadow_id"));
         L.recipient = j.readAddress(".recipient_addr");
         L.newT10[0] = _word(L.piT10, 2);
         L.newT10[1] = _word(L.piT10, 3);
@@ -117,11 +118,11 @@ contract TransferOnSepolia is Script {
         L.c2s = new bytes[](N_SLOTS);
         for (uint256 i = 0; i < N_SLOTS; i++) {
             string memory idx = vm.toString(i);
-            L.newLshs[i]      = j.readBytes32(string.concat(".new_lsh[", idx, "]"));
+            L.newLshs[i] = j.readBytes32(string.concat(".new_lsh[", idx, "]"));
             L.newChainTips[i] = j.readBytes32(string.concat(".new_chain_tip[", idx, "]"));
-            L.newC1Xs[i]      = uint256(j.readBytes32(string.concat(".new_c1_x[", idx, "]")));
-            L.newC1Ys[i]      = uint256(j.readBytes32(string.concat(".new_c1_y[", idx, "]")));
-            L.newCounts[i]    = uint16(j.readUint(string.concat(".new_mutation_count[", idx, "]")));
+            L.newC1Xs[i] = uint256(j.readBytes32(string.concat(".new_c1_x[", idx, "]")));
+            L.newC1Ys[i] = uint256(j.readBytes32(string.concat(".new_c1_y[", idx, "]")));
+            L.newCounts[i] = uint16(j.readUint(string.concat(".new_mutation_count[", idx, "]")));
             L.newCtCommits[i] = j.readBytes32(string.concat(".new_ct_commit[", idx, "]"));
 
             // c2_per_slot is a JSON array; empty slots have []. Build a
@@ -134,29 +135,26 @@ contract TransferOnSepolia is Script {
             }
             bytes memory buf = new bytes(C2_FIELD_COUNT * 32);
             for (uint256 k = 0; k < C2_FIELD_COUNT; k++) {
-                bytes32 v = j.readBytes32(string.concat(
-                    ".c2_per_slot[", idx, "][", vm.toString(k), "]"));
+                bytes32 v = j.readBytes32(string.concat(".c2_per_slot[", idx, "][", vm.toString(k), "]"));
                 assembly { mstore(add(add(buf, 32), mul(k, 32)), v) }
             }
             L.c2s[i] = buf;
         }
     }
 
-    function _buildArgs(Loaded memory L)
-        internal pure returns (ShadowToken.TransferShadowArgs memory args)
-    {
-        args.shadowId            = L.shadowId;
-        args.to                  = L.recipient;
-        args.proof               = L.proof;
-        args.newLiveStateHashes  = L.newLshs;
-        args.newChainTips        = L.newChainTips;
-        args.newC1Xs             = L.newC1Xs;
-        args.newC1Ys             = L.newC1Ys;
-        args.newMutationCounts   = L.newCounts;
-        args.newCtCommits        = L.newCtCommits;
-        args.c2s                 = L.c2s;
-        args.newT10              = L.newT10;
-        args.proofT10            = L.proofT10;
+    function _buildArgs(Loaded memory L) internal pure returns (ShadowToken.TransferShadowArgs memory args) {
+        args.shadowId = L.shadowId;
+        args.to = L.recipient;
+        args.proof = L.proof;
+        args.newLiveStateHashes = L.newLshs;
+        args.newChainTips = L.newChainTips;
+        args.newC1Xs = L.newC1Xs;
+        args.newC1Ys = L.newC1Ys;
+        args.newMutationCounts = L.newCounts;
+        args.newCtCommits = L.newCtCommits;
+        args.c2s = L.c2s;
+        args.newT10 = L.newT10;
+        args.proofT10 = L.proofT10;
     }
 
     function _word(bytes memory raw, uint256 idx) internal pure returns (bytes32 word) {

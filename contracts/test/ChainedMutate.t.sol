@@ -43,10 +43,10 @@ contract ChainedMutateTest is Test {
     using stdJson for string;
 
     TestableShadowToken internal st;
-    TestableFeatureNFT  internal fn;
-    MutateSlotVerifier  internal vMut;
-    T10ShadowVerifier   internal vT10;
-    Poseidon2YulSponge  internal sponge;
+    TestableFeatureNFT internal fn;
+    MutateSlotVerifier internal vMut;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
 
     string internal constant FIX = "./test/fixtures/chained_mutate/chained_demo";
 
@@ -82,20 +82,20 @@ contract ChainedMutateTest is Test {
     Step internal m1;
     Step internal m2;
     uint256 internal shadowId;
-    uint8   internal slotIdx;
+    uint8 internal slotIdx;
     uint256 internal featureId;
     bytes32 internal originFaceId;
     bytes32 internal paletteCommit;
 
     event ShadowSlotMutated(
         uint256 indexed shadowId,
-        uint8   indexed slotIdx,
+        uint8 indexed slotIdx,
         bytes32 indexed originFaceId,
         uint256 featureId,
-        uint16  mutationCount,
+        uint16 mutationCount,
         bytes32 prevChainTip,
         bytes32 newChainTip,
-        bytes   c2
+        bytes c2
     );
     event ShadowT10Updated(uint256 indexed shadowId, bytes32 hi, bytes32 lo);
 
@@ -114,22 +114,22 @@ contract ChainedMutateTest is Test {
 
         // Pull stable identities from M1's PI. These must match M2's PI;
         // we sanity-check below.
-        shadowId      = uint256(m1.pi[0]);
-        slotIdx       = uint8(uint256(m1.pi[1]));
-        featureId     = uint256(m1.pi[2]);
-        originFaceId  = m1.pi[4];
+        shadowId = uint256(m1.pi[0]);
+        slotIdx = uint8(uint256(m1.pi[1]));
+        featureId = uint256(m1.pi[2]);
+        originFaceId = m1.pi[4];
         paletteCommit = m1.pi[5];
 
         // Sanity: chained mutations on the same slot bind the same
         // carrier identity. If the fixture builder regressed, this fails.
-        assertEq(uint256(m2.pi[0]), shadowId,                   "shadow_id stable");
-        assertEq(uint8(uint256(m2.pi[1])), slotIdx,             "slot_idx stable");
-        assertEq(uint256(m2.pi[2]), featureId,                  "feature_id stable");
-        assertEq(m2.pi[4], originFaceId,                        "origin_face_id stable");
-        assertEq(m2.pi[5], paletteCommit,                       "palette_commit stable");
+        assertEq(uint256(m2.pi[0]), shadowId, "shadow_id stable");
+        assertEq(uint8(uint256(m2.pi[1])), slotIdx, "slot_idx stable");
+        assertEq(uint256(m2.pi[2]), featureId, "feature_id stable");
+        assertEq(m2.pi[4], originFaceId, "origin_face_id stable");
+        assertEq(m2.pi[5], paletteCommit, "palette_commit stable");
         // Chain-step continuity: M2.old_lsh == M1.new_lsh, etc.
-        assertEq(m2.pi[6], m1.pi[7],                            "M2.old_lsh == M1.new_lsh");
-        assertEq(m2.pi[12], m1.pi[13],                          "M2.prev_chain_tip == M1.new_chain_tip");
+        assertEq(m2.pi[6], m1.pi[7], "M2.old_lsh == M1.new_lsh");
+        assertEq(m2.pi[12], m1.pi[13], "M2.prev_chain_tip == M1.new_chain_tip");
         assertEq(uint16(uint256(m2.pi[14])), uint16(uint256(m1.pi[15])), "M2.prev_count == M1.new_count");
 
         // Seed: feature inserted, shadow + manifest with M1.old_lsh at slotIdx.
@@ -138,19 +138,15 @@ contract ChainedMutateTest is Test {
         bytes32 m1OldLsh = m1.pi[6];
 
         fn.seedFeature(
-            featureId, shadowId, slotIdx, uint8(uint256(m1.pi[3])),
-            originFaceId, paletteCommit, m1OldLsh, alice
+            featureId, shadowId, slotIdx, uint8(uint256(m1.pi[3])), originFaceId, paletteCommit, m1OldLsh, alice
         );
-        st.seedShadowAndSlot(
-            shadowId, alice, ownerPkX, ownerPkY,
-            slotIdx, featureId, m1OldLsh
-        );
+        st.seedShadowAndSlot(shadowId, alice, ownerPkX, ownerPkY, slotIdx, featureId, m1OldLsh);
     }
 
     function _loadStep(Step storage s, string memory mutSuffix, string memory t10Suffix) internal {
         s.proof = vm.readFileBinary(string.concat(FIX, "/proof", mutSuffix, ".bin"));
-        s.pi    = _loadFields(string.concat(FIX, "/public_inputs", mutSuffix, ".bin"), 16);
-        s.c2    = vm.readFileBinary(string.concat(FIX, "/c2", mutSuffix, ".bin"));
+        s.pi = _loadFields(string.concat(FIX, "/public_inputs", mutSuffix, ".bin"), 16);
+        s.c2 = vm.readFileBinary(string.concat(FIX, "/c2", mutSuffix, ".bin"));
         s.proofT10 = vm.readFileBinary(string.concat(FIX, "/proof", t10Suffix, ".bin"));
 
         string memory meta = vm.readFile(string.concat(FIX, "/meta.json"));
@@ -178,17 +174,18 @@ contract ChainedMutateTest is Test {
         newT10[1] = s.t10Lo;
         args = ShadowToken.MutateSlotArgs({
             shadowId: uint256(s.pi[0]),
-            slotIdx:  uint8(uint256(s.pi[1])),
+            slotIdx: uint8(uint256(s.pi[1])),
             proofMutate: s.proof,
-            newC1X: 0, newC1Y: 0,
+            newC1X: 0,
+            newC1Y: 0,
             newLiveStateHash: s.pi[7],
-            newCtCommit:      s.pi[8],
+            newCtCommit: s.pi[8],
             c2FieldCount: uint16(s.c2.length / 32),
             c2: s.c2,
             prevChainTip: s.pi[12],
-            newChainTip:  s.pi[13],
+            newChainTip: s.pi[13],
             prevMutationCount: uint16(uint256(s.pi[14])),
-            newMutationCount:  uint16(uint256(s.pi[15])),
+            newMutationCount: uint16(uint256(s.pi[15])),
             newT10: newT10,
             proofT10: s.proofT10
         });
@@ -271,15 +268,12 @@ contract ChainedMutateTest is Test {
             if (logs[i].emitter != address(st)) continue;
             if (logs[i].topics[0] != sig) continue;
             seen = true;
-            (uint256 fid, uint16 count, bytes32 prevCT, bytes32 newCT, ) =
+            (uint256 fid, uint16 count, bytes32 prevCT, bytes32 newCT,) =
                 abi.decode(logs[i].data, (uint256, uint16, bytes32, bytes32, bytes));
             assertEq(fid, featureId, string.concat(label, ": event featureId"));
-            assertEq(count, uint16(uint256(expectedNewCount)),
-                     string.concat(label, ": event new_count"));
-            assertEq(prevCT, expectedPrevChainTip,
-                     string.concat(label, ": event prev_chain_tip"));
-            assertEq(newCT, expectedNewChainTip,
-                     string.concat(label, ": event new_chain_tip"));
+            assertEq(count, uint16(uint256(expectedNewCount)), string.concat(label, ": event new_count"));
+            assertEq(prevCT, expectedPrevChainTip, string.concat(label, ": event prev_chain_tip"));
+            assertEq(newCT, expectedNewChainTip, string.concat(label, ": event new_chain_tip"));
         }
         assertTrue(seen, string.concat(label, ": ShadowSlotMutated emitted"));
     }

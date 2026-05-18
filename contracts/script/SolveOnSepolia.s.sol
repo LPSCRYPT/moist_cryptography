@@ -21,10 +21,8 @@ contract SolveOnSepolia is Script {
 
         ShadowToken st = ShadowToken(stAddr);
 
-        bytes memory proofSolve = vm.readFileBinary(
-            string.concat(fix, "/proof.bin"));
-        bytes memory rawPi = vm.readFileBinary(
-            string.concat(fix, "/public_inputs.bin"));
+        bytes memory proofSolve = vm.readFileBinary(string.concat(fix, "/proof.bin"));
+        bytes memory rawPi = vm.readFileBinary(string.concat(fix, "/public_inputs.bin"));
         require(rawPi.length == SOLVE_PI_LEN * 32, "bad solve PI length");
 
         // PI[0] = shadowId, PI[2] = zPermPacked
@@ -38,8 +36,7 @@ contract SolveOnSepolia is Script {
             return;
         }
 
-        ShadowToken.SolveArgs memory args = _buildArgs(
-            fix, shadowId, proofSolve, zPermPacked, st);
+        ShadowToken.SolveArgs memory args = _buildArgs(fix, shadowId, proofSolve, zPermPacked, st);
 
         console.log("=== solve() broadcast ===");
         console.log("ST       :", stAddr);
@@ -74,17 +71,14 @@ contract SolveOnSepolia is Script {
         // paletteCommit.
         string memory meta = vm.readFile(string.concat(fix, "/meta.json"));
         for (uint256 i = 0; i < N_SLOTS; i++) {
-            ShadowToken.ManifestEntry memory mEntry =
-                st.slotOf(shadowId, uint8(i));
+            ShadowToken.ManifestEntry memory mEntry = st.slotOf(shadowId, uint8(i));
             if (mEntry.kind == ShadowToken.SlotKind.OCCUPIED) {
-                args.stateCommits[i] = meta.readBytes32(
-                    string.concat(".state_commits[", vm.toString(i), "]"));
+                args.stateCommits[i] = meta.readBytes32(string.concat(".state_commits[", vm.toString(i), "]"));
                 for (uint256 c = 0; c < 16; c++) {
-                    args.palettes[i][c] = meta.readBytes32(string.concat(
-                        ".palettes[", vm.toString(i), "][", vm.toString(c), "]"));
+                    args.palettes[i][c] =
+                        meta.readBytes32(string.concat(".palettes[", vm.toString(i), "][", vm.toString(c), "]"));
                 }
-                args.paletteSalts[i] = meta.readBytes32(
-                    string.concat(".palette_salts[", vm.toString(i), "]"));
+                args.paletteSalts[i] = meta.readBytes32(string.concat(".palette_salts[", vm.toString(i), "]"));
             }
             // EMPTY slots: stateCommits[i], palettes[i], paletteSalts[i] all zero.
         }
@@ -92,8 +86,7 @@ contract SolveOnSepolia is Script {
         // z_perm: meta.json's perm is a JSON int array; readUint expects "0x..." or decimal.
         // The fixture writes it as integers, so use stdJson's plain readUint.
         for (uint256 i = 0; i < N_SLOTS; i++) {
-            args.zPerm[i] = uint8(meta.readUint(
-                string.concat(".z_perm[", vm.toString(i), "]")));
+            args.zPerm[i] = uint8(meta.readUint(string.concat(".z_perm[", vm.toString(i), "]")));
         }
 
         // plaintexts: from plaintexts.json -- 39 bytes32 per slot, packed BE.
@@ -105,8 +98,8 @@ contract SolveOnSepolia is Script {
             if (m.kind == ShadowToken.SlotKind.OCCUPIED) {
                 bytes memory buf = new bytes(FIELDS_PER_SLOT * 32);
                 for (uint256 k = 0; k < FIELDS_PER_SLOT; k++) {
-                    bytes32 v = pjson.readBytes32(string.concat(
-                        ".plaintexts[", vm.toString(i), "][", vm.toString(k), "]"));
+                    bytes32 v =
+                        pjson.readBytes32(string.concat(".plaintexts[", vm.toString(i), "][", vm.toString(k), "]"));
                     assembly { mstore(add(add(buf, 32), mul(k, 32)), v) }
                 }
                 args.plaintexts[i] = buf;

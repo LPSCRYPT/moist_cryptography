@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "tools": [
+    {
+      "name": "nargo",
+      "default_path": "$HOME/.nargo/bin/nargo",
+      "env_override": "NARGO_PATH",
+      "version_substring": "1.0.0-beta.19",
+      "sha256": "3d01d542e86ef05cf28c3b7862f2941192c695b5067cc5caaf40e4f080eb0f4e"
+    },
+    {
+      "name": "bb",
+      "default_path": "$HOME/.bb/bb",
+      "env_override": "BB_PATH",
+      "version_substring": "5.0.0-nightly.20260419",
+      "sha256": "d11fb1cba3928155c4c060c7723d06aeaece12196d127b21ad6b4a69d61e1569"
+    }
+  ]
+}

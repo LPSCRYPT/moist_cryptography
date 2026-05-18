@@ -24,19 +24,18 @@ import {ShadowBridgeL2} from "../src/ShadowBridgeL2.sol";
 ///       --sender $DEPLOYER_ADDRESS --private-key $PRIVATE_KEY
 contract BridgeShadowOnSepolia is Script {
     function run() external {
-        address stAddr  = vm.envAddress("ST_ADDRESS");
-        address brAddr  = vm.envAddress("L2_BRIDGE");
+        address stAddr = vm.envAddress("ST_ADDRESS");
+        address brAddr = vm.envAddress("L2_BRIDGE");
         uint256 shadowId = uint256(vm.envBytes32("SHADOW_ID"));
         bytes memory revealedPi = vm.readFileBinary(vm.envString("PI_PATH"));
         // L1 mirror recipient. Falls back to msg.sender if not set, which
         // preserves pre-audit behaviour for EOA-controlled flows.
         address l1Recipient = vm.envOr("L1_RECIPIENT", msg.sender);
 
-        require(revealedPi.length > 0 && revealedPi.length % 32 == 0,
-            "revealedPi must be non-empty + multiple of 32");
+        require(revealedPi.length > 0 && revealedPi.length % 32 == 0, "revealedPi must be non-empty + multiple of 32");
 
         ShadowBridgeL2 br = ShadowBridgeL2(brAddr);
-        ShadowToken    st = ShadowToken(stAddr);
+        ShadowToken st = ShadowToken(stAddr);
 
         require(br.l1Mirror() != address(0), "L2 bridge: l1Mirror not set");
         require(st.isSolved(shadowId), "shadow not solved");

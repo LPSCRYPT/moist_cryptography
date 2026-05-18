@@ -49,10 +49,10 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 
 contract ReplayMutateSlotTest is Test {
     TestableShadowToken internal st;
-    TestableFeatureNFT  internal fn;
-    MutateSlotVerifier  internal vMut;
-    T10ShadowVerifier   internal vT10;
-    Poseidon2YulSponge  internal sponge;
+    TestableFeatureNFT internal fn;
+    MutateSlotVerifier internal vMut;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
 
     string internal constant FIX = "./test/fixtures/atomic_mutate/atomic_demo";
 
@@ -79,16 +79,20 @@ contract ReplayMutateSlotTest is Test {
         bytes32[] memory piMut = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), 16);
         bytes memory proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
         bytes32[] memory piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), 20);
-        bytes memory newC2    = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
+        bytes memory newC2 = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
 
         fn.seedFeature(
-            uint256(piMut[2]), uint256(piMut[0]), uint8(uint256(piMut[1])),
+            uint256(piMut[2]),
+            uint256(piMut[0]),
+            uint8(uint256(piMut[1])),
             uint8(uint256(piMut[3])),
-            piMut[4], piMut[5], piMut[6], alice
+            piMut[4],
+            piMut[5],
+            piMut[6],
+            alice
         );
         st.seedShadowAndSlot(
-            uint256(piMut[0]), alice, piMut[10], piMut[11],
-            uint8(uint256(piMut[1])), uint256(piMut[2]), piMut[6]
+            uint256(piMut[0]), alice, piMut[10], piMut[11], uint8(uint256(piMut[1])), uint256(piMut[2]), piMut[6]
         );
 
         bytes32[2] memory newT10;
@@ -96,17 +100,18 @@ contract ReplayMutateSlotTest is Test {
         newT10[1] = piT10[3];
         args = ShadowToken.MutateSlotArgs({
             shadowId: uint256(piMut[0]),
-            slotIdx:  uint8(uint256(piMut[1])),
+            slotIdx: uint8(uint256(piMut[1])),
             proofMutate: proofMut,
-            newC1X: 0, newC1Y: 0,
+            newC1X: 0,
+            newC1Y: 0,
             newLiveStateHash: piMut[7],
-            newCtCommit:      piMut[8],
+            newCtCommit: piMut[8],
             c2FieldCount: uint16(newC2.length / 32),
             c2: newC2,
             prevChainTip: piMut[12],
-            newChainTip:  piMut[13],
+            newChainTip: piMut[13],
             prevMutationCount: uint16(uint256(piMut[14])),
-            newMutationCount:  uint16(uint256(piMut[15])),
+            newMutationCount: uint16(uint256(piMut[15])),
             newT10: newT10,
             proofT10: proofT10
         });
@@ -145,15 +150,15 @@ contract ReplayExtractSlotTest is Test {
     using stdJson for string;
 
     TestableShadowToken internal st;
-    TestableFeatureNFT  internal fn;
-    T10ShadowVerifier   internal vT10;
-    Poseidon2YulSponge  internal sponge;
+    TestableFeatureNFT internal fn;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
 
     string internal constant FIX = "./test/fixtures/atomic_extract/extract_demo";
 
     address internal alice = makeAddr("alice");
     uint256 internal shadowId;
-    uint8   internal slotIdx;
+    uint8 internal slotIdx;
     bytes32[2] internal newT10;
     bytes internal proofT10;
 
@@ -168,21 +173,19 @@ contract ReplayExtractSlotTest is Test {
         proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
 
         string memory meta = vm.readFile(string.concat(FIX, "/meta.json"));
-        shadowId           = vm.parseJsonUint(meta, ".shadow_id");
-        slotIdx            = uint8(vm.parseJsonUint(meta, ".slot_idx"));
-        uint256 featureId  = vm.parseJsonUint(meta, ".feature_id");
-        uint8   typeIdx    = uint8(vm.parseJsonUint(meta, ".type_idx"));
-        bytes32 originFaceId  = vm.parseJsonBytes32(meta, ".origin_face_id");
+        shadowId = vm.parseJsonUint(meta, ".shadow_id");
+        slotIdx = uint8(vm.parseJsonUint(meta, ".slot_idx"));
+        uint256 featureId = vm.parseJsonUint(meta, ".feature_id");
+        uint8 typeIdx = uint8(vm.parseJsonUint(meta, ".type_idx"));
+        bytes32 originFaceId = vm.parseJsonBytes32(meta, ".origin_face_id");
         bytes32 paletteCommit = vm.parseJsonBytes32(meta, ".palette_commit");
-        bytes32 lshPre        = vm.parseJsonBytes32(meta, ".lsh_pre");
-        newT10[0]             = vm.parseJsonBytes32(meta, ".t10_hi");
-        newT10[1]             = vm.parseJsonBytes32(meta, ".t10_lo");
+        bytes32 lshPre = vm.parseJsonBytes32(meta, ".lsh_pre");
+        newT10[0] = vm.parseJsonBytes32(meta, ".t10_hi");
+        newT10[1] = vm.parseJsonBytes32(meta, ".t10_lo");
 
         fn.seedFeature(featureId, shadowId, slotIdx, typeIdx, originFaceId, paletteCommit, lshPre, alice);
         st.seedShadowAndSlot(
-            shadowId, alice,
-            bytes32(uint256(0xaa)), bytes32(uint256(0xbb)),
-            slotIdx, featureId, lshPre
+            shadowId, alice, bytes32(uint256(0xaa)), bytes32(uint256(0xbb)), slotIdx, featureId, lshPre
         );
     }
 
@@ -210,21 +213,21 @@ contract ReplayExtractSlotTest is Test {
 contract ReplayTransferShadowTest is Test {
     using stdJson for string;
 
-    TestableShadowToken    internal st;
-    TestableFeatureNFT     internal fn;
+    TestableShadowToken internal st;
+    TestableFeatureNFT internal fn;
     TransferShadowVerifier internal vT;
-    T10ShadowVerifier      internal vT10;
-    Poseidon2YulSponge     internal sponge;
-    Poseidon2YulSponge16   internal sponge16;
-    KeyRegistry            internal kr;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
+    Poseidon2YulSponge16 internal sponge16;
+    KeyRegistry internal kr;
 
     string internal constant FIX = "./test/fixtures/atomic_transfer/atomic_transfer_demo";
 
     address internal alice = makeAddr("alice");
-    address internal bob   = makeAddr("bob");
+    address internal bob = makeAddr("bob");
 
-    uint8[]    internal occupiedIdxs;
-    uint256[]  internal featureIds;
+    uint8[] internal occupiedIdxs;
+    uint256[] internal featureIds;
     ShadowToken.TransferShadowArgs internal args;
 
     // Storage-resident per-slot arrays so the setup helpers don't blow
@@ -235,12 +238,12 @@ contract ReplayTransferShadowTest is Test {
     uint256[16] internal _newC1X;
     uint256[16] internal _newC1Y;
     bytes32[16] internal _newChainTip;
-    uint16[16]  internal _newCount;
-    bytes[]     internal _c2s;          // 16 entries; bytes is variable-length
-    bytes32     internal _t10Hi;
-    bytes32     internal _t10Lo;
-    bytes       internal _proofTransfer;
-    bytes       internal _proofT10;
+    uint16[16] internal _newCount;
+    bytes[] internal _c2s; // 16 entries; bytes is variable-length
+    bytes32 internal _t10Hi;
+    bytes32 internal _t10Lo;
+    bytes internal _proofTransfer;
+    bytes internal _proofT10;
 
     function setUp() public {
         _deployStack();
@@ -297,12 +300,12 @@ contract ReplayTransferShadowTest is Test {
         string memory j = vm.readFile(string.concat(FIX, "/meta.json"));
         for (uint256 i = 0; i < 16; i++) {
             string memory idx = vm.toString(i);
-            _newLsh[i]      = j.readBytes32(string.concat(".new_lsh[", idx, "]"));
-            _newCt[i]       = j.readBytes32(string.concat(".new_ct_commit[", idx, "]"));
-            _newC1X[i]      = uint256(j.readBytes32(string.concat(".new_c1_x[", idx, "]")));
-            _newC1Y[i]      = uint256(j.readBytes32(string.concat(".new_c1_y[", idx, "]")));
+            _newLsh[i] = j.readBytes32(string.concat(".new_lsh[", idx, "]"));
+            _newCt[i] = j.readBytes32(string.concat(".new_ct_commit[", idx, "]"));
+            _newC1X[i] = uint256(j.readBytes32(string.concat(".new_c1_x[", idx, "]")));
+            _newC1Y[i] = uint256(j.readBytes32(string.concat(".new_c1_y[", idx, "]")));
             _newChainTip[i] = j.readBytes32(string.concat(".new_chain_tip[", idx, "]"));
-            _newCount[i]    = uint16(j.readUint(string.concat(".new_mutation_count[", idx, "]")));
+            _newCount[i] = uint16(j.readUint(string.concat(".new_mutation_count[", idx, "]")));
         }
         uint256[] memory occ = j.readUintArray(".occupied_idxs");
         occupiedIdxs = new uint8[](occ.length);
@@ -313,18 +316,19 @@ contract ReplayTransferShadowTest is Test {
             occupiedIdxs[i] = uint8(occ[i]);
             string memory sIdxStr = vm.toString(uint256(occupiedIdxs[i]));
             prevLshArr[i] = j.readBytes32(string.concat(".prev_lsh[", sIdxStr, "]"));
-            featIds[i]   = uint256(keccak256(abi.encode(_shadowId, occupiedIdxs[i], "feature")));
-            featureIds[i]= featIds[i];
+            featIds[i] = uint256(keccak256(abi.encode(_shadowId, occupiedIdxs[i], "feature")));
+            featureIds[i] = featIds[i];
         }
         st.seedShadowMultiSlot(
-            _shadowId, alice,
-            _stashedPrevOwnerPkX, _stashedPrevOwnerPkY,
-            occupiedIdxs, featIds, prevLshArr
+            _shadowId, alice, _stashedPrevOwnerPkX, _stashedPrevOwnerPkY, occupiedIdxs, featIds, prevLshArr
         );
         for (uint256 i = 0; i < occupiedIdxs.length; i++) {
             uint8 sIdx = occupiedIdxs[i];
             fn.seedFeature(
-                featIds[i], _shadowId, sIdx, uint8(i),
+                featIds[i],
+                _shadowId,
+                sIdx,
+                uint8(i),
                 keccak256(abi.encode("origin", _shadowId, sIdx)),
                 keccak256(abi.encode("palette", _shadowId, sIdx)),
                 prevLshArr[i],
@@ -409,16 +413,16 @@ contract ReplayTransferShadowTest is Test {
 
 contract ReplayInsertFeatureTest is Test {
     TestableShadowToken internal st;
-    TestableFeatureNFT  internal fn;
-    MutateSlotVerifier  internal vMut;
-    T10ShadowVerifier   internal vT10;
-    Poseidon2YulSponge  internal sponge;
+    TestableFeatureNFT internal fn;
+    MutateSlotVerifier internal vMut;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
 
     string internal constant FIX = "./test/fixtures/atomic_mutate/atomic_demo";
 
     address internal alice = makeAddr("alice");
     uint256 internal constant SOURCE_SHADOW = 0xDEADBEEF;
-    uint8   internal constant SOURCE_SLOT   = 9;
+    uint8 internal constant SOURCE_SLOT = 9;
 
     ShadowToken.InsertFeatureArgs internal args;
     uint256 internal featureId;
@@ -437,21 +441,19 @@ contract ReplayInsertFeatureTest is Test {
         bytes32[] memory piMut = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), 16);
         bytes memory proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
         bytes32[] memory piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), 20);
-        bytes memory newC2    = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
+        bytes memory newC2 = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
 
-        uint256 shadowId      = uint256(piMut[0]);
-        uint8   slotIdx       = uint8(uint256(piMut[1]));
-                featureId     = uint256(piMut[2]);
-        bytes32 originFaceId  = piMut[4];
+        uint256 shadowId = uint256(piMut[0]);
+        uint8 slotIdx = uint8(uint256(piMut[1]));
+        featureId = uint256(piMut[2]);
+        bytes32 originFaceId = piMut[4];
         bytes32 paletteCommit = piMut[5];
-        bytes32 oldLsh        = piMut[6];
-        bytes32 ownerPkX      = piMut[10];
-        bytes32 ownerPkY      = piMut[11];
+        bytes32 oldLsh = piMut[6];
+        bytes32 ownerPkX = piMut[10];
+        bytes32 ownerPkY = piMut[11];
 
         fn.seedFeature(
-            featureId, SOURCE_SHADOW, SOURCE_SLOT,
-            uint8(uint256(piMut[3])),
-            originFaceId, paletteCommit, oldLsh, alice
+            featureId, SOURCE_SHADOW, SOURCE_SLOT, uint8(uint256(piMut[3])), originFaceId, paletteCommit, oldLsh, alice
         );
         // Detach: matches a post-extract carrier.
         vm.prank(address(st));
@@ -460,22 +462,24 @@ contract ReplayInsertFeatureTest is Test {
         st.seedShadowOnly(shadowId, alice, ownerPkX, ownerPkY);
 
         bytes32[2] memory newT10;
-        newT10[0] = piT10[2]; newT10[1] = piT10[3];
+        newT10[0] = piT10[2];
+        newT10[1] = piT10[3];
 
         args = ShadowToken.InsertFeatureArgs({
             shadowId: shadowId,
-            slotIdx:  slotIdx,
+            slotIdx: slotIdx,
             featureId: featureId,
             proofInsert: proofMut,
-            newC1X: 0, newC1Y: 0,
+            newC1X: 0,
+            newC1Y: 0,
             newLiveStateHash: piMut[7],
-            newCtCommit:      piMut[8],
+            newCtCommit: piMut[8],
             c2FieldCount: uint16(newC2.length / 32),
             c2: newC2,
             prevChainTip: piMut[12],
-            newChainTip:  piMut[13],
+            newChainTip: piMut[13],
             prevMutationCount: uint16(uint256(piMut[14])),
-            newMutationCount:  uint16(uint256(piMut[15])),
+            newMutationCount: uint16(uint256(piMut[15])),
             newT10: newT10,
             proofT10: proofT10
         });
@@ -490,9 +494,7 @@ contract ReplayInsertFeatureTest is Test {
         st.insertFeature(args);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(
-            ShadowToken.FeatureAlreadyInserted.selector, featureId
-        ));
+        vm.expectRevert(abi.encodeWithSelector(ShadowToken.FeatureAlreadyInserted.selector, featureId));
         st.insertFeature(args);
     }
 
@@ -523,11 +525,11 @@ contract ReplayInsertFeatureTest is Test {
 contract ReplaySetZIndexCommitTest is Test {
     using stdJson for string;
 
-    TestableShadowToken  internal st;
-    TestableFeatureNFT   internal fn;
+    TestableShadowToken internal st;
+    TestableFeatureNFT internal fn;
     ZIndexCommitVerifier internal vZ;
-    T10ShadowVerifier    internal vT10;
-    Poseidon2YulSponge   internal sponge;
+    T10ShadowVerifier internal vT10;
+    Poseidon2YulSponge internal sponge;
 
     string internal constant FIX = "./test/fixtures/atomic_zindex/zidx_atomic_demo";
 
@@ -546,30 +548,22 @@ contract ReplaySetZIndexCommitTest is Test {
         st.setVerifier(st.SLOT_ZINDEX_COMMIT(), IVerifier(address(vZ)));
         st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
 
-        bytes memory proofZ   = vm.readFileBinary(string.concat(FIX, "/proof_z.bin"));
+        bytes memory proofZ = vm.readFileBinary(string.concat(FIX, "/proof_z.bin"));
         bytes memory proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
 
         string memory meta = vm.readFile(string.concat(FIX, "/meta.json"));
-        shadowId          = vm.parseJsonUint(meta, ".shadow_id");
-        uint8 slotIdx     = uint8(vm.parseJsonUint(meta, ".slot_idx"));
-        bytes32 lshHeld   = vm.parseJsonBytes32(meta, ".lsh_held");
-        newZCommit        = vm.parseJsonBytes32(meta, ".z_commit");
+        shadowId = vm.parseJsonUint(meta, ".shadow_id");
+        uint8 slotIdx = uint8(vm.parseJsonUint(meta, ".slot_idx"));
+        bytes32 lshHeld = vm.parseJsonBytes32(meta, ".lsh_held");
+        newZCommit = vm.parseJsonBytes32(meta, ".z_commit");
         bytes32[2] memory t10;
         t10[0] = vm.parseJsonBytes32(meta, ".t10_hi");
         t10[1] = vm.parseJsonBytes32(meta, ".t10_lo");
 
-        st.seedShadowAndSlot(
-            shadowId, alice,
-            bytes32(uint256(0xaa)), bytes32(uint256(0xbb)),
-            slotIdx, 0xfeed, lshHeld
-        );
+        st.seedShadowAndSlot(shadowId, alice, bytes32(uint256(0xaa)), bytes32(uint256(0xbb)), slotIdx, 0xfeed, lshHeld);
 
         args = ShadowToken.SetZIndexCommitArgs({
-            shadowId: shadowId,
-            newCommit: newZCommit,
-            proofZ: proofZ,
-            newT10: t10,
-            proofT10: proofT10
+            shadowId: shadowId, newCommit: newZCommit, proofZ: proofZ, newT10: t10, proofT10: proofT10
         });
     }
 

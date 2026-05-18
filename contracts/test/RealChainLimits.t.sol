@@ -3,22 +3,22 @@ pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
 
-import {Poseidon2YulSponge}       from "../src/Poseidon2YulSponge.sol";
-import {Poseidon2YulSponge16}     from "../src/Poseidon2YulSponge16.sol";
-import {KeyRegistry}              from "../src/KeyRegistry.sol";
-import {ShadowToken}              from "../src/ShadowToken.sol";
-import {FeatureNFT}               from "../src/FeatureNFT.sol";
-import {MintShadowVerifier}       from "../src/MintShadowVerifier.sol";
-import {FaceDiscVerifier}         from "../src/FaceDiscVerifier.sol";
-import {MutateSlotVerifier}       from "../src/MutateSlotVerifier.sol";
-import {T10ShadowVerifier}        from "../src/T10ShadowVerifier.sol";
-import {ZIndexCommitVerifier}     from "../src/ZIndexCommitVerifier.sol";
-import {TransferShadowVerifier}   from "../src/TransferShadowVerifier.sol";
-import {SolveShadowVerifier}      from "../src/SolveShadowVerifier.sol";
-import {IShadowToken}             from "../src/IShadowToken.sol";
-import {IFeatureNFT}              from "../src/IFeatureNFT.sol";
-import {ShadowBridgeL2}           from "../src/ShadowBridgeL2.sol";
-import {ShadowMirrorL1}           from "../src/ShadowMirrorL1.sol";
+import {Poseidon2YulSponge} from "../src/Poseidon2YulSponge.sol";
+import {Poseidon2YulSponge16} from "../src/Poseidon2YulSponge16.sol";
+import {KeyRegistry} from "../src/KeyRegistry.sol";
+import {ShadowToken} from "../src/ShadowToken.sol";
+import {FeatureNFT} from "../src/FeatureNFT.sol";
+import {MintShadowVerifier} from "../src/MintShadowVerifier.sol";
+import {FaceDiscVerifier} from "../src/FaceDiscVerifier.sol";
+import {MutateSlotVerifier} from "../src/MutateSlotVerifier.sol";
+import {T10ShadowVerifier} from "../src/T10ShadowVerifier.sol";
+import {ZIndexCommitVerifier} from "../src/ZIndexCommitVerifier.sol";
+import {TransferShadowVerifier} from "../src/TransferShadowVerifier.sol";
+import {SolveShadowVerifier} from "../src/SolveShadowVerifier.sol";
+import {IShadowToken} from "../src/IShadowToken.sol";
+import {IFeatureNFT} from "../src/IFeatureNFT.sol";
+import {ShadowBridgeL2} from "../src/ShadowBridgeL2.sol";
+import {ShadowMirrorL1} from "../src/ShadowMirrorL1.sol";
 
 /// @notice Enforces real-chain deployment limits at test-time so size
 ///         regressions cannot silently land. Local `forge script` and
@@ -52,10 +52,13 @@ contract RealChainLimitsTest is Test {
     function _assertUnderEip170(string memory name, address a) internal view {
         uint256 sz = _sizeOf(a);
         assertLe(
-            sz, EIP_170_LIMIT,
+            sz,
+            EIP_170_LIMIT,
             string.concat(
-                "EIP-170 violation: ", name,
-                " runtime bytecode = ", vm.toString(sz),
+                "EIP-170 violation: ",
+                name,
+                " runtime bytecode = ",
+                vm.toString(sz),
                 " B > 24,576 B cap (real CREATE would revert)"
             )
         );
@@ -66,11 +69,15 @@ contract RealChainLimitsTest is Test {
         assertLe(sz, EIP_170_LIMIT, string.concat("EIP-170: ", name));
         uint256 headroom = EIP_170_LIMIT - sz;
         assertGe(
-            headroom, HONK_HEADROOM_MIN,
+            headroom,
+            HONK_HEADROOM_MIN,
             string.concat(
-                "Honk verifier ", name,
-                " headroom = ", vm.toString(headroom),
-                " B is under HONK_HEADROOM_MIN = ", vm.toString(HONK_HEADROOM_MIN),
+                "Honk verifier ",
+                name,
+                " headroom = ",
+                vm.toString(headroom),
+                " B is under HONK_HEADROOM_MIN = ",
+                vm.toString(HONK_HEADROOM_MIN),
                 " B; investigate before regenerating"
             )
         );

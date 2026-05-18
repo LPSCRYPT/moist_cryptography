@@ -7,23 +7,26 @@ pragma solidity ^0.8.27;
 /// interface so the bridge file doesn't depend on ShadowToken's full source
 /// (which transitively pulls in OZ ERC721 + KeyRegistry + verifiers).
 interface IShadowToken {
-    enum SlotKind { EMPTY, OCCUPIED }
+    enum SlotKind {
+        EMPTY,
+        OCCUPIED
+    }
 
     struct ManifestEntry {
         SlotKind kind;
-        uint256  featureId;
-        bytes32  liveStateHash;
+        uint256 featureId;
+        bytes32 liveStateHash;
     }
 
     struct Shadow {
         bytes32 ecdhPubX;
         bytes32 ecdhPubY;
-        bool    solved;
+        bool solved;
         bytes32 zIndexCommit;
-        uint64  zIndexRevealed;
-        bool    zIndexRevealedSet;
-        uint64  mintIdx;
-        uint64  mintedAt;
+        uint64 zIndexRevealed;
+        bool zIndexRevealedSet;
+        uint64 mintIdx;
+        uint64 mintedAt;
     }
 
     function ownerOf(uint256 tokenId) external view returns (address);

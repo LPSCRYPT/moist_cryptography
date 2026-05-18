@@ -5,8 +5,5 @@ pragma solidity >=0.8.21;
 ///         Shared by FeatureToken (origin + relay-geom proofs) and
 ///         AmalgamToken (shadow + solve proofs).
 interface IVerifier {
-    function verify(bytes calldata proof, bytes32[] calldata publicInputs)
-        external
-        view
-        returns (bool);
+    function verify(bytes calldata proof, bytes32[] calldata publicInputs) external view returns (bool);
 }

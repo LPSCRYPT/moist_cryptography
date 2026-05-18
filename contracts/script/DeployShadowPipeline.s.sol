@@ -2,22 +2,22 @@
 pragma solidity ^0.8.27;
 
 import {Script, console} from "forge-std/Script.sol";
-import {Poseidon2YulSponge}   from "../src/Poseidon2YulSponge.sol";
+import {Poseidon2YulSponge} from "../src/Poseidon2YulSponge.sol";
 import {Poseidon2YulSponge16} from "../src/Poseidon2YulSponge16.sol";
-import {Poseidon2YulHash2}    from "../src/Poseidon2YulHash2.sol";
+import {Poseidon2YulHash2} from "../src/Poseidon2YulHash2.sol";
 
-import {IVerifier}    from "../src/IVerifier.sol";
-import {KeyRegistry}  from "../src/KeyRegistry.sol";
-import {ShadowToken}  from "../src/ShadowToken.sol";
-import {FeatureNFT}   from "../src/FeatureNFT.sol";
+import {IVerifier} from "../src/IVerifier.sol";
+import {KeyRegistry} from "../src/KeyRegistry.sol";
+import {ShadowToken} from "../src/ShadowToken.sol";
+import {FeatureNFT} from "../src/FeatureNFT.sol";
 
-import {MintShadowVerifier}     from "../src/MintShadowVerifier.sol";
-import {FaceDiscVerifier}       from "../src/FaceDiscVerifier.sol";
-import {MutateSlotVerifier}     from "../src/MutateSlotVerifier.sol";
-import {T10ShadowVerifier}      from "../src/T10ShadowVerifier.sol";
-import {ZIndexCommitVerifier}   from "../src/ZIndexCommitVerifier.sol";
+import {MintShadowVerifier} from "../src/MintShadowVerifier.sol";
+import {FaceDiscVerifier} from "../src/FaceDiscVerifier.sol";
+import {MutateSlotVerifier} from "../src/MutateSlotVerifier.sol";
+import {T10ShadowVerifier} from "../src/T10ShadowVerifier.sol";
+import {ZIndexCommitVerifier} from "../src/ZIndexCommitVerifier.sol";
 import {TransferShadowVerifier} from "../src/TransferShadowVerifier.sol";
-import {SolveShadowVerifier}    from "../src/SolveShadowVerifier.sol";
+import {SolveShadowVerifier} from "../src/SolveShadowVerifier.sol";
 import {TransferFeatureV2Verifier} from "../src/TransferFeatureV2Verifier.sol";
 import {Poseidon2YulSpongePaletteSalt} from "../src/Poseidon2YulSpongePaletteSalt.sol";
 
@@ -55,9 +55,9 @@ contract DeployShadowPipeline is Script {
         vm.startBroadcast();
 
         // ---- 1. Yul sponges ----
-        Poseidon2YulSponge   sponge   = new Poseidon2YulSponge();
+        Poseidon2YulSponge sponge = new Poseidon2YulSponge();
         Poseidon2YulSponge16 sponge16 = new Poseidon2YulSponge16();
-        Poseidon2YulHash2    hash2    = new Poseidon2YulHash2();
+        Poseidon2YulHash2 hash2 = new Poseidon2YulHash2();
         console.log("Poseidon2YulSponge   :", address(sponge));
         console.log("Poseidon2YulSponge16 :", address(sponge16));
         console.log("Poseidon2YulHash2    :", address(hash2));

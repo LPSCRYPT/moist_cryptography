@@ -20,7 +20,8 @@ attests, the public-input layouts, and how the proofs compose.
 ## Building
 
 Toolchain: [Nargo](https://github.com/noir-lang/noir) 1.0.0-beta.19 +
-[bb](https://github.com/AztecProtocol/aztec-packages) 1.4.0.
+[bb](https://github.com/AztecProtocol/aztec-packages) 5.0.0-nightly.20260419.
+Pinned paths and hashes are machine-checked by `../tools/check_toolchain.py`.
 
 ```sh
 cd circuits/<name>

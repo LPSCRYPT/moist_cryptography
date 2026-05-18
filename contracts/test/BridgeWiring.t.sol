@@ -35,8 +35,8 @@ contract BridgeWiringTest is Test {
     address internal constant L1_MESSENGER = 0xC34855F4De64F1840e5686e64278da901e261f20;
     address internal constant L2_MESSENGER = 0x4200000000000000000000000000000000000007;
 
-    address internal alice    = makeAddr("alice");
-    address internal mallory  = makeAddr("mallory");
+    address internal alice = makeAddr("alice");
+    address internal mallory = makeAddr("mallory");
     address internal newOwner = makeAddr("newOwner");
 
     function _newMessengerStub(address at) internal returns (StubMessenger) {
@@ -111,22 +111,20 @@ contract BridgeWiringTest is Test {
     // ============== ShadowMirrorL1.mintFromBridge ==============
 
     function test_mintFromBridge_reverts_when_caller_not_messenger() public {
-        (ShadowMirrorL1 mirror, , ) = _wiredPair();
+        (ShadowMirrorL1 mirror,,) = _wiredPair();
         ShadowMirrorL1.BridgePayload memory p = _payload(uint256(0xC1), alice);
         vm.expectRevert(ShadowMirrorL1.NotMessenger.selector);
         mirror.mintFromBridge(p);
     }
 
     function test_mintFromBridge_reverts_when_xsender_not_l2_bridge() public {
-        (ShadowMirrorL1 mirror, , ) = _wiredPair();
+        (ShadowMirrorL1 mirror,,) = _wiredPair();
         // The messenger relays the call but xDomainMessageSender returns
         // mallory (not the registered L2 bridge).
         StubMessenger(L1_MESSENGER).setXSender(mallory);
         ShadowMirrorL1.BridgePayload memory p = _payload(uint256(0xC2), alice);
         vm.prank(L1_MESSENGER);
-        vm.expectRevert(abi.encodeWithSelector(
-            ShadowMirrorL1.NotL2Bridge.selector, mallory
-        ));
+        vm.expectRevert(abi.encodeWithSelector(ShadowMirrorL1.NotL2Bridge.selector, mallory));
         mirror.mintFromBridge(p);
     }
 
@@ -140,7 +138,7 @@ contract BridgeWiringTest is Test {
     }
 
     function test_mintFromBridge_reverts_on_replay() public {
-        (ShadowMirrorL1 mirror, ShadowBridgeL2 br, ) = _wiredPair();
+        (ShadowMirrorL1 mirror, ShadowBridgeL2 br,) = _wiredPair();
         StubMessenger(L1_MESSENGER).setXSender(address(br));
         uint256 sid = uint256(0xCAFE);
         ShadowMirrorL1.BridgePayload memory p = _payload(sid, alice);
@@ -151,14 +149,12 @@ contract BridgeWiringTest is Test {
 
         // Replay with same shadowId -> AlreadyMinted.
         vm.prank(L1_MESSENGER);
-        vm.expectRevert(abi.encodeWithSelector(
-            ShadowMirrorL1.AlreadyMinted.selector, sid
-        ));
+        vm.expectRevert(abi.encodeWithSelector(ShadowMirrorL1.AlreadyMinted.selector, sid));
         mirror.mintFromBridge(p);
     }
 
     function test_mintFromBridge_happy_path_mints_and_stores_state() public {
-        (ShadowMirrorL1 mirror, ShadowBridgeL2 br, ) = _wiredPair();
+        (ShadowMirrorL1 mirror, ShadowBridgeL2 br,) = _wiredPair();
         StubMessenger(L1_MESSENGER).setXSender(address(br));
         uint256 sid = uint256(0xBEEF1234);
         ShadowMirrorL1.BridgePayload memory p = _payload(sid, alice);
@@ -172,8 +168,8 @@ contract BridgeWiringTest is Test {
         ShadowMirrorL1.MirrorState memory st = mirror.stateOf(sid);
         assertEq(st.ecdhPubX, p.ecdhPubX);
         assertEq(st.ecdhPubY, p.ecdhPubY);
-        assertEq(st.t10Hi,    p.t10Hi);
-        assertEq(st.t10Lo,    p.t10Lo);
+        assertEq(st.t10Hi, p.t10Hi);
+        assertEq(st.t10Lo, p.t10Lo);
         assertEq(st.zIndexCommit, p.zIndexCommit);
         assertEq(st.zIndexRevealed, p.zIndexRevealed);
 
@@ -195,7 +191,7 @@ contract BridgeWiringTest is Test {
     }
 
     function test_burnAndUnbridge_reverts_when_not_owner() public {
-        (ShadowMirrorL1 mirror, ShadowBridgeL2 br, ) = _wiredPair();
+        (ShadowMirrorL1 mirror, ShadowBridgeL2 br,) = _wiredPair();
         StubMessenger(L1_MESSENGER).setXSender(address(br));
         uint256 sid = uint256(0xACE0);
         ShadowMirrorL1.BridgePayload memory p = _payload(sid, alice);
@@ -209,7 +205,7 @@ contract BridgeWiringTest is Test {
     }
 
     function test_burnAndUnbridge_happy_path_burns_and_sends_message() public {
-        (ShadowMirrorL1 mirror, ShadowBridgeL2 br, ) = _wiredPair();
+        (ShadowMirrorL1 mirror, ShadowBridgeL2 br,) = _wiredPair();
         StubMessenger(L1_MESSENGER).setXSender(address(br));
         uint256 sid = uint256(0xACE1);
         ShadowMirrorL1.BridgePayload memory p = _payload(sid, alice);
@@ -233,43 +229,36 @@ contract BridgeWiringTest is Test {
         // unbridgeShadow(sid, newOwner) calldata.
         StubMessenger m = StubMessenger(L1_MESSENGER);
         assertEq(m.lastTarget(), address(br), "message target = L2 bridge");
-        bytes memory expected = abi.encodeWithSignature(
-            "unbridgeShadow(uint256,address)", sid, newOwner
-        );
-        assertEq(keccak256(m.lastMessage()), keccak256(expected),
-            "L2 unbridge calldata exact-match");
+        bytes memory expected = abi.encodeWithSignature("unbridgeShadow(uint256,address)", sid, newOwner);
+        assertEq(keccak256(m.lastMessage()), keccak256(expected), "L2 unbridge calldata exact-match");
     }
 
     // ============== ShadowBridgeL2.unbridgeShadow ==============
 
     function test_unbridgeShadow_reverts_when_caller_not_messenger() public {
-        (, ShadowBridgeL2 br, ) = _wiredPair();
+        (, ShadowBridgeL2 br,) = _wiredPair();
         vm.expectRevert(ShadowBridgeL2.NotMessenger.selector);
         br.unbridgeShadow(uint256(0x1), alice);
     }
 
     function test_unbridgeShadow_reverts_when_xsender_not_l1_mirror() public {
-        (ShadowMirrorL1 mirror, ShadowBridgeL2 br, ) = _wiredPair();
-        StubMessenger(L2_MESSENGER).setXSender(mallory);  // not the mirror
+        (ShadowMirrorL1 mirror, ShadowBridgeL2 br,) = _wiredPair();
+        StubMessenger(L2_MESSENGER).setXSender(mallory); // not the mirror
         vm.prank(L2_MESSENGER);
-        vm.expectRevert(abi.encodeWithSelector(
-            ShadowBridgeL2.NotL1Mirror.selector, mallory
-        ));
+        vm.expectRevert(abi.encodeWithSelector(ShadowBridgeL2.NotL1Mirror.selector, mallory));
         br.unbridgeShadow(uint256(0x1), alice);
         // (suppress warnings about mirror unused)
         mirror.l2Bridge();
     }
 
     function test_unbridgeShadow_reverts_when_not_owned_on_l1() public {
-        (ShadowMirrorL1 mirror, ShadowBridgeL2 br, ) = _wiredPair();
+        (ShadowMirrorL1 mirror, ShadowBridgeL2 br,) = _wiredPair();
         StubMessenger(L2_MESSENGER).setXSender(address(mirror));
         uint256 sid = uint256(0xC0FFEE);
         // Bridge state is OWNED_ON_L2 by default (the enum's zero value);
         // unbridge should reject because the shadow was never bridged.
         vm.prank(L2_MESSENGER);
-        vm.expectRevert(abi.encodeWithSelector(
-            ShadowBridgeL2.NotOwnedOnL1.selector, sid
-        ));
+        vm.expectRevert(abi.encodeWithSelector(ShadowBridgeL2.NotOwnedOnL1.selector, sid));
         br.unbridgeShadow(sid, alice);
     }
 
@@ -281,7 +270,7 @@ contract BridgeWiringTest is Test {
     /// the L2 token in bridge custody with no L1 owner left to retry.
     /// Now MUST revert before any state change.
     function test_burnAndUnbridge_reverts_when_l2Recipient_is_zero() public {
-        (ShadowMirrorL1 mirror, ShadowBridgeL2 br, ) = _wiredPair();
+        (ShadowMirrorL1 mirror, ShadowBridgeL2 br,) = _wiredPair();
         StubMessenger(L1_MESSENGER).setXSender(address(br));
         uint256 sid = uint256(0xACE2);
         ShadowMirrorL1.BridgePayload memory p = _payload(sid, alice);
@@ -303,7 +292,7 @@ contract BridgeWiringTest is Test {
     /// address has no L1 controller produce an unreachable mirror. The
     /// caller now passes l1Recipient explicitly; address(0) is rejected.
     function test_bridgeShadow_reverts_when_l1Recipient_is_zero() public {
-        (, ShadowBridgeL2 br, ) = _wiredPair();
+        (, ShadowBridgeL2 br,) = _wiredPair();
         // We don't actually need a solved shadow; the zero check fires first.
         // But we do need l1Mirror set (it is, via _wiredPair) and a non-empty PI
         // so we don't trip BadRevealedPi.
@@ -322,7 +311,7 @@ contract BridgeWiringTest is Test {
     /// the L2 token forever in ShadowBridgeL2's custody. burnAndUnbridge
     /// now clears the marker so a future cycle can mint the mirror fresh.
     function test_round_trip_bridgeShadow_then_rebridge_does_not_strand() public {
-        (ShadowMirrorL1 mirror, ShadowBridgeL2 br, ) = _wiredPair();
+        (ShadowMirrorL1 mirror, ShadowBridgeL2 br,) = _wiredPair();
         StubMessenger(L1_MESSENGER).setXSender(address(br));
         uint256 sid = uint256(0xC0FFEE01);
 
@@ -366,11 +355,7 @@ contract BridgeWiringTest is Test {
     }
 
     /// Returns (mirror, l2Bridge, messengerStub-at-L1). Both directions wired.
-    function _wiredPair() internal returns (
-        ShadowMirrorL1 mirror,
-        ShadowBridgeL2 br,
-        StubMessenger l1Stub
-    ) {
+    function _wiredPair() internal returns (ShadowMirrorL1 mirror, ShadowBridgeL2 br, StubMessenger l1Stub) {
         l1Stub = _newMessengerStub(L1_MESSENGER);
         _newMessengerStub(L2_MESSENGER);
         mirror = new ShadowMirrorL1(L1_MESSENGER);
@@ -379,15 +364,13 @@ contract BridgeWiringTest is Test {
         br.setL1Mirror(address(mirror));
     }
 
-    function _payload(uint256 sid, address recipient)
-        internal pure returns (ShadowMirrorL1.BridgePayload memory p)
-    {
+    function _payload(uint256 sid, address recipient) internal pure returns (ShadowMirrorL1.BridgePayload memory p) {
         p.shadowId = sid;
         p.recipient = recipient;
         p.ecdhPubX = bytes32(uint256(0xa1));
         p.ecdhPubY = bytes32(uint256(0xa2));
-        p.t10Hi    = bytes32(uint256(0x1111));
-        p.t10Lo    = bytes32(uint256(0x2222));
+        p.t10Hi = bytes32(uint256(0x1111));
+        p.t10Lo = bytes32(uint256(0x2222));
         p.zIndexCommit = bytes32(uint256(0xbeef));
         p.zIndexRevealed = 0xfedcba9876543210;
         // Manifest, typeIdxs, originFaceIds, paletteCommits left zero
@@ -405,8 +388,8 @@ contract BridgeWiringTest is Test {
 /// Stack messenger uses to relay the original sender across chains).
 contract StubMessenger {
     address public lastTarget;
-    bytes   public lastMessage;
-    uint32  public lastGasLimit;
+    bytes public lastMessage;
+    uint32 public lastGasLimit;
     address private _xsender;
 
     function sendMessage(address _target, bytes calldata _message, uint32 _minGasLimit) external {

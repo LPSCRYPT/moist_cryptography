@@ -70,19 +70,19 @@ contract Poseidon2YulHash2Test is Test {
     /// rather than be silently absorbed.
     function test_hash2_rejects_wrong_size() public {
         bytes memory empty;
-        (bool ok1, ) = address(hash2).staticcall(empty);
+        (bool ok1,) = address(hash2).staticcall(empty);
         assertFalse(ok1, "0 bytes must revert");
 
-        (bool ok2, ) = address(hash2).staticcall(new bytes(32));
+        (bool ok2,) = address(hash2).staticcall(new bytes(32));
         assertFalse(ok2, "32 bytes must revert");
 
-        (bool ok3, ) = address(hash2).staticcall(new bytes(63));
+        (bool ok3,) = address(hash2).staticcall(new bytes(63));
         assertFalse(ok3, "63 bytes must revert");
 
-        (bool ok4, ) = address(hash2).staticcall(new bytes(65));
+        (bool ok4,) = address(hash2).staticcall(new bytes(65));
         assertFalse(ok4, "65 bytes must revert");
 
-        (bool ok5, ) = address(hash2).staticcall(new bytes(96));
+        (bool ok5,) = address(hash2).staticcall(new bytes(96));
         assertFalse(ok5, "96 bytes must revert");
     }
 
