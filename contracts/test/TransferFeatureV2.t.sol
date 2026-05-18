@@ -2,6 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {Test, stdJson} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {ShadowToken} from "../src/ShadowToken.sol";
 import {FeatureNFT} from "../src/FeatureNFT.sol";
 import {IFeatureNFT} from "../src/IFeatureNFT.sol";
@@ -43,7 +44,8 @@ contract TransferFeatureV2GasTest is Test {
     bytes32[] internal pi;
     bytes internal c2;
     bytes32 internal newCtCommit;
-
+    bytes32 internal newC1X;
+    bytes32 internal newC1Y;
     uint256 internal featureId;
     uint256 internal shadowIdAtMint;
     uint8 internal slotAtMint;
@@ -57,7 +59,7 @@ contract TransferFeatureV2GasTest is Test {
     address internal recipient;
     address internal alice = makeAddr("alice");
 
-    uint256 internal constant TF_PI_LEN = 9;
+    uint256 internal constant TF_PI_LEN = 11;
     uint256 internal constant TF_C2_BYTES = 39 * 32;
 
     function setUp() public {
@@ -95,6 +97,8 @@ contract TransferFeatureV2GasTest is Test {
         recipientPkY = j.readBytes32(".to_pk_y");
         recipient = j.readAddress(".to_addr");
         newCtCommit = j.readBytes32(".new_ct_commit");
+        newC1X = j.readBytes32(".new_c1_x");
+        newC1Y = j.readBytes32(".new_c1_y");
 
         // Sanity: PI fields the contract validates must match meta.
         require(uint256(pi[0]) == featureId, "pi[0] != featureId");
@@ -106,6 +110,8 @@ contract TransferFeatureV2GasTest is Test {
         require(uint256(pi[6]) == uint256(typeIdx), "pi[6] != typeIdx");
         require(pi[7] == originFaceId, "pi[7] != originFaceId");
         require(pi[8] == newCtCommit, "pi[8] != newCtCommit");
+        require(pi[9] == newC1X, "pi[9] != newC1X");
+        require(pi[10] == newC1Y, "pi[10] != newC1Y");
 
         // Seed: feature was inserted in shadowIdAtMint, then extracted to
         // standalone state owned by alice (post-extract carrier).
@@ -140,8 +146,25 @@ contract TransferFeatureV2GasTest is Test {
         assertEq(fn.liveStateHashCheckpointOf(featureId), oldLsh, "checkpoint = oldLsh pre");
         assertFalse(fn.isInserted(featureId), "carrier is standalone pre");
 
+        vm.recordLogs();
         vm.prank(alice);
-        fn.transferFeature(featureId, recipient, proof, pi, c2);
+        fn.transferFeature(featureId, recipient, proof, pi, newC1X, newC1Y, c2);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool sawTransfer;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics.length == 3 && logs[i].topics[0] == FeatureNFT.FeatureTransferred.selector) {
+                (bytes32 emittedLsh, bytes32 emittedC1X, bytes32 emittedC1Y, bytes memory emittedC2) =
+                    abi.decode(logs[i].data, (bytes32, bytes32, bytes32, bytes));
+                assertEq(uint256(logs[i].topics[1]), featureId, "event featureId");
+                assertEq(address(uint160(uint256(logs[i].topics[2]))), recipient, "event recipient");
+                assertEq(emittedLsh, newLsh, "event newLsh");
+                assertEq(emittedC1X, newC1X, "event newC1X");
+                assertEq(emittedC1Y, newC1Y, "event newC1Y");
+                assertEq(emittedC2, c2, "event c2");
+                sawTransfer = true;
+            }
+        }
+        assertTrue(sawTransfer, "FeatureTransferred not emitted");
 
         // Post-state.
         assertEq(fn.ownerOf(featureId), recipient, "recipient owns post-transfer");
@@ -159,7 +182,7 @@ contract TransferFeatureV2GasTest is Test {
     function test_transferFeature_v2_gas_under_block_budget() public {
         vm.prank(alice);
         uint256 gasBefore = gasleft();
-        fn.transferFeature(featureId, recipient, proof, pi, c2);
+        fn.transferFeature(featureId, recipient, proof, pi, newC1X, newC1Y, c2);
         uint256 used = gasBefore - gasleft();
         assertLt(used, 5_000_000, "transferFeature V2 gas regressed past 5M");
     }
@@ -176,7 +199,7 @@ contract TransferFeatureV2GasTest is Test {
         bytes32 checkpointBefore = fn.liveStateHashCheckpointOf(featureId);
         vm.prank(alice);
         vm.expectRevert();
-        fn.transferFeature(featureId, recipient, proof, pi, tampered);
+        fn.transferFeature(featureId, recipient, proof, pi, newC1X, newC1Y, tampered);
         // Atomicity: revert preceded the owner rotation + checkpoint write.
         assertEq(fn.ownerOf(featureId), ownerBefore, "owner unchanged");
         assertEq(fn.liveStateHashCheckpointOf(featureId), checkpointBefore, "checkpoint unchanged");
@@ -190,9 +213,23 @@ contract TransferFeatureV2GasTest is Test {
         bytes32 checkpointBefore = fn.liveStateHashCheckpointOf(featureId);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(FeatureNFT.NonCanonicalField.selector, uint256(0), fr));
-        fn.transferFeature(featureId, recipient, proof, pi, tampered);
+        fn.transferFeature(featureId, recipient, proof, pi, newC1X, newC1Y, tampered);
         assertEq(fn.ownerOf(featureId), ownerBefore, "owner unchanged");
         assertEq(fn.liveStateHashCheckpointOf(featureId), checkpointBefore, "checkpoint unchanged");
+    }
+
+    function test_transferFeature_reverts_when_new_c1_tampered() public {
+        bytes32 wrongC1X = bytes32(uint256(newC1X) ^ 1);
+        vm.prank(alice);
+        vm.expectRevert(FeatureNFT.InvalidProof.selector);
+        fn.transferFeature(featureId, recipient, proof, pi, wrongC1X, newC1Y, c2);
+    }
+
+    function test_transferFeature_reverts_when_new_c1_field_noncanonical() public {
+        uint256 fr = fn.FR_MOD();
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(FeatureNFT.NonCanonicalField.selector, uint256(0), fr));
+        fn.transferFeature(featureId, recipient, proof, pi, bytes32(fr), newC1Y, c2);
     }
 
     /// Envelope-binding cutover (audit H-02): wrong c2 length MUST revert
@@ -201,7 +238,7 @@ contract TransferFeatureV2GasTest is Test {
         bytes memory short = new bytes(TF_C2_BYTES - 1);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(FeatureNFT.BadC2Length.selector, TF_C2_BYTES - 1, TF_C2_BYTES));
-        fn.transferFeature(featureId, recipient, proof, pi, short);
+        fn.transferFeature(featureId, recipient, proof, pi, newC1X, newC1Y, short);
     }
 
     // ============== audit M-01 / M-02 negative tests ==============
@@ -212,7 +249,7 @@ contract TransferFeatureV2GasTest is Test {
     function test_transferFeature_reverts_when_to_is_zero() public {
         vm.prank(alice);
         vm.expectRevert(FeatureNFT.TransferToZeroAddress.selector);
-        fn.transferFeature(featureId, address(0), proof, pi, c2);
+        fn.transferFeature(featureId, address(0), proof, pi, newC1X, newC1Y, c2);
         // pre-revert state preserved
         assertEq(fn.ownerOf(featureId), alice);
         assertEq(fn.liveStateHashCheckpointOf(featureId), oldLsh);
@@ -231,7 +268,7 @@ contract TransferFeatureV2GasTest is Test {
         // reverts at the registry check, not at the verifier.
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(FeatureNFT.RecipientNotRegistered.selector, stranger));
-        fn.transferFeature(featureId, stranger, proof, pi, c2);
+        fn.transferFeature(featureId, stranger, proof, pi, newC1X, newC1Y, c2);
         assertEq(fn.ownerOf(featureId), alice);
     }
 
@@ -252,6 +289,6 @@ contract TransferFeatureV2GasTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(FeatureNFT.KeyRegistryNotSet.selector);
-        fn2.transferFeature(featureId, recipient, proof, pi, c2);
+        fn2.transferFeature(featureId, recipient, proof, pi, newC1X, newC1Y, c2);
     }
 }

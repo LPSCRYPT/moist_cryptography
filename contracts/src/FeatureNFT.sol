@@ -49,49 +49,40 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
 
     struct Feature {
         // Immutable from mint:
-        uint8   typeIdx;
+        uint8 typeIdx;
         bytes32 originFaceId;
         bytes32 paletteCommit;
-        uint64  mintedAt;
+        uint64 mintedAt;
         // Mutable:
         bytes32 liveStateHashCheckpoint;
-        bool    isInserted;
+        bool isInserted;
         uint256 hostShadowId;
-        uint8   hostSlotIdx;
-        bool    paletteRevealed;        // flipped by `revealPaletteAtSolve`
+        uint8 hostSlotIdx;
+        bool paletteRevealed; // flipped by `revealPaletteAtSolve`
     }
 
     // ============== constants ==============
 
     bytes32 public constant DOMAIN_FEATURE = keccak256("OMP_FEATURE_NFT_v2");
 
-    /// transfer_feature proof PI layout: see `transferFeature` below.
-    /// PI[0]    featureId
-    /// PI[1,2]  next_pk_x, next_pk_y
-    /// PI[3]    old_liveStateHashCheckpoint   (asserted unchanged on chain)
-    /// PI[4]    new_liveStateHashCheckpoint   (post-rotation; written on success)
-    /// PI[5]    paletteCommit                 (asserted unchanged)
-    /// PI[6]    typeIdx                       (asserted unchanged)
-    /// PI[7]    originFaceId                  (asserted unchanged)
-    /// transfer_feature_v2 proof PI layout (9 fields, audit envelope-binding):
-    ///   PI[0]    featureId
-    ///   PI[1,2]  next_pk_x, next_pk_y
-    ///   PI[3]    old_liveStateHashCheckpoint
-    ///   PI[4]    new_liveStateHashCheckpoint
-    ///   PI[5]    paletteCommit
-    ///   PI[6]    typeIdx
-    ///   PI[7]    originFaceId
-    ///   PI[8]    new_ct_commit (audit H-02; recomputed from c2 calldata)
-    uint256 public constant TRANSFER_FEATURE_PI_LEN = 9;
+    /// transfer_feature_v2 proof PI layout (11 fields, audit envelope-binding):
+    ///   PI[0]     featureId
+    ///   PI[1,2]   next_pk_x, next_pk_y
+    ///   PI[3]     old_liveStateHashCheckpoint
+    ///   PI[4]     new_liveStateHashCheckpoint
+    ///   PI[5]     paletteCommit
+    ///   PI[6]     typeIdx
+    ///   PI[7]     originFaceId
+    ///   PI[8]     new_ct_commit (recomputed from c2 calldata)
+    ///   PI[9,10]  new_c1_x, new_c1_y (authenticated ECIES envelope)
+    uint256 public constant TRANSFER_FEATURE_PI_LEN = 11;
     /// Per-slot plaintext length in bytes (39 Fr Fields). Used to size the
     /// c2 calldata in `transferFeature`.
     uint256 internal constant TRANSFER_FEATURE_C2_BYTES = 39 * 32;
 
-
     /// bn254 Fr field modulus. featureId is reduced mod FR_MOD so PI[0]
     /// equality (Field == Field) holds across circuit/contract boundary.
-    uint256 public constant FR_MOD =
-        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    uint256 public constant FR_MOD = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
     // ============== storage ==============
 
@@ -120,9 +111,9 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     event FeatureMinted(
         uint256 indexed featureId,
         uint256 indexed hostShadowId,
-        uint8   indexed hostSlotIdx,
+        uint8 indexed hostSlotIdx,
         address to,
-        uint8   typeIdx,
+        uint8 typeIdx,
         bytes32 originFaceId,
         bytes32 paletteCommit,
         bytes32 initialLiveStateHash
@@ -140,8 +131,8 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     event FeatureSlotRevealed(
         uint256 indexed featureId,
         uint256 indexed shadowId,
-        uint8   indexed slotIdx,
-        bytes   plaintext  // 39 fields = 1248 bytes
+        uint8 indexed slotIdx,
+        bytes plaintext // 39 fields = 1248 bytes
     );
     /// Salt envelope for the per-carrier paletteCommit, ECIES-encrypted to
     /// the carrier's owner pk. Emitted alongside `FeatureMinted` at mint;
@@ -151,36 +142,28 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     /// `paletteCommit` storage check is the binding; this event is purely
     /// the wire-format envelope so the owner can decrypt later.
     event FeaturePaletteSaltEnvelope(
-        uint256 indexed featureId,
-        bytes32 paletteSaltCt,
-        bytes32 saltC1X,
-        bytes32 saltC1Y
+        uint256 indexed featureId, bytes32 paletteSaltCt, bytes32 saltC1X, bytes32 saltC1Y
     );
     event FeatureExtracted(
         uint256 indexed featureId,
         uint256 indexed prevHostShadowId,
-        uint8   indexed prevHostSlotIdx,
+        uint8 indexed prevHostSlotIdx,
         bytes32 liveStateHashCheckpoint
     );
-    event FeatureInserted(
-        uint256 indexed featureId,
-        uint256 indexed newHostShadowId,
-        uint8   indexed newHostSlotIdx
-    );
+    event FeatureInserted(uint256 indexed featureId, uint256 indexed newHostShadowId, uint8 indexed newHostSlotIdx);
     /// Emitted on a successful `transferFeature`. `c2` is the new ECIES
-    /// ciphertext under the recipient's pubkey; recipient decrypts off
-    /// chain. Bound to the proof via PI[8] = sponge_39(c2) (audit H-02).
+    /// ciphertext under the recipient's pubkey; recipient decrypts off chain
+    /// using the authenticated `newC1X/newC1Y` envelope. `c2` is bound to
+    /// PI[8] = sponge_39(c2); `newC1X/newC1Y` are bound to PI[9]/PI[10].
     event FeatureTransferred(
         uint256 indexed featureId,
         address indexed to,
         bytes32 newLiveStateHashCheckpoint,
-        bytes   c2
+        bytes32 newC1X,
+        bytes32 newC1Y,
+        bytes c2
     );
-    event FeatureInsertedOwnerRotated(
-        uint256 indexed featureId,
-        uint256 indexed hostShadowId,
-        address indexed to
-    );
+    event FeatureInsertedOwnerRotated(uint256 indexed featureId, uint256 indexed hostShadowId, address indexed to);
     event TransferFeatureVerifierSet(IVerifier v);
     event PaletteSpongeSet(address yul);
     event KeyRegistrySet(KeyRegistry r);
@@ -264,9 +247,9 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         mintCounter += 1;
         // chainId binding mirrors ShadowToken.shadowIdOf -- same-chain
         // prevention of cross-chain proof replay.
-        featureId = uint256(keccak256(abi.encode(
-            DOMAIN_FEATURE, block.chainid, hostShadowId, hostSlotIdx, mintCounter
-        ))) % FR_MOD;
+        featureId = uint256(
+                keccak256(abi.encode(DOMAIN_FEATURE, block.chainid, hostShadowId, hostSlotIdx, mintCounter))
+            ) % FR_MOD;
 
         Feature storage f = _features[featureId];
         f.typeIdx = typeIdx;
@@ -281,8 +264,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
 
         _mint(to, featureId);
         emit FeatureMinted(
-            featureId, hostShadowId, hostSlotIdx, to,
-            typeIdx, originFaceId, palette.commit, initialLiveStateHash
+            featureId, hostShadowId, hostSlotIdx, to, typeIdx, originFaceId, palette.commit, initialLiveStateHash
         );
         // Salt envelope is purely advisory wire-format for the owner; not
         // bound by chain state. Empty values are allowed (legacy / pre-spec
@@ -290,12 +272,10 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         emit FeaturePaletteSaltEnvelope(featureId, palette.saltCt, palette.saltC1X, palette.saltC1Y);
     }
 
-    function extractFromShadow(
-        uint256 featureId,
-        uint256 hostShadowId,
-        uint8 hostSlotIdx,
-        bytes32 finalLiveStateHash
-    ) external override {
+    function extractFromShadow(uint256 featureId, uint256 hostShadowId, uint8 hostSlotIdx, bytes32 finalLiveStateHash)
+        external
+        override
+    {
         if (msg.sender != shadowToken) revert NotShadowToken();
         Feature storage f = _features[featureId];
         if (!f.isInserted) revert NotInserted(featureId);
@@ -309,11 +289,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         emit FeatureExtracted(featureId, hostShadowId, hostSlotIdx, finalLiveStateHash);
     }
 
-    function insertIntoShadow(
-        uint256 featureId,
-        uint256 newHostShadowId,
-        uint8 newHostSlotIdx
-    ) external override {
+    function insertIntoShadow(uint256 featureId, uint256 newHostShadowId, uint8 newHostSlotIdx) external override {
         if (msg.sender != shadowToken) revert NotShadowToken();
         Feature storage f = _features[featureId];
         if (f.isInserted) revert AlreadyInserted(featureId);
@@ -335,11 +311,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     ///         current `liveStateHash` on the host shadow stays authoritative
     ///         while inserted). Emits a `FeatureInsertedOwnerRotated` event
     ///         so indexers can track the carrier's owner alongside the shadow's.
-    function rotateInsertedOwner(
-        uint256 featureId,
-        uint256 expectedHostShadowId,
-        address to
-    ) external {
+    function rotateInsertedOwner(uint256 featureId, uint256 expectedHostShadowId, address to) external {
         if (msg.sender != shadowToken) revert NotShadowToken();
         Feature storage f = _features[featureId];
         if (!f.isInserted) revert NotInserted(featureId);
@@ -351,19 +323,23 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
 
     // ============== transferFeature (held carriers only) ==============
 
-    /// PI layout (8 fields):
-    ///   PI[0]    featureId
-    ///   PI[1,2]  next_pk_x, next_pk_y
-    ///   PI[3]    old_liveStateHashCheckpoint  (must match storage)
-    ///   PI[4]    new_liveStateHashCheckpoint  (written on success)
-    ///   PI[5]    paletteCommit                (must match storage)
-    ///   PI[6]    typeIdx                      (must match storage)
-    ///   PI[7]    originFaceId                 (must match storage)
+    /// PI layout (11 fields):
+    ///   PI[0]     featureId
+    ///   PI[1,2]   next_pk_x, next_pk_y
+    ///   PI[3]     old_liveStateHashCheckpoint  (must match storage)
+    ///   PI[4]     new_liveStateHashCheckpoint  (written on success)
+    ///   PI[5]     paletteCommit                (must match storage)
+    ///   PI[6]     typeIdx                      (must match storage)
+    ///   PI[7]     originFaceId                 (must match storage)
+    ///   PI[8]     new_ct_commit                (recomputed from c2)
+    ///   PI[9,10]  new_c1_x, new_c1_y           (must match calldata)
     function transferFeature(
         uint256 featureId,
         address to,
         bytes calldata proof,
         bytes32[] calldata pi,
+        bytes32 newC1X,
+        bytes32 newC1Y,
         bytes calldata c2
     ) external whenNotPaused {
         if (to == address(0)) revert TransferToZeroAddress();
@@ -383,12 +359,16 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         if (pi[6] != bytes32(uint256(f.typeIdx))) revert InvalidProof();
         if (pi[7] != f.originFaceId) revert InvalidProof();
         _requirePkMatches(to, pi[1], pi[2]);
+        _assertCanonicalField(uint256(newC1X), 0);
+        _assertCanonicalField(uint256(newC1Y), 1);
+        if (pi[9] != newC1X) revert InvalidProof();
+        if (pi[10] != newC1Y) revert InvalidProof();
 
-        // Envelope-binding cutover (audit H-02): bind emitted c2 to the
-        // proof-bound new_ct_commit (PI[8]). The transfer_feature_v2 circuit
-        // exposes sponge_39(c2) = new_ct_commit as PI[8]; the contract
-        // recomputes the same sponge over emitted bytes via ShadowToken's
-        // Yul wrapper and asserts equality before invoking the verifier.
+        // Envelope-binding cutover (audit H-02/F-01): bind emitted c2 to
+        // proof-bound new_ct_commit (PI[8]) and bind emitted c1 coordinates
+        // to PI[9]/PI[10]. The transfer_feature_v2 circuit exposes
+        // fixed_base_scalar_mul(new_r) as those public inputs, so chain data
+        // is sufficient to authenticate and decrypt the published envelope.
         {
             _assertCanonicalFields(c2);
             address yul = IShadowToken(shadowToken).yulSponge();
@@ -404,7 +384,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         }
 
         f.liveStateHashCheckpoint = pi[4];
-        emit FeatureTransferred(featureId, to, pi[4], c2);
+        emit FeatureTransferred(featureId, to, pi[4], newC1X, newC1Y, c2);
 
         _update(to, featureId, address(0));
     }
@@ -565,20 +545,17 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     //   - held:     ownership rotation requires the proof-bound
     //     `transferFeature` path so the new owner inherits ciphertext
     //     they can decrypt. Reverts `TransferGated`.
-    function transferFrom(address from, address to, uint256 tokenId)
-        public
-        override
-    {
-        from; to; // silence unused-variable warnings
+    function transferFrom(address from, address to, uint256 tokenId) public override {
+        from; // silence unused-variable warnings
+        to;
         if (_features[tokenId].isInserted) revert CustodyLocked(tokenId);
         revert TransferGated(tokenId);
     }
 
-    function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data)
-        public
-        override
-    {
-        from; to; data; // silence unused-variable warnings
+    function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) public override {
+        from; // silence unused-variable warnings
+        to;
+        data;
         if (_features[tokenId].isInserted) revert CustodyLocked(tokenId);
         revert TransferGated(tokenId);
     }

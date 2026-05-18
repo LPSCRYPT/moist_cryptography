@@ -191,8 +191,10 @@ def main() -> None:
     is_occupied = [0] * 16
     plaintexts: list[list[int]] = [[0] * PLAINTEXT_FIELDS for _ in range(16)]
     prev_ct_commit = [0] * 16
-    prev_c1_x = [0] * 16
-    prev_c1_y = [0] * 16
+    # Empty slots still pass through Noir MSM setup; seed them with a valid
+    # Grumpkin point while keeping all public/committed empty-slot data zero.
+    prev_c1_x = [G[0]] * 16
+    prev_c1_y = [G[1]] * 16
     prev_mutation_count = [0] * 16
     prev_chain_tip = [0] * 16
     owner_k_arr = [0] * 16
@@ -214,6 +216,7 @@ def main() -> None:
         owner_k_arr[i] = s["k"]
         prev_lsh_arr[i] = s["lsh"]
         state_commits[i] = s["state_commit"]
+    assert all(prev_c1_x[i] != 0 or prev_c1_y[i] != 0 for i in range(16)), "prev_c1 placeholders must be on-curve"
 
     # Per-slot palette + salt: deterministic from same seed used at mint
     # (reveal-update spec; ShadowToken.solve verifies sponge_palette_salt

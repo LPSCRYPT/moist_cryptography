@@ -152,6 +152,16 @@ contract InsertFeatureE2ETest is Test {
         assembly { mstore(add(add(data, 32), mul(fieldIndex, 32)), value) }
     }
 
+    function _decodeShadowSlotMutatedC2(bytes memory data) internal pure returns (bytes memory emittedC2) {
+        (uint256 featureId_, uint16 count_, bytes32 prevTip_, bytes32 newTip_, bytes memory c2_) =
+            abi.decode(data, (uint256, uint16, bytes32, bytes32, bytes));
+        featureId_;
+        count_;
+        prevTip_;
+        newTip_;
+        return c2_;
+    }
+
     function _buildArgs() internal view returns (ShadowToken.InsertFeatureArgs memory args) {
         bytes32[2] memory newT10;
         newT10[0] = piT10[2];
@@ -201,9 +211,15 @@ contract InsertFeatureE2ETest is Test {
         bytes32 sigSM = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter != address(st)) continue;
-            if (logs[i].topics[0] == sigT10) sawT10 = true;
-            else if (logs[i].topics[0] == sigFI) sawFeatureInserted = true;
-            else if (logs[i].topics[0] == sigSM) sawSlotMutated = true;
+            if (logs[i].topics[0] == sigT10) {
+                sawT10 = true;
+            } else if (logs[i].topics[0] == sigFI) {
+                sawFeatureInserted = true;
+            } else if (logs[i].topics[0] == sigSM) {
+                bytes memory emittedC2 = _decodeShadowSlotMutatedC2(logs[i].data);
+                assertEq(emittedC2, args.c2, "insert ShadowSlotMutated c2");
+                sawSlotMutated = true;
+            }
         }
         assertTrue(sawT10, "ShadowT10Updated emitted");
         assertTrue(sawFeatureInserted, "ShadowFeatureInserted emitted");

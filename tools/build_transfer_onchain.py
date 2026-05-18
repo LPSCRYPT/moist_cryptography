@@ -219,20 +219,25 @@ def build_transfer_witness(
     """Per-slot transfer witness for shadow_id with occupied slots already
     reconstructed (each entry must contain plaintext, state_commit, ct_commit,
     c1_x, c1_y, k, chain_tip, lsh, prev_count_for_transfer (default 0)).
-    Slots not in `occupied_slots` are EMPTY (all-zero witness)."""
+    Slots not in `occupied_slots` are EMPTY. Empty slots keep zero public
+    outputs, but their private curve inputs must still be well-formed because
+    the Noir circuit unconditionally performs MSM before masking constraints.
+    We seed empty prev_c1 with the Grumpkin generator and empty new_r with a
+    deterministic nonzero scalar.
+    """
     is_occupied = [0] * 16
     plaintexts = [[0] * PLAINTEXT_FIELDS for _ in range(16)]
     prev_state_commit = [0] * 16
     prev_ct_commit = [0] * 16
-    prev_c1_x = [0] * 16
-    prev_c1_y = [0] * 16
+    prev_c1_x = [G[0]] * 16
+    prev_c1_y = [G[1]] * 16
     prev_mutation_count = [0] * 16
     prev_chain_tip = [0] * 16
     prev_k_arr = [0] * 16
     prev_lsh_arr = [0] * 16
 
     new_k_arr = [0] * 16
-    new_r_arr = [0] * 16
+    new_r_arr = [deterministic_int_transfer(seed, f"empty_new_r_slot{i}".encode(), GRUMPKIN_ORDER - 1) + 1 for i in range(16)]
     new_lsh_arr = [0] * 16
     new_c1_x_arr = [0] * 16
     new_c1_y_arr = [0] * 16
@@ -287,6 +292,8 @@ def build_transfer_witness(
         assert dk == new_k_arr[i], f"recipient k mismatch slot {i}"
 
     prev_lsh_root = sponge_16(prev_lsh_arr)
+    assert all(prev_c1_x[i] != 0 or prev_c1_y[i] != 0 for i in range(16)), "prev_c1 placeholders must be on-curve"
+    assert all(r != 0 for r in new_r_arr), "new_r placeholders must be nonzero"
     new_lsh_root = sponge_16(new_lsh_arr)
     new_chain_tips_root = sponge_16(new_chain_tip_arr)
     new_ct_commits_root = sponge_16(new_ct_commit_arr)
@@ -443,6 +450,8 @@ def main() -> None:
     out_seed = args.out_seed or f"onchain_transfer_{args.recipient_seed}"
     fix_dir = FIXTURE_ROOT / out_seed
     fix_dir.mkdir(parents=True, exist_ok=True)
+    if len(pi) != 11 * 32:
+        sys.exit(f"unexpected transfer public input length {len(pi)}; want {11 * 32}")
     (fix_dir / "proof.bin").write_bytes(proof)
     (fix_dir / "public_inputs.bin").write_bytes(pi)
     (fix_dir / "proof_t10.bin").write_bytes(proof_t10)

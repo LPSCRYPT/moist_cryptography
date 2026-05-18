@@ -514,12 +514,12 @@ def main() -> int:
             time.sleep(2)
         check("fund carol: balance > 0", carol_bal > 0, f"bal={carol_bal} wei")
 
-        # carol calls transferFeature(featureNftId, dave, proof, pi, c2)
+        # carol calls transferFeature(featureNftId, dave, proof, pi, newC1X, newC1Y, c2)
         fid = feature_nft_id_for(sid, 3, mint_counter=1)
         rcpt = cast_send([
-            FEAT, "transferFeature(uint256,address,bytes,bytes32[],bytes)",
+            FEAT, "transferFeature(uint256,address,bytes,bytes32[],bytes32,bytes32,bytes)",
             str(fid), DAVE_ADDR,
-            "0x" + proof_tfeat.hex(), hex_array(pi_tfeat), "0x" + c2_tfeat.hex(),
+            "0x" + proof_tfeat.hex(), hex_array(pi_tfeat), pi_tfeat[9], pi_tfeat[10], "0x" + c2_tfeat.hex(),
         ], args.rpc, CAROL_SECP_SK, gas_limit=12_000_000, timeout=900)
         manifest["gas_used"]["transferFeature"]  = rcpt.get("gasUsed")
         manifest["tx_hashes"]["transferFeature"] = rcpt.get("transactionHash")

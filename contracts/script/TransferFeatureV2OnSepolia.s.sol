@@ -8,7 +8,7 @@ import {FeatureNFT} from "../src/FeatureNFT.sol";
 /// FeatureNFT, using a fixture produced by
 /// `tools/build_transfer_feature_v2_fixture.py`.
 ///
-/// PI layout (9 fields, frozen by FeatureNFT.transferFeature):
+/// PI layout (11 fields, frozen by FeatureNFT.transferFeature):
 ///   PI[0] feature_id        — keccak-derived per-carrier id
 ///   PI[1] next_pk_x         — recipient pubkey x (must match KeyRegistry)
 ///   PI[2] next_pk_y         — recipient pubkey y
@@ -18,6 +18,8 @@ import {FeatureNFT} from "../src/FeatureNFT.sol";
 ///   PI[6] type_idx          — must equal `f.typeIdx`
 ///   PI[7] origin_face_id    — must equal `f.originFaceId`
 ///   PI[8] new_ct_commit     — contract recomputes sponge_39(c2) and asserts ==
+///   PI[9] new_c1_x          — authenticated recipient envelope c1.x
+///   PI[10] new_c1_y         — authenticated recipient envelope c1.y
 ///
 /// Idempotency: skip if `_ownerOf(featureId)` is already the recipient.
 ///
@@ -31,7 +33,7 @@ import {FeatureNFT} from "../src/FeatureNFT.sol";
 contract TransferFeatureV2OnSepolia is Script {
     using stdJson for string;
 
-    uint256 internal constant TRANSFER_FEATURE_PI_LEN = 9;
+    uint256 internal constant TRANSFER_FEATURE_PI_LEN = 11;
     uint256 internal constant TRANSFER_FEATURE_C2_BYTES = 39 * 32;
 
     function run() external {
@@ -45,11 +47,13 @@ contract TransferFeatureV2OnSepolia is Script {
         require(piRaw.length == TRANSFER_FEATURE_PI_LEN * 32, "bad PI length");
 
         string memory j = vm.readFile(string.concat(fix, "/meta.json"));
-        uint256 featureId  = uint256(j.readBytes32(".feature_id"));
-        address recipient  = j.readAddress(".to_addr");
-        bytes32 expOldLsh  = j.readBytes32(".old_lsh");
-        bytes32 expNewLsh  = j.readBytes32(".new_lsh");
+        uint256 featureId = uint256(j.readBytes32(".feature_id"));
+        address recipient = j.readAddress(".to_addr");
+        bytes32 expOldLsh = j.readBytes32(".old_lsh");
+        bytes32 expNewLsh = j.readBytes32(".new_lsh");
 
+        bytes32 newC1X = j.readBytes32(".new_c1_x");
+        bytes32 newC1Y = j.readBytes32(".new_c1_y");
         bytes32[] memory pi = _piFromBytes(piRaw);
 
         // Idempotency: if already transferred, skip.
@@ -60,10 +64,11 @@ contract TransferFeatureV2OnSepolia is Script {
 
         // Pre-broadcast sanity: PI[3] must match storage.
         bytes32 onChainLsh = fn.liveStateHashCheckpointOf(featureId);
-        require(onChainLsh == expOldLsh,
-            "fixture old_lsh does not match on-chain liveStateHashCheckpoint");
+        require(onChainLsh == expOldLsh, "fixture old_lsh does not match on-chain liveStateHashCheckpoint");
         require(pi[3] == expOldLsh, "PI[3] != fixture old_lsh");
         require(pi[4] == expNewLsh, "PI[4] != fixture new_lsh");
+        require(pi[9] == newC1X, "PI[9] != fixture new_c1_x");
+        require(pi[10] == newC1Y, "PI[10] != fixture new_c1_y");
 
         console.log("=== transferFeature broadcast ===");
         console.log("FN       :", fnAddr);
@@ -81,14 +86,14 @@ contract TransferFeatureV2OnSepolia is Script {
         require(c2.length == TRANSFER_FEATURE_C2_BYTES, "c2 length mismatch");
 
         vm.startBroadcast();
-        fn.transferFeature(featureId, recipient, proof, pi, c2);
+        fn.transferFeature(featureId, recipient, proof, pi, newC1X, newC1Y, c2);
         vm.stopBroadcast();
 
         // Post-broadcast verification.
-        require(fn.ownerOfFeature(featureId) == recipient,
-            "post: feature owner not recipient");
-        require(fn.liveStateHashCheckpointOf(featureId) == expNewLsh,
-            "post: liveStateHashCheckpoint not updated to new_lsh");
+        require(fn.ownerOfFeature(featureId) == recipient, "post: feature owner not recipient");
+        require(
+            fn.liveStateHashCheckpointOf(featureId) == expNewLsh, "post: liveStateHashCheckpoint not updated to new_lsh"
+        );
         console.log("post-state ok: owner rotated, lsh updated");
     }
 

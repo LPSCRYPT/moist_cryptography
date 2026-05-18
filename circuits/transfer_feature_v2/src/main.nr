@@ -4,7 +4,7 @@
 //
 // Spec: STAGING_REFACTOR/2026-04-27_transfer_feature_v2_design.md
 //
-// Public inputs (9 Fields, frozen by FeatureNFT.transferFeature):
+// Public inputs (11 Fields, frozen by FeatureNFT.transferFeature):
 //   PI[0]   feature_id         (transcript-only here; chain checks storage)
 //   PI[1]   next_pk_x          (recipient pubkey x)
 //   PI[2]   next_pk_y          (recipient pubkey y)
@@ -17,6 +17,8 @@
 //                              and asserts equality with this PI so the
 //                              emitted ciphertext is proof-bound at the byte
 //                              level, not just transitively via new_lsh)
+//   PI[9]   new_c1_x           (audit F-01: proof-bound ECIES envelope c1.x)
+//   PI[10]  new_c1_y           (audit F-01: proof-bound ECIES envelope c1.y)
 //
 // Witness (private):
 //   plaintext[39]              (unchanged through rotation)
@@ -113,7 +115,7 @@ fn keystream_39(k: Field) -> [Field; 39] {
 // ---- main ----
 
 fn main(
-    // public inputs (9) -- order matches FeatureNFT PI[0..9]
+    // public inputs (11) -- order matches FeatureNFT PI[0..10]
     feature_id:        pub Field,
     next_pk_x:         pub Field,
     next_pk_y:         pub Field,
@@ -123,7 +125,8 @@ fn main(
     type_idx:          pub Field,
     origin_face_id:    pub Field,
     new_ct_commit_pi:  pub Field,
-
+    new_c1_x_pi:       pub Field,
+    new_c1_y_pi:       pub Field,
     // witness
     plaintext:        [Field; 39],
     old_state_commit: Field,
@@ -196,6 +199,8 @@ fn main(
     assert(new_r != 0);
     let r_scalar = EmbeddedCurveScalar::from_field(new_r);
     let new_c1 = fixed_base_scalar_mul(r_scalar);
+    assert(new_c1.x == new_c1_x_pi);
+    assert(new_c1.y == new_c1_y_pi);
     let next_pk_pt = EmbeddedCurvePoint {
         x: next_pk_x,
         y: next_pk_y,

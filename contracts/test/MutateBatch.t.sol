@@ -172,6 +172,16 @@ contract MutateBatchE2ETest is Test {
         e.newMutationCount = uint16(uint256(pi[15]));
     }
 
+    function _decodeShadowSlotMutatedC2(bytes memory data) internal pure returns (bytes memory emittedC2) {
+        (uint256 featureId_, uint16 count_, bytes32 prevTip_, bytes32 newTip_, bytes memory c2_) =
+            abi.decode(data, (uint256, uint16, bytes32, bytes32, bytes));
+        featureId_;
+        count_;
+        prevTip_;
+        newTip_;
+        return c2_;
+    }
+
     function _buildArgs() internal view returns (ShadowToken.MutateBatchArgs memory args) {
         args.shadowId = shadowId;
         args.entries = new ShadowToken.MutateSlotEntry[](2);
@@ -209,8 +219,20 @@ contract MutateBatchE2ETest is Test {
         bool t10Seen = false;
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter != address(st)) continue;
-            if (logs[i].topics[0] == sigSM) sm++;
-            else if (logs[i].topics[0] == sigT10) t10Seen = true;
+            if (logs[i].topics[0] == sigSM) {
+                uint8 emittedSlot = uint8(uint256(logs[i].topics[2]));
+                bytes memory emittedC2 = _decodeShadowSlotMutatedC2(logs[i].data);
+                if (emittedSlot == args.entries[0].slotIdx) {
+                    assertEq(emittedC2, args.entries[0].c2, "slot A c2 event");
+                } else if (emittedSlot == args.entries[1].slotIdx) {
+                    assertEq(emittedC2, args.entries[1].c2, "slot B c2 event");
+                } else {
+                    fail("unexpected ShadowSlotMutated slot");
+                }
+                sm++;
+            } else if (logs[i].topics[0] == sigT10) {
+                t10Seen = true;
+            }
         }
         assertEq(sm, 2, "2x ShadowSlotMutated emitted");
         assertTrue(t10Seen, "ShadowT10Updated emitted");

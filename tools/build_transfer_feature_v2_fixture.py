@@ -12,7 +12,7 @@ Produces:
     proof.bin
     public_inputs.bin
     c2.bin              (39-field new c2; recipient decrypts with sk)
-    meta.json           (everything the broadcast script needs)
+    meta.json           (includes proof-bound new_c1_x/new_c1_y envelope)
 
 Run:
   python3 tools/build_transfer_feature_v2_fixture.py \
@@ -25,6 +25,7 @@ Run:
 """
 from __future__ import annotations
 
+import atexit
 import argparse
 import hashlib
 import json
@@ -57,6 +58,14 @@ FIXTURE_ROOT = ROOT / "contracts" / "test" / "fixtures" / "onchain_transfer_feat
 
 NARGO = Path(os.environ.get("NARGO_PATH", str(Path.home() / ".nargo" / "bin" / "nargo")))
 BB = Path(os.environ.get("BB_PATH", str(Path.home() / ".bb" / "bb")))
+
+
+def _delete_if_exists(path: Path) -> None:
+    try:
+        path.unlink()
+        print(f"[deleted transient] {path}")
+    except FileNotFoundError:
+        pass
 
 
 def parse_int_arg(val: str) -> int:
@@ -162,16 +171,18 @@ def build_transfer_witness(seed: bytes, slot_idx: int, image_commit: int,
     assert k_old_check == old_k, "owner_sk does not recover old_k from old_c1"
 
     return {
-        # PI (9) -- post envelope-binding cutover (audit H-02 PI[8])
-        "feature_id":      mint["feature_id"],
-        "next_pk_x":       recipient_pk[0],
-        "next_pk_y":       recipient_pk[1],
-        "old_lsh":         old_lsh_recomp,
-        "new_lsh":         new_lsh,
-        "palette_commit":  mint["palette_commit"],
-        "type_idx":        mint["type_idx"],
-        "origin_face_id":  mint["origin_face_id"],
+        # PI (11) -- H-02 binds c2; F-01 binds recipient ECIES c1 envelope.
+        "feature_id":       mint["feature_id"],
+        "next_pk_x":        recipient_pk[0],
+        "next_pk_y":        recipient_pk[1],
+        "old_lsh":          old_lsh_recomp,
+        "new_lsh":          new_lsh,
+        "palette_commit":   mint["palette_commit"],
+        "type_idx":         mint["type_idx"],
+        "origin_face_id":   mint["origin_face_id"],
         "new_ct_commit_pi": new_ct_commit,
+        "new_c1_x_pi":      new_c1[0],
+        "new_c1_y_pi":      new_c1[1],
 
         # witness
         "plaintext":         old_plaintext,
@@ -218,6 +229,8 @@ def write_prover_toml(w: dict, out: Path) -> None:
         f'type_idx       = {fhex(w["type_idx"])}',
         f'origin_face_id   = {fhex(w["origin_face_id"])}',
         f'new_ct_commit_pi = {fhex(w["new_ct_commit_pi"])}',
+        f'new_c1_x_pi      = {fhex(w["new_c1_x_pi"])}',
+        f'new_c1_y_pi      = {fhex(w["new_c1_y_pi"])}',
         # witness
         render_array("plaintext", w["plaintext"]),
         f'old_state_commit = {fhex(w["old_state_commit"])}',
@@ -232,6 +245,7 @@ def write_prover_toml(w: dict, out: Path) -> None:
         f'new_r            = {fhex(w["new_r"])}',
     ]
     out.write_text("\n".join(lines) + "\n")
+    os.chmod(out, 0o600)
 
 
 def run(cmd: list, cwd: Path, timeout: int = 600) -> None:
@@ -300,6 +314,7 @@ def main() -> None:
     print(f"[3/6] write Prover.toml")
     prover = CIRCUIT_DIR / "Prover.toml"
     write_prover_toml(w, prover)
+    atexit.register(_delete_if_exists, prover)
 
     fix_dir = FIXTURE_ROOT / args.out_seed
     fix_dir.mkdir(parents=True, exist_ok=True)
@@ -368,6 +383,8 @@ def main() -> None:
     print(f"[6/6] save fixture artifacts")
     (fix_dir / "proof.bin").write_bytes(proof_path.read_bytes())
     (fix_dir / "public_inputs.bin").write_bytes(pi_path.read_bytes())
+    if pi_path.stat().st_size != 11 * 32:
+        sys.exit(f"unexpected public input length {pi_path.stat().st_size}; want {11 * 32}")
     # 39-field new c2 as 32-byte field LE encoding for chain calldata
     c2_bytes = b"".join(int(x).to_bytes(32, "big") for x in w["new_ct"])
     (fix_dir / "c2.bin").write_bytes(c2_bytes)

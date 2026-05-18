@@ -234,6 +234,16 @@ contract MintShadowE2ETest is Test {
 
     // ============== mintShadow ==============
 
+    function _decodeShadowSlotMutatedC2(bytes memory data) internal pure returns (bytes memory emittedC2) {
+        (uint256 featureId_, uint16 count_, bytes32 prevTip_, bytes32 newTip_, bytes memory c2_) =
+            abi.decode(data, (uint256, uint16, bytes32, bytes32, bytes));
+        featureId_;
+        count_;
+        prevTip_;
+        newTip_;
+        return c2_;
+    }
+
     function test_mintShadow_success_creates_shadow_and_8_carriers() public {
         _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
@@ -303,9 +313,16 @@ contract MintShadowE2ETest is Test {
         bytes32 sigSM = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter != address(st)) continue;
-            if (logs[i].topics[0] == sigMinted) sawMinted = true;
-            else if (logs[i].topics[0] == sigT10) sawT10 = true;
-            else if (logs[i].topics[0] == sigSM) sawSlotMutated++;
+            if (logs[i].topics[0] == sigMinted) {
+                sawMinted = true;
+            } else if (logs[i].topics[0] == sigT10) {
+                sawT10 = true;
+            } else if (logs[i].topics[0] == sigSM) {
+                uint8 emittedSlot = uint8(uint256(logs[i].topics[2]));
+                bytes memory emittedC2 = _decodeShadowSlotMutatedC2(logs[i].data);
+                assertEq(emittedC2, args.c2s[emittedSlot], "ShadowSlotMutated c2 matches mint calldata");
+                sawSlotMutated++;
+            }
         }
         assertTrue(sawMinted, "ShadowMinted emitted");
         assertTrue(sawT10, "ShadowT10Updated emitted");

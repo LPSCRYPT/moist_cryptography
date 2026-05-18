@@ -225,6 +225,45 @@ contract SolveShadowE2ETest is Test {
         assembly { commit := mload(add(ret, 32)) }
     }
 
+    function _paletteRgb(bytes32[16] memory palette) internal pure returns (bytes memory rgb) {
+        rgb = new bytes(48);
+        for (uint256 i = 0; i < 16; i++) {
+            uint256 c = uint256(palette[i]);
+            rgb[i * 3] = bytes1(uint8(c >> 16));
+            rgb[i * 3 + 1] = bytes1(uint8(c >> 8));
+            rgb[i * 3 + 2] = bytes1(uint8(c));
+        }
+    }
+
+    function _assertFeatureSolveLog(Vm.Log memory log, bytes32 sigPalette, bytes32 sigFeatureSlot)
+        internal
+        view
+        returns (uint256 paletteSeen, uint256 featureSlotSeen)
+    {
+        if (log.topics[0] == sigPalette) {
+            uint256 featureId = uint256(log.topics[1]);
+            (bytes32 emittedCommit, bytes memory emittedRgb) = abi.decode(log.data, (bytes32, bytes));
+            for (uint256 q = 0; q < occupiedIdxs.length; q++) {
+                if (featureIds[q] == featureId) {
+                    uint8 sIdx = occupiedIdxs[q];
+                    assertEq(emittedCommit, fn.paletteCommitOf(featureId), "palette commit event");
+                    assertEq(emittedRgb, _paletteRgb(palettes[sIdx]), "palette RGB event");
+                    return (1, 0);
+                }
+            }
+        } else if (log.topics[0] == sigFeatureSlot) {
+            uint256 featureId = uint256(log.topics[1]);
+            uint8 emittedSlot = uint8(uint256(log.topics[3]));
+            bytes memory emittedPlaintext = abi.decode(log.data, (bytes));
+            for (uint256 q = 0; q < occupiedIdxs.length; q++) {
+                if (featureIds[q] == featureId) {
+                    assertEq(emittedPlaintext, plaintextBytes[emittedSlot], "feature plaintext event");
+                    return (0, 1);
+                }
+            }
+        }
+    }
+
     function _buildArgs() internal returns (ShadowToken.SolveArgs memory args) {
         _materializePlaintexts();
         args.shadowId = shadowId;
@@ -273,15 +312,27 @@ contract SolveShadowE2ETest is Test {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bool sawSolved = false;
         uint256 sawExtracted = 0;
+        uint256 sawPalette = 0;
+        uint256 sawFeatureSlot = 0;
         bytes32 sigSolved = keccak256("ShadowSolved(uint256,address,uint64)");
         bytes32 sigExtracted = keccak256("SlotExtracted(uint256,uint8,uint256,bytes32)");
+        bytes32 sigPalette = keccak256("FeaturePaletteRevealed(uint256,bytes32,bytes)");
+        bytes32 sigFeatureSlot = keccak256("FeatureSlotRevealed(uint256,uint256,uint8,bytes)");
         for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].emitter != address(st)) continue;
-            if (logs[i].topics[0] == sigSolved) sawSolved = true;
-            else if (logs[i].topics[0] == sigExtracted) sawExtracted++;
+            if (logs[i].emitter == address(st)) {
+                if (logs[i].topics[0] == sigSolved) sawSolved = true;
+                else if (logs[i].topics[0] == sigExtracted) sawExtracted++;
+            } else if (logs[i].emitter == address(fn)) {
+                (uint256 paletteSeen, uint256 featureSlotSeen) =
+                    _assertFeatureSolveLog(logs[i], sigPalette, sigFeatureSlot);
+                sawPalette += paletteSeen;
+                sawFeatureSlot += featureSlotSeen;
+            }
         }
         assertTrue(sawSolved, "ShadowSolved emitted");
         assertEq(sawExtracted, occupiedIdxs.length, "SlotExtracted per occupied slot");
+        assertEq(sawPalette, occupiedIdxs.length, "FeaturePaletteRevealed per occupied slot");
+        assertEq(sawFeatureSlot, occupiedIdxs.length, "FeatureSlotRevealed per occupied slot");
     }
 
     function test_solve_reverts_when_not_owner() public {

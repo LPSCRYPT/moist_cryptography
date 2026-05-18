@@ -178,9 +178,9 @@ contract MutateSlotE2ETest is Test {
         // then ShadowSlotMutated.
         vm.expectEmit(true, false, false, true);
         emit ShadowT10Updated(shadowId, args.newT10[0], args.newT10[1]);
-        vm.expectEmit(true, true, true, false);
+        vm.expectEmit(true, true, true, true);
         emit ShadowSlotMutated(
-            shadowId, slotIdx, originFaceId, featureId, newMutationCount, prevChainTip, newChainTip, hex""
+            shadowId, slotIdx, originFaceId, featureId, newMutationCount, prevChainTip, newChainTip, newC2
         );
 
         vm.prank(alice);

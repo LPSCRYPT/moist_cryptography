@@ -58,7 +58,7 @@ tx; a partial state advance is impossible.
 | `mutateBatch` | per-entry `c2` | per-entry contract `sponge_39(e.c2) == e.newCtCommit` |
 | `insertFeature` | `c2` | contract `sponge_39(c2) == newCtCommit` |
 | `transferShadow` | per-slot `c2s[i]` | contract `sponge_39(c2s[i]) == newCtCommits[i]`; per-slot `sponge_16` over `newCtCommits` matches new PI[8] |
-| `transferFeature` | `c2` | contract `sponge_39(c2) == new_ct_commit_pi` (PI[8]) |
+| `transferFeature` | `c2`, `newC1X`, `newC1Y` | contract `sponge_39(c2) == new_ct_commit_pi` (PI[8]) and exact `newC1X/newC1Y == PI[9]/PI[10]`; all fields canonical |
 | `solve` | per-occupied-slot `plaintexts[i]` | contract `sponge_39(plaintexts[i]) == stateCommits[i]` (proof PI[1]) |
 
 Empty slots (transferShadow, solve) require zero-length `c2`/`plaintexts`
@@ -66,7 +66,7 @@ and zero-valued commitments; the circuit zeros the unoccupied entries
 (`new_ct_commits[i] = occupied * v`) and the chain-side sponge over those
 arrays catches any tampering.
 
-The salt envelope (`saltCt`, `c1.x`, `c1.y` in `transferFeature` calldata)
+The salt envelope (`saltCt`, `c1.x`, `c1.y` in mint-side calldata)
 remains a wire-format sidecar emitted for the owner's benefit; it is
 not byte-bound on chain because it is non-confidential and the owner
 can reconstruct it locally. Consumers that need the ECIES ephemeral
