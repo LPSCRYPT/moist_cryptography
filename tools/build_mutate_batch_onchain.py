@@ -46,7 +46,7 @@ from v2_circuit_helpers import (  # noqa: E402
     P, PLAINTEXT_FIELDS,
     sponge_39, sponge_6, keystream_39,
     poseidon2_hash_2,
-    encode_plaintext_v2, pack_pose,
+    encode_pose_only_mutation,
     ecies_encrypt_v2, ecies_decrypt_v2,
     chain_step, live_state_hash,
     fhex, bx32,
@@ -81,16 +81,9 @@ def detr_int(salt: bytes, label: bytes, mod: int) -> int:
     return int.from_bytes(h, "big") % mod
 
 
-def synthesize_new_plaintext(slot_idx: int, salt: bytes) -> tuple[list[int], int, int, int]:
-    """Pick a NEW pose/dims/indices distinct from prior fixtures."""
-    pose = pack_pose(x=8 + slot_idx * 3, y=12 + slot_idx)
-    w_dim = 12 + (slot_idx % 4)
-    h_dim = 10 + ((slot_idx + 1) % 4)
-    indices = [
-        (j * 13 + slot_idx * 5 + 7) & 0xF
-        for j in range(w_dim * h_dim)
-    ]
-    pt = encode_plaintext_v2(pose, w_dim, h_dim, indices)
+def synthesize_new_plaintext(slot_idx: int, old_plaintext: list[int]) -> tuple[list[int], int, int, int]:
+    """Pick a pose-only NEW plaintext for a batch mutation."""
+    pt, pose, w_dim, h_dim = encode_pose_only_mutation(old_plaintext, 2)
     assert len(pt) == PLAINTEXT_FIELDS
     return pt, pose, w_dim, h_dim
 
@@ -100,7 +93,7 @@ def build_mutate_witness(slot_state: dict, salt: bytes) -> dict:
     slot_idx = slot_state["slot_idx"]
     owner_pk = (slot_state["owner_pk_x"], slot_state["owner_pk_y"])
 
-    new_pt, new_pose, new_w, new_h = synthesize_new_plaintext(slot_idx, salt)
+    new_pt, new_pose, new_w, new_h = synthesize_new_plaintext(slot_idx, slot_state["plaintext"])
     new_r = detr_int(salt, f"new_r_{slot_idx}".encode(), GRUMPKIN_ORDER - 1) + 1
     new_c1, new_c2, new_k = ecies_encrypt_v2(new_pt, owner_pk, new_r)
 

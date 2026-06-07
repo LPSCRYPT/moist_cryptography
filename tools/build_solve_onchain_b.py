@@ -158,7 +158,7 @@ def main() -> None:
         if i in mb_overrides:
             # Slot was mutated by recipient; use post-batch state.
             e = mb_overrides[i]
-            new_pt, _, _, _ = synthesize_new_plaintext(i, salt_bytes)
+            new_pt, _, _, _ = synthesize_new_plaintext(i, ss["plaintext"])
             new_c1_x = parse_hex(e["new_c1_x"])
             new_c1_y = parse_hex(e["new_c1_y"])
             new_k = derive_k_from_c1(new_c1_x, new_c1_y, sk)

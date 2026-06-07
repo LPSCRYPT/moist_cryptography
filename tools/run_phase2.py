@@ -157,7 +157,7 @@ def main() -> int:
     orig_pose = int(orig_pose_hex.split()[0])
     cx = orig_pose & 0x3F; cy = (orig_pose >> 6) & 0x3F
     new_cx = cx + 1
-    new_pose = (new_cx & 0x3F) | ((cy & 0x3F) << 6) | (256 << 12) | (32767 << 28)
+    new_pose = (new_cx & 0x3F) | ((cy & 0x3F) << 6) | (256 << 12)
     print(f"  orig curX={cx} curY={cy} -> new curX={new_cx} curY={cy}")
 
     mutate_call = [

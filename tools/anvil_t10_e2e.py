@@ -45,7 +45,17 @@ from t10 import (  # noqa: E402
     composite_canvas, grid_to_grayscale_image,
     SLOT_KIND_ORIGINAL, SLOT_KIND_EMPTY, REGION_W, REGION_H,
 )
-from build_shadow_t10_fixture import PROGRAMME, unpack_pose, pack_pose  # noqa: E402
+from v2_circuit_helpers import pack_pose  # noqa: E402
+
+PROGRAMME = [
+    (1, 15, 19, 256, 1, "eye L +3 rot 90"),
+    (2, 22, 19, 256, 2, "eye R -3 rot 180"),
+    (3,  5, 10, 512, 3, "nose 2x rot 270"),
+    (6, 15, 33, 256, 1, "mouth rot 90"),
+    (0,  0,  4, 256, 2, "head up 4 rot 180"),
+    (7, 13, 35, 256, 3, "chin up 4 rot 270"),
+    (1, 12, 19, 128, 3, "eye L 0.5x rot 270"),
+]
 
 ROOT = REPO.parent
 FORGE_DIR = ROOT / "contracts"
@@ -229,11 +239,11 @@ def main() -> int:
     per_step_poses: list[list[int]] = [list(initial_poses)]
     for step in range(1, 8):
         ps = list(per_step_poses[-1])
-        slot, cx, cy, sc, co, si, _label = PROGRAMME[step - 1]
-        ps[slot] = pack_pose(cx, cy, sc, co, si)
+        slot, cx, cy, sc, turns, _label = PROGRAMME[step - 1]
+        ps[slot] = pack_pose(cx, cy, sc, turns)
         per_step_poses.append(ps)
 
-    PROGRAMME_LABELS = ["mint state"] + [t[6] for t in PROGRAMME]
+    PROGRAMME_LABELS = ["mint state"] + [t[5] for t in PROGRAMME]
 
     # Verify each fixture's PI matches the chain's view of state.
     for step in range(8):
@@ -251,8 +261,8 @@ def main() -> int:
 
         # Mutation tx (skip for step 0 -- post-mint state).
         if step > 0:
-            slot, cx, cy, sc, co, si, _ = PROGRAMME[step - 1]
-            new_pose = pack_pose(cx, cy, sc, co, si)
+            slot, cx, cy, sc, turns, _ = PROGRAMME[step - 1]
+            new_pose = pack_pose(cx, cy, sc, turns)
             print(f"    mutateSlot slot={slot} pose=0x{new_pose:016x}")
             out = cast([
                 "send", shadow_token, "mutateSlot(uint256,uint8,uint64)",

@@ -39,9 +39,9 @@ sys.path.insert(0, str(REPO))
 
 from secret_inbox import G, GRUMPKIN_ORDER, ec_mul  # noqa: E402
 from v2_circuit_helpers import (  # noqa: E402
-    P, PLAINTEXT_FIELDS, CANVAS_W, CANVAS_H,
-    sponge_39, sponge_6, keystream_39, poseidon2_hash_2,
-    encode_plaintext_v2, pack_pose,
+    P, PLAINTEXT_FIELDS,
+    sponge_39, sponge_6, keystream_39,
+    encode_plaintext_v2, pack_pose, encode_pose_only_mutation,
     ecies_encrypt_v2, ecies_decrypt_v2,
     live_state_hash, chain_step, fhex,
 )
@@ -172,12 +172,9 @@ def build_witness(
 
     # ---- NEW slot state ----
     print("[5/9] new plaintext")
-    # Vary new_* per step_index so chained mutations produce distinct
-    # plaintexts. step_index=0 keeps the canonical demo values.
-    new_pose = pack_pose(x=10 + 2 * step_index, y=20 + step_index)
-    new_w, new_h = 16 + step_index % 4, 14 + step_index % 4   # stays inside 48x48
-    new_indices = [(i * (11 + step_index) + 5 + step_index) & 0xF for i in range(new_w * new_h)]
-    new_plaintext = encode_plaintext_v2(new_pose, new_w, new_h, new_indices)
+    # Mutate is pose-only. Preserve dimensions and packed palette indices, and
+    # change exactly one pose class per step: scale, rotation, then translation.
+    new_plaintext, new_pose, new_w, new_h = encode_pose_only_mutation(old_plaintext, step_index)
 
     print("[6/9] encrypt new plaintext (deterministic k via owner_pk binding)")
     step_tag = f":step{step_index}".encode() if step_index > 0 else b""

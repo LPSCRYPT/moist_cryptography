@@ -326,14 +326,14 @@ def render_secret_composite(
         if p == 0:
             continue
         try:
-            cx, cy, sc, co, si = unpack_pose(p)
+            cx, cy, sc, turns = unpack_pose(p)
         except Exception:
             continue
         if sc not in legal_scales and sc > 0:
             nearest = min(legal_scales, key=lambda s: abs(s - sc))
-            # PoseLib layout: x[0..5] y[6..11] scaleQ88[12..27] cos[28..43] sin[44..59]
+            # PoseLib layout: x[0..5] y[6..11] scaleQ88[12..27] quarterTurns[28..29]
             new_p = (cx & 0x3F) | ((cy & 0x3F) << 6) | ((nearest & 0xFFFF) << 12) \
-                    | ((co & 0xFFFF) << 28) | ((si & 0xFFFF) << 44)
+                    | ((turns & 0x03) << 28)
             poses[i] = new_p
 
     canvas = composite_canvas(
@@ -459,7 +459,7 @@ def render_snapshot_montage(
     d.text((x_meta, y + 56),    "current poses (manifest):", fill=(255, 200, 100), font=F_NOTE)
     for i in range(8):
         if state.kinds[i] == SLOT_KIND_ORIGINAL:
-            cx, cy, scale_q88, cos_q15, sin_q15 = unpack_pose(state.poses[i])
+            cx, cy, scale_q88, quarter_turns = unpack_pose(state.poses[i])
             d.text((x_meta, y + 74 + i*12),
                    f"  slot {i} {REGION_NAMES[i]:<9} "
                    f"pos=({cx:>2},{cy:>2}) scale={scale_q88/256:.2f}",
@@ -596,11 +596,11 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
         )
         # Use the canonical identity poses derived from boxes_packed
         from chain_ids import shadow_id_for, ANVIL_CHAIN_ID  # noqa: F401
-        from build_shadow_t10_fixture import pack_pose
+        from v2_circuit_helpers import pack_pose
         state.poses = []
         for i in range(8):
             x, y = (pi[9] >> (24 * i)) & 0x3F, ((pi[9] >> (24 * i + 6)) & 0x3F)
-            state.poses.append(pack_pose(x, y, 256, 32767, 0))
+            state.poses.append(pack_pose(x, y, 256, 0))
         state.poses += [0] * 8
         title = f"SNAPSHOT (from fixture {fix.name}) - face_disc gated"
     else:
@@ -644,25 +644,25 @@ def cmd_history(args: argparse.Namespace) -> int:
 
         states = []
         # Walk step_00 .. step_07
-        from build_shadow_t10_fixture import pack_pose
+        from v2_circuit_helpers import pack_pose
         # initial poses from boxes_packed
         identity_poses = []
         for i in range(8):
             x = (pi[9] >> (24 * i)) & 0x3F
             y = (pi[9] >> (24 * i + 6)) & 0x3F
-            identity_poses.append(pack_pose(x, y, 256, 32767, 0))
+            identity_poses.append(pack_pose(x, y, 256, 0))
         identity_poses += [0] * 8
         cur_poses = list(identity_poses)
         labels = ["MINT", "EYE L", "EYE R", "NOSE", "MOUTH", "FOREHEAD", "CHIN", "EYE L /2"]
-        # PROGRAMME slot indices, mirrors build_shadow_t10_fixture.py
+        # PROGRAMME slot indices: (slot, x, y, scaleQ88, quarterTurns).
         prog = [
-            (1, 15, 19, 256, 32767,      0),
-            (2, 22, 19, 256, 32767,      0),
-            (3,  5, 10, 512, 32767,      0),
-            (6, 15, 33, 256, 28377,  16383),
-            (0,  0,  4, 256, 32767,      0),
-            (7, 13, 35, 256, 32767,      0),
-            (1, 12, 19, 128, 28377, -16383),
+            (1, 15, 19, 256, 1),
+            (2, 22, 19, 256, 2),
+            (3,  5, 10, 512, 3),
+            (6, 15, 33, 256, 1),
+            (0,  0,  4, 256, 2),
+            (7, 13, 35, 256, 3),
+            (1, 12, 19, 128, 3),
         ]
         for step in range(8):
             t10_path = run / f"step_{step:02d}_setT10.txt"
@@ -709,9 +709,8 @@ def cmd_history(args: argparse.Namespace) -> int:
 
             # Apply the next mutateSlot to cur_poses for the NEXT iteration
             if step < len(prog):
-                slot, cx, cy, scale, cos15, sin15 = prog[step]
-                cur_poses[slot] = pack_pose(cx, cy, scale,
-                                            cos15 & 0xFFFF, sin15 & 0xFFFF)
+                slot, cx, cy, scale, turns = prog[step]
+                cur_poses[slot] = pack_pose(cx, cy, scale, turns)
 
         title = f"HISTORY (replay from {run.name})"
         render_history_montage(states, regions, title, out_path)

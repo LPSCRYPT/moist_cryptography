@@ -58,7 +58,7 @@ def _spec_path(raw: str | Path) -> Path:
 from secret_inbox import G, GRUMPKIN_ORDER, ec_mul  # noqa: E402
 from v2_circuit_helpers import (  # noqa: E402
     P, PLAINTEXT_FIELDS, sponge_39,
-    encode_plaintext_v2, pack_pose,
+    encode_plaintext_v2, pack_pose, encode_pose_only_mutation,
     ecies_encrypt_v2, mint_chain_step, chain_step, live_state_hash,
     poseidon2_hash_2,
 )
@@ -110,11 +110,8 @@ def _post_mutate_single(spec_root: dict, slot_idx: int, fixture: Path) -> dict:
     seed = spec_root["fixture_seed"].encode()
     owner_pk = (base["owner_pk_x"], base["owner_pk_y"])
 
-    # Mirror build_mutate_slot_onchain.build_mutate_witness:
-    new_pose = pack_pose(x=10, y=18)
-    new_w, new_h = 14, 12
-    new_indices = [(j * 11 + slot_idx + 5) & 0xF for j in range(new_w * new_h)]
-    new_plaintext = encode_plaintext_v2(new_pose, new_w, new_h, new_indices)
+    # Mirror build_mutate_slot_onchain.build_mutate_witness.
+    new_plaintext, _, _, _ = encode_pose_only_mutation(base["plaintext"], 2)
     assert len(new_plaintext) == PLAINTEXT_FIELDS
 
     new_r = _deterministic_int_mutate(seed, f"new_r_{slot_idx}".encode(),
@@ -163,12 +160,8 @@ def _post_mutate_batch(spec_root: dict, slot_idx: int, fixture: Path,
     base = _build_mint_slot(spec_root, slot_idx)
     owner_pk = (base["owner_pk_x"], base["owner_pk_y"])
 
-    # Mirror build_mutate_batch_onchain.synthesize_new_plaintext + build_mutate_witness
-    new_pose = pack_pose(x=8 + slot_idx * 3, y=12 + slot_idx)
-    new_w = 12 + (slot_idx % 4)
-    new_h = 10 + ((slot_idx + 1) % 4)
-    new_indices = [(j * 13 + slot_idx * 5 + 7) & 0xF for j in range(new_w * new_h)]
-    new_plaintext = encode_plaintext_v2(new_pose, new_w, new_h, new_indices)
+    # Mirror build_mutate_batch_onchain.synthesize_new_plaintext + build_mutate_witness.
+    new_plaintext, _, _, _ = encode_pose_only_mutation(base["plaintext"], 2)
     assert len(new_plaintext) == PLAINTEXT_FIELDS
 
     new_r = _deterministic_int_batch(salt, f"new_r_{slot_idx}".encode(),

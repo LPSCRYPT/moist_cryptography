@@ -214,20 +214,31 @@ fn sponge_8_pad16(e: [Field; 8]) -> Field {
 // because the bytes match the chain-bound ct_commit. H-04 closes that:
 // every minted slot's geometry is constraint-checked at mint time.
 //
-// Conservative axis-aligned containment: the pose's rotation/scale bits
-// are intentionally NOT validated here. Mutations are free to repose;
-// any rotation that overflows the unrotated bbox is rejected by
-// `mutate_slot::assert_pose_byte_dims`.
+// Pose rotation is discrete: bits 28..29 encode clockwise quarterTurns in
+// {0,1,2,3}; bits 30..63 are reserved and must be zero. `x`/`y` are the
+// unrotated top-left. Frame containment uses scaled extents and swaps width
+// and height for 90/270-degree turns around the scaled feature center.
 global CANVAS_W: u32 = 48;
 global CANVAS_H: u32 = 48;
 
-fn decode_xy(pose_low_bits: Field) -> (u8, u8) {
-    // pose_low_bits encodes packed pose in its low 64 bits. Low 12 bits
-    // are (x: 6bit, y: 6bit).
+fn decode_pose(pose_low_bits: Field) -> (u8, u8, u32, u8) {
     let bytes: [u8; 8] = pose_low_bits.to_le_bytes();
     let x: u8 = bytes[0] & 0x3F;
     let y: u8 = ((bytes[0] >> 6) | ((bytes[1] & 0x0F) << 2)) & 0x3F;
-    (x, y)
+    let scale_q88: u32 = ((bytes[1] >> 4) as u32)
+        + ((bytes[2] as u32) << 4)
+        + (((bytes[3] & 0x0F) as u32) << 12);
+    let quarter_turns: u8 = (bytes[3] >> 4) & 0x03;
+    assert((bytes[3] & 0xC0) == 0);
+    assert(bytes[4] == 0);
+    assert(bytes[5] == 0);
+    assert(bytes[6] == 0);
+    assert(bytes[7] == 0);
+    (x, y, scale_q88, quarter_turns)
+}
+
+fn ceil_scale(dim: u32, scale_q88: u32) -> u32 {
+    ((dim * scale_q88) + 255) / 256
 }
 
 fn validate_plaintext_v2(plaintext: [Field; 39]) {
@@ -237,26 +248,36 @@ fn validate_plaintext_v2(plaintext: [Field; 39]) {
     //   byte 9       h
     //   bytes 10..30 first 21 of (w * h) palette indices (4-bit packed)
     let f0_bytes: [u8; 31] = plaintext[0].to_le_bytes();
-    // Reconstruct pose's low 8 bytes (used only for x, y here).
+    // Reconstruct pose's low 8 bytes.
     let mut pose_acc: Field = 0;
     let mut mul: Field = 1;
     for i in 0..8 {
         pose_acc = pose_acc + (f0_bytes[i] as Field) * mul;
         mul = mul * 256;
     }
-    let (x, y) = decode_xy(pose_acc);
+    let (x, y, scale_q88, quarter_turns) = decode_pose(pose_acc);
     let w_byte = f0_bytes[8];
     let h_byte = f0_bytes[9];
 
-    // (1) range: w, h in [1, 48].
+    // (1) range: w, h in [1, 48], scale non-zero.
     assert(w_byte != 0);
     assert(h_byte != 0);
+    assert(scale_q88 != 0);
     assert(w_byte as u32 <= CANVAS_W);
     assert(h_byte as u32 <= CANVAS_H);
 
-    // (2) canvas containment: anchor + extent must fit in 48x48.
-    assert((x as u32) + (w_byte as u32) <= CANVAS_W);
-    assert((y as u32) + (h_byte as u32) <= CANVAS_H);
+    // (2) center-fixed scaled quarter-turn canvas containment.
+    let scaled_w = ceil_scale(w_byte as u32, scale_q88);
+    let scaled_h = ceil_scale(h_byte as u32, scale_q88);
+    let is_sideways = (quarter_turns & 1) == 1;
+    let extent_w = if is_sideways { scaled_h } else { scaled_w };
+    let extent_h = if is_sideways { scaled_w } else { scaled_h };
+    let center2_x = (x as u32) * 2 + scaled_w;
+    let center2_y = (y as u32) * 2 + scaled_h;
+    assert(center2_x >= extent_w);
+    assert(center2_y >= extent_h);
+    assert((center2_x + extent_w + 1) / 2 <= CANVAS_W);
+    assert((center2_y + extent_h + 1) / 2 <= CANVAS_H);
 }
 
 // ---- main ----

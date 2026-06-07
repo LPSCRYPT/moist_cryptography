@@ -14,9 +14,9 @@
 //      new_c1_x, new_c1_y, new_count, new_chain_tip), where new_chain_tip
 //      extends old_chain_tip by exactly one mutation event.
 //
-// The circuit says NOTHING about how new pose / dims / pixel indices relate
-// to old. The owner is free to repaint and reposition the slot to anything
-// that passes well-formedness + canvas containment.
+// Mutation is deliberately pose-only. The new plaintext must preserve the
+// feature's dimensions and packed palette-index payload byte-for-byte; exactly
+// one pose class may change: rotation, scale, or x/y translation.
 //
 // Public inputs (16 Fields):
 //   PI[0]   shadow_id              (chain-level binding only; transcript-only here)
@@ -74,16 +74,13 @@ global CANVAS_W: u32 = 48;
 global CANVAS_H: u32 = 48;
 
 // Q-formats used inside `pose`:
-//   bits 0..5    x  (uint6)
-//   bits 6..11   y  (uint6)
-//   bits 12..27  scaleQ88   (uint16; 256 = 1.0)
-//   bits 28..43  cosQ15     (signed 16-bit; 32767 ~= 1.0)
-//   bits 44..59  sinQ15     (signed 16-bit)
-//   bits 60..63  free
-// For canvas containment we need a tight bound; the in-circuit affine box
-// reads x, y, w, h after pose decode and asserts 0 <= bx0 <= bx1 < 48 and
-// likewise for y. We approximate the rotated bbox with an axis-aligned
-// bound using max(|cos|, |sin|) and (w, h) projection.
+//   bits 0..5    x             (uint6)
+//   bits 6..11   y             (uint6)
+//   bits 12..27  scaleQ88      (uint16; 256 = 1.0)
+//   bits 28..29  quarterTurns  (uint2; clockwise 90-degree turns)
+//   bits 30..63  reserved      (must be zero)
+// Canvas containment uses the scaled extent and swaps width/height for
+// 90/270-degree turns while keeping the scaled feature center fixed.
 
 // ---- Poseidon2 sponge variants ----
 
@@ -169,38 +166,45 @@ fn keystream_39(k: Field) -> [Field; 39] {
 
 // ---- pose decode + canvas containment ----
 //
-// Decode `pose` from plaintext[0] (its low 64 bits) into (x, y, w, h, ...).
-// We tolerate any bit pattern for cos/sin in the witness; canvas containment
-// uses a worst-case axis-aligned bound via |cos| + |sin| <= 2 (since
-// |cos|, |sin| <= 1 in Q15 magnitude after divide by 32768).
+// Decode `pose` from plaintext[0] (its low 64 bits) into x/y, scale, and
+// a discrete quarter-turn orientation. Arbitrary cos/sin rotation is not a
+// protocol state anymore; bits 30..63 are reserved and must be zero.
 //
-// To keep the circuit cheap we don't fully validate that cos^2+sin^2 == 1;
-// that constraint is the responsibility of `transferShadow` which rotates
-// pose less freely. Here we only need: the post-affine bounding box of
-// (w, h, scale, cos, sin) anchored at (x, y) lies inside [0, 48)^2.
-//
-// Approach (cheap, conservative):
-//   * Decompose pose into (x, y, w, h). w, h come from the plaintext bytes
-//     8 and 9, NOT from pose. (Pose has scale/rot only.)
-//   * For canvas containment we ignore scale/rot and just require:
-//       x + w <= 48,   y + h <= 48
-//     i.e. axis-aligned, no rotation amplification. Mutations that need
-//     to rotate must keep the rotated bbox within those bounds; in v2 we
-//     defer the full rotated-bbox check to a follow-up circuit.
-//
-// This is a conservative proxy: passes any non-rotated re-pose; rejects
-// rotated re-pose where the pre-rotation w x h already overflows. The
-// "owner can rotate freely if the unrotated box fits" property is the
-// minimum guarantee the contract needs in v2.
+// `x`/`y` are the unrotated top-left. Rotation is around the scaled feature
+// center, so 90/270-degree turns swap the scaled width/height around that
+// center before the frame-bound check.
 
-fn decode_xy(pose_low_bits: Field) -> (u8, u8) {
-    // pose_low_bits is a Field whose low 64 bits encode the packed pose.
-    // We split off the low 12 bits (x | y << 6).
+fn decode_pose(pose_low_bits: Field) -> (u8, u8, u32, u8) {
     let bytes: [u8; 8] = pose_low_bits.to_le_bytes();
     let x: u8 = bytes[0] & 0x3F;
     let y: u8 = ((bytes[0] >> 6) | ((bytes[1] & 0x0F) << 2)) & 0x3F;
-    (x, y)
+    let scale_q88: u32 = ((bytes[1] >> 4) as u32)
+        + ((bytes[2] as u32) << 4)
+        + (((bytes[3] & 0x0F) as u32) << 12);
+    let quarter_turns: u8 = (bytes[3] >> 4) & 0x03;
+    assert((bytes[3] & 0xC0) == 0);
+    assert(bytes[4] == 0);
+    assert(bytes[5] == 0);
+    assert(bytes[6] == 0);
+    assert(bytes[7] == 0);
+    (x, y, scale_q88, quarter_turns)
 }
+
+fn ceil_scale(dim: u32, scale_q88: u32) -> u32 {
+    ((dim * scale_q88) + 255) / 256
+}
+
+fn pose_low64_from_field0(field0: Field) -> Field {
+    let f0_bytes: [u8; 31] = field0.to_le_bytes();
+    let mut pose_acc: Field = 0;
+    let mut mul: Field = 1;
+    for i in 0..8 {
+        pose_acc = pose_acc + (f0_bytes[i] as Field) * mul;
+        mul = mul * 256;
+    }
+    pose_acc
+}
+
 
 fn assert_pose_byte_dims(plaintext: [Field; 39], w_pub: u32, h_pub: u32) {
     // Plaintext layout in field 0 (low 31 bytes):
@@ -209,14 +213,7 @@ fn assert_pose_byte_dims(plaintext: [Field; 39], w_pub: u32, h_pub: u32) {
     //   byte 9       h
     //   bytes 10..30 first 21 indices
     let f0_bytes: [u8; 31] = plaintext[0].to_le_bytes();
-    // Reconstruct pose's low 8 bytes (used only for x, y here).
-    let mut pose_acc: Field = 0;
-    let mut mul: Field = 1;
-    for i in 0..8 {
-        pose_acc = pose_acc + (f0_bytes[i] as Field) * mul;
-        mul = mul * 256;
-    }
-    let (x, y) = decode_xy(pose_acc);
+    let (x, y, scale_q88, quarter_turns) = decode_pose(pose_low64_from_field0(plaintext[0]));
     let w_byte = f0_bytes[8];
     let h_byte = f0_bytes[9];
 
@@ -227,13 +224,48 @@ fn assert_pose_byte_dims(plaintext: [Field; 39], w_pub: u32, h_pub: u32) {
     // Range checks.
     assert(w_byte != 0);
     assert(h_byte != 0);
+    assert(scale_q88 != 0);
     assert(w_byte as u32 <= CANVAS_W);
     assert(h_byte as u32 <= CANVAS_H);
 
-    // Conservative axis-aligned canvas containment.
-    assert((x as u32) + (w_byte as u32) <= CANVAS_W);
-    assert((y as u32) + (h_byte as u32) <= CANVAS_H);
+    // Center-fixed scaled quarter-turn canvas containment.
+    let scaled_w = ceil_scale(w_byte as u32, scale_q88);
+    let scaled_h = ceil_scale(h_byte as u32, scale_q88);
+    let is_sideways = (quarter_turns & 1) == 1;
+    let extent_w = if is_sideways { scaled_h } else { scaled_w };
+    let extent_h = if is_sideways { scaled_w } else { scaled_h };
+    let center2_x = (x as u32) * 2 + scaled_w;
+    let center2_y = (y as u32) * 2 + scaled_h;
+    assert(center2_x >= extent_w);
+    assert(center2_y >= extent_h);
+    assert((center2_x + extent_w + 1) / 2 <= CANVAS_W);
+    assert((center2_y + extent_h + 1) / 2 <= CANVAS_H);
 }
+
+fn assert_pose_only_single_mutation(old_plaintext: [Field; 39], new_plaintext: [Field; 39]) {
+    let old_f0_bytes: [u8; 31] = old_plaintext[0].to_le_bytes();
+    let new_f0_bytes: [u8; 31] = new_plaintext[0].to_le_bytes();
+
+    // Bytes after the 8-byte pose in field 0 are dimensions + packed pixels.
+    // They are not mutable through mutate_slot.
+    for i in 8..31 {
+        assert(old_f0_bytes[i] == new_f0_bytes[i]);
+    }
+    for i in 1..PLAINTEXT_FIELDS {
+        assert(old_plaintext[i] == new_plaintext[i]);
+    }
+
+    let (old_x, old_y, old_scale_q88, old_quarter_turns) = decode_pose(pose_low64_from_field0(old_plaintext[0]));
+    let (new_x, new_y, new_scale_q88, new_quarter_turns) = decode_pose(pose_low64_from_field0(new_plaintext[0]));
+
+    let rotation_changed: Field = if old_quarter_turns == new_quarter_turns { 0 } else { 1 };
+    let scale_changed: Field = if old_scale_q88 == new_scale_q88 { 0 } else { 1 };
+    let translation_changed: Field = if (old_x == new_x) & (old_y == new_y) { 0 } else { 1 };
+
+    // Exactly one class may change. Rejects exact no-ops and combined transforms.
+    assert(rotation_changed + scale_changed + translation_changed == 1);
+}
+
 
 // ---- main ----
 
@@ -341,6 +373,11 @@ fn main(
 
     // ---- 5. new plaintext well-formedness ----
     assert_pose_byte_dims(new_plaintext, w_new as u32, h_new as u32);
+
+    // Mutate is pose-only and permits exactly one transform class per proof:
+    // rotation, scale, or translation. This rejects no-ops, combined transforms,
+    // dimension changes, and repaint/recolor/payload rewrites.
+    assert_pose_only_single_mutation(old_plaintext, new_plaintext);
 
     // ---- 6. new c2 = encrypt(new_plaintext, new_k, owner_pk) ----
     let new_ks = keystream_39(new_k);

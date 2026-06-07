@@ -201,9 +201,8 @@ only allowed transfer path.
 A 64-bit packed field with reserved high bits:
 
 ```
-bit  60..63  reserved (must be zero)
-bit  44..59  sinQ15        int16 (Q1.15 fixed-point sine)
-bit  28..43  cosQ15        int16
+bit  30..63  reserved      (must be zero)
+bit  28..29  quarterTurns  uint2 (clockwise 90-degree turns)
 bit  12..27  scaleQ88      uint16 (Q8.8 fixed-point scale; 256 = 1.0x)
 bit   6..11  curY          uint6
 bit   0..5   curX          uint6
@@ -213,13 +212,16 @@ Sanity checks (`PoseLib.requireSane`):
 
 - `curX, curY < 48` (frame bound)
 - `scaleQ88 > 0`
-- `cos² + sin² ≈ 2³⁰` within tolerance (i.e. unit rotation up to numerical
-  drift of the Q15 representation)
+- reserved bits `30..63 == 0`
 
 On-frame check (`PoseLib.requireOnFrame`):
 
-- `curX + REGION_W[type] ≤ 48`
-- `curY + REGION_H[type] ≤ 48`
+- Scale the feature extent with `ceil(dim * scaleQ88 / 256)`.
+- Mint-time identity may use `quarterTurns = 0`; mutation proofs reject
+  user-submitted `quarterTurns == 0`, so mutation rotations are only
+  90/180/270 degrees. 90/270-degree turns swap the scaled width and height.
+- Keep the scaled feature center fixed and require the rotated extent to fit
+  within the 48×48 frame.
 
 Region max bounds (`REGION_W` / `REGION_H`):
 

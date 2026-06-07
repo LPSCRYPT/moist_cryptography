@@ -92,15 +92,15 @@ DEFAULT_PALETTE: list[tuple[int, int, int]] = [
 assert len(DEFAULT_PALETTE) == 16
 
 
-def decode_pose(pose_packed: int) -> tuple[int, int, int, int, int]:
-    """Inverse of v2_circuit_helpers.pack_pose. Returns (x, y, scale_q88,
-    cos_q15, sin_q15)."""
+def decode_pose(pose_packed: int) -> tuple[int, int, int, int]:
+    """Inverse of v2_circuit_helpers.pack_pose. Returns (x, y, scale_q88, quarter_turns)."""
     x = pose_packed & 0x3F
     y = (pose_packed >> 6) & 0x3F
     scale_q88 = (pose_packed >> 12) & 0xFFFF
-    cos_q15 = (pose_packed >> 28) & 0xFFFF
-    sin_q15 = (pose_packed >> 44) & 0xFFFF
-    return x, y, scale_q88, cos_q15, sin_q15
+    quarter_turns = (pose_packed >> 28) & 0x03
+    if pose_packed >> 30:
+        raise ValueError(f"pose reserved bits set: 0x{pose_packed:016x}")
+    return x, y, scale_q88, quarter_turns
 
 
 def render_slot_sprite(
@@ -117,7 +117,7 @@ def render_slot_sprite(
     if all(f == 0 for f in plaintext_fields):
         return None, {"empty": True}
     pose, w, h, indices = decode_plaintext_v2(plaintext_fields)
-    px, py, scale_q88, cos_q15, sin_q15 = decode_pose(pose)
+    px, py, scale_q88, quarter_turns = decode_pose(pose)
     sprite = Image.new("RGB", (w, h), color=palette[0])
     pixels = sprite.load()
     for j in range(h):
@@ -129,8 +129,7 @@ def render_slot_sprite(
         "x": px, "y": py,
         "w": w, "h": h,
         "scale_q88": scale_q88,
-        "cos_q15": cos_q15,
-        "sin_q15": sin_q15,
+        "quarter_turns": quarter_turns,
         "indices": indices,
     }
 
@@ -154,7 +153,18 @@ def compose_canvas(
         sprite, meta = slots[slot_idx]
         if sprite is None or meta.get("empty"):
             continue
-        canvas.paste(sprite, (meta["x"], meta["y"]))
+        scale_q88 = meta["scale_q88"]
+        if scale_q88 == 0:
+            continue
+        out_w = max(1, (sprite.width * scale_q88 + 255) >> 8)
+        out_h = max(1, (sprite.height * scale_q88 + 255) >> 8)
+        posed = sprite.resize((out_w, out_h), Image.NEAREST)
+        turns = meta["quarter_turns"] & 3
+        if turns:
+            posed = posed.rotate(-90 * turns, expand=True, resample=Image.NEAREST)
+        x0 = (2 * meta["x"] + out_w - posed.width) // 2
+        y0 = (2 * meta["y"] + out_h - posed.height) // 2
+        canvas.paste(posed, (x0, y0))
     return canvas
 
 

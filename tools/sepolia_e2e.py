@@ -383,17 +383,17 @@ def main() -> int:
     #   slot 6 mouth:    x=[0..0],   y=[0..39]
     #   slot 7 chin:     x=[0..0],   y=[0..40]
     poses_to_try = [
-        # (slot, label, target_curX, target_curY, scaleQ88, cosQ15, sinQ15)
-        (1, "translate to (15, 20)",  15, 20, 256, 32767, 0),
-        (2, "translate to (10, 25)",  10, 25, 256, 32767, 0),
-        (3, "scale 0.5x at (5, 10)",   5, 10, 128, 32767, 0),
-        (4, "scale 1.5x at (20, 10)", 20, 10, 384, 32767, 0),
-        (5, "rotate 45deg at (10, 5)", 10,  5, 256, 23170, 23170),
-        (3, "translate to (0, 0)",     0,  0, 256, 32767, 0),
-        (1, "rotate -45deg at (5, 10)", 5, 10, 256, 23170, -23170 & 0xFFFF),
+        # (slot, label, target_curX, target_curY, scaleQ88, quarterTurns)
+        (1, "translate to (15, 20), rot 90",   15, 20, 256, 1),
+        (2, "translate to (10, 25), rot 180",  10, 25, 256, 2),
+        (3, "scale 0.5x at (5, 10), rot 270",  5, 10, 128, 3),
+        (4, "scale 1.5x at (20, 10), rot 90", 20, 10, 384, 1),
+        (5, "rotate 90deg at (10, 5)", 10,  5, 256, 1),
+        (3, "translate to (0, 0), rot 180",     0,  0, 256, 2),
+        (1, "rotate 270deg at (5, 10)", 5, 10, 256, 3),
     ]
-    for slot_i, label, target_x, target_y, sc, co, si in poses_to_try:
-        new_pose = (target_x | (target_y << 6) | (sc << 12) | (co << 28) | (si << 44)) & ((1 << 60) - 1)
+    for slot_i, label, target_x, target_y, sc, turns in poses_to_try:
+        new_pose = (target_x | (target_y << 6) | (sc << 12) | (turns << 28)) & ((1 << 30) - 1)
         rcpt = cast_send([
             SHADOW, "mutateSlot(uint256,uint8,uint64)",
             str(sid), str(slot_i), str(new_pose),
@@ -420,14 +420,14 @@ def main() -> int:
     # ---- 5. Mutate revert paths -----------------------------------------
     print(f"\n{Y}[5] Mutate revert paths{X}")
     # Bad scale (0)
-    bad_pose = 5 | (5 << 6) | (0 << 12) | (32767 << 28)  # scale=0
+    bad_pose = 5 | (5 << 6) | (0 << 12)  # scale=0
     reverted = cast_send_expect_revert([
         SHADOW, "mutateSlot(uint256,uint8,uint64)", str(sid), "1", str(bad_pose),
     ], args.rpc, pk, gas_limit=200_000)
     check("mutate slot 1 with scale=0 reverts", reverted)
 
     # Off-frame (slot 1 = eye 33x8; curX=20+33=53 > 48)
-    off_pose = 20 | (10 << 6) | (256 << 12) | (32767 << 28)
+    off_pose = 20 | (10 << 6) | (256 << 12)
     reverted = cast_send_expect_revert([
         SHADOW, "mutateSlot(uint256,uint8,uint64)", str(sid), "1", str(off_pose),
     ], args.rpc, pk, gas_limit=200_000)
@@ -581,7 +581,7 @@ def main() -> int:
         print(f"\n{Y}[8s.b] post-solve gating reverts{X}")
         # Re-mint same shadow (already minted) -- different revert path, skip here
         # mutate revert
-        any_pose = (12 | (12 << 6) | (256 << 12) | (32767 << 28))
+        any_pose = (12 | (12 << 6) | (256 << 12))
         reverted = cast_send_expect_revert([
             SHADOW, "mutateSlot(uint256,uint8,uint64)", str(sid), "0", str(any_pose),
         ], args.rpc, pk, gas_limit=200_000)

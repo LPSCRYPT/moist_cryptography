@@ -8,9 +8,10 @@ this and reconstruct the public T10 bitmap.
 Pipeline:
   1. Decrypt shadow c2  ->  8 region byte buffers (in-bounds (h, w) per slot).
   2. For each INSERTED slot, decrypt the FeatureNFT c2  ->  region byte buffer.
-  3. Composite 16 slots onto a 48x48 RGB canvas. Per-slot bytes are sampled
-     under the slot's pose (cx, cy, scale_q88, cos_q15, sin_q15) using
-     INVERSE-AFFINE NEAREST-NEIGHBOUR. Out-of-pose pixels remain zero.
+  3. Composite 16 slots onto a 48x48 RGB canvas. Per-slot bytes are scaled by
+     nearest-neighbour and then rotated by an exact clockwise quarter-turn
+     (0/90/180/270 degrees). Rotation preserves source-pixel adjacency and
+     keeps the scaled feature center fixed. Out-of-pose pixels remain zero.
      Slot order matters: later slots overwrite earlier (slot 15 wins ties).
   4. T10 quantize: for each cell (by, bx) in [0..16, 0..16]:
        sum_y = sum over (dy, dx) in [0..3, 0..3] of luma(canvas[3by+dy, 3bx+dx])
@@ -58,21 +59,36 @@ REGION_H: list[int] = [ 9,  8,  8, 11, 19, 19,  9,  8]
 # =============================================================================
 # Pose unpack
 # =============================================================================
-def unpack_pose(p: int) -> tuple[int, int, int, int, int]:
+def unpack_pose(p: int) -> tuple[int, int, int, int]:
     """Unpack a uint64 pose word per PoseLib.sol layout."""
     cx = p & 0x3F
     cy = (p >> 6) & 0x3F
     sc = (p >> 12) & 0xFFFF
-    co = (p >> 28) & 0xFFFF
-    si = (p >> 44) & 0xFFFF
-    if co >= 0x8000: co -= 0x10000
-    if si >= 0x8000: si -= 0x10000
-    return cx, cy, sc, co, si
+    turns = (p >> 28) & 0x03
+    if p >> 30:
+        raise ValueError(f"pose reserved bits set: 0x{p:016x}")
+    return cx, cy, sc, turns
 
 
 # =============================================================================
-# Composite under poses (NEAREST NEIGHBOUR, integer arithmetic, fixed-point)
+# Composite under poses (nearest-neighbour scale + exact quarter-turn rotation)
 # =============================================================================
+
+
+def _scale_nearest(arr: np.ndarray, scale_q88: int) -> np.ndarray:
+    if scale_q88 == 0:
+        raise ValueError("scale_q88 must be non-zero")
+    out_h = max(1, (arr.shape[0] * scale_q88 + 255) >> 8)
+    out_w = max(1, (arr.shape[1] * scale_q88 + 255) >> 8)
+    ys = np.minimum((np.arange(out_h, dtype=np.int64) * 256) // scale_q88, arr.shape[0] - 1)
+    xs = np.minimum((np.arange(out_w, dtype=np.int64) * 256) // scale_q88, arr.shape[1] - 1)
+    return arr[ys[:, None], xs[None, :]]
+
+
+def _centered_top_left(anchor: int, unrotated_extent: int, rotated_extent: int) -> int:
+    # Floor is deterministic when the exact center lands between pixel columns.
+    return (2 * anchor + unrotated_extent - rotated_extent) // 2
+
 
 def composite_canvas(
     per_slot_bytes: list[bytes],
@@ -83,9 +99,11 @@ def composite_canvas(
 ) -> np.ndarray:
     """Composite 16 slots onto a 48x48 RGB canvas under their poses.
 
-    Uses inverse-affine NEAREST-NEIGHBOUR sampling (matches the Noir
-    circuit's integer-only fixed-point path). Slot order: later slots
-    overwrite earlier.
+    Rotation is restricted to exact clockwise quarter-turns. We first apply
+    nearest-neighbour scale to the source sprite, then rotate the scaled pixel
+    grid with `np.rot90(..., k=-turns)`. That is a one-to-one pixel permutation
+    for rotation itself; no affine resampling or interpolation is performed.
+    Slot order: later slots overwrite earlier.
     """
     canvas = np.zeros((48, 48, 3), dtype=np.uint8)
     for slot in range(16):
@@ -95,7 +113,7 @@ def composite_canvas(
         rb = per_slot_bytes[slot]
         if rb is None or len(rb) == 0:
             continue
-        cx_anchor, cy_anchor, sc_q88, co_s, si_s = unpack_pose(poses[slot])
+        cx_anchor, cy_anchor, sc_q88, turns = unpack_pose(poses[slot])
         max_w, max_h = slot_max_dims_wh[slot]
         if max_w == 0 or max_h == 0:
             continue
@@ -104,32 +122,28 @@ def composite_canvas(
         w, h = slot_dims_wh[slot]
         if w == 0 or h == 0 or w > max_w or h > max_h:
             continue
-        # Power-of-2 scale only (matches circuit's exact-inversion constraint).
-        if (sc_q88 & (sc_q88 - 1)) != 0 or sc_q88 == 0:
-            raise ValueError(f"slot {slot}: scale_q88={sc_q88} must be a power of 2")
-        scale_inv_q24 = (1 << 24) // sc_q88
         arr = np.frombuffer(rb[: max_w * max_h * 3], dtype=np.uint8).reshape(max_h, max_w, 3)[:h, :w]
+        scaled = _scale_nearest(arr, sc_q88)
+        rotated = np.rot90(scaled, k=-(turns & 3))
+        out_h, out_w = rotated.shape[:2]
 
-        # For each canvas pixel, apply inverse-affine integer-NN.
-        # See shadow_t10/src/main.nr::inv_affine_for_slot for derivation.
-        for cy in range(48):
-            for cx in range(48):
-                dy_2 = 2*cy - 2*cy_anchor - h
-                dx_2 = 2*cx - 2*cx_anchor - w
-                rot_y = co_s * dy_2 + si_s * dx_2
-                rot_x = (-si_s) * dy_2 + co_s * dx_2
-                sy_q31 = rot_y * scale_inv_q24
-                sx_q31 = rot_x * scale_inv_q24
-                # NN round /2^31, FLOOR semantics (matches circuit's floor_div_pow2).
-                # Python's `>>` is arithmetic right-shift on signed ints, == floor div.
-                sy_centred_2 = (sy_q31 + (1 << 30)) >> 31
-                sx_centred_2 = (sx_q31 + (1 << 30)) >> 31
-                sy_2 = sy_centred_2 + h
-                sx_2 = sx_centred_2 + w
-                sy = (sy_2 + 1) >> 1
-                sx = (sx_2 + 1) >> 1
-                if 0 <= sy < h and 0 <= sx < w:
-                    canvas[cy, cx] = arr[sy, sx]
+        x0 = _centered_top_left(cx_anchor, scaled.shape[1], out_w)
+        y0 = _centered_top_left(cy_anchor, scaled.shape[0], out_h)
+        x1 = x0 + out_w
+        y1 = y0 + out_h
+
+        dst_x0 = max(0, x0)
+        dst_y0 = max(0, y0)
+        dst_x1 = min(48, x1)
+        dst_y1 = min(48, y1)
+        if dst_x1 <= dst_x0 or dst_y1 <= dst_y0:
+            continue
+
+        src_x0 = dst_x0 - x0
+        src_y0 = dst_y0 - y0
+        src_x1 = src_x0 + (dst_x1 - dst_x0)
+        src_y1 = src_y0 + (dst_y1 - dst_y0)
+        canvas[dst_y0:dst_y1, dst_x0:dst_x1] = rotated[src_y0:src_y1, src_x0:src_x1]
     return canvas
 
 
@@ -319,8 +333,8 @@ if __name__ == "__main__":
         sd = (boxes_packed >> (24 * i)) & 0xFFFFFF
         x = sd & 0x3F; y = (sd >> 6) & 0x3F
         w = (sd >> 12) & 0x3F; h = (sd >> 18) & 0x3F
-        # Identity pose (no rotation, no scale)
-        poses.append((x & 0x3F) | ((y & 0x3F) << 6) | (256 << 12) | (32767 << 28) | (0 << 44))
+        # Identity pose (no rotation, unit scale)
+        poses.append((x & 0x3F) | ((y & 0x3F) << 6) | (256 << 12))
         dims_wh.append((w, h))
 
     # Pad to 16 slots: 8 ORIGINAL + 8 EMPTY.

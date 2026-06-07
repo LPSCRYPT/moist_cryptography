@@ -17,7 +17,8 @@ Pipeline:
        if ORIGINAL: take shadow's region[originalTypeIdx] bytes
        if INSERTED: decrypt that FeatureNFT's c2 -> 42 Fields ->
                     unpack -> per-region bytes via PACKED_COUNTS table
-       Apply slot's manifestPose (curX, curY, scale, rot) and draw onto canvas.
+       Apply slot pose as nearest-neighbour scale plus exact 90-degree rotation,
+       keeping the scaled feature center fixed, and draw onto canvas.
        (Later slots paint over earlier -- "render in slot order, ignore overlap".)
   3. Save PNG.
 
@@ -60,17 +61,15 @@ SLOT_KIND_ORIGINAL = 1
 SLOT_KIND_INSERTED = 2
 
 
-def parse_pose(pose: int) -> tuple[int, int, int, int, int]:
+def parse_pose(pose: int) -> tuple[int, int, int, int]:
     """Unpack a uint64 pose word per PoseLib.sol layout."""
     cx = pose & 0x3F
     cy = (pose >> 6) & 0x3F
     scale_q88 = (pose >> 12) & 0xFFFF
-    cos_q15 = (pose >> 28) & 0xFFFF
-    sin_q15 = (pose >> 44) & 0xFFFF
-    # Convert cos/sin from u16 to int16
-    if cos_q15 >= 0x8000: cos_q15 -= 0x10000
-    if sin_q15 >= 0x8000: sin_q15 -= 0x10000
-    return cx, cy, scale_q88, cos_q15, sin_q15
+    quarter_turns = (pose >> 28) & 0x03
+    if pose >> 30:
+        raise ValueError(f"pose reserved bits set: 0x{pose:016x}")
+    return cx, cy, scale_q88, quarter_turns
 
 
 def decrypt_shadow_c2(
@@ -138,23 +137,10 @@ def render_to_canvas(
 ):
     """Composite per-slot region bytes onto a 48x48 canvas under the slot pose.
 
-    Affine model (matches PoseLib.sol):
-      The pose word encodes (cx, cy, scaleQ8.8, cosQ1.15, sinQ1.15) where
-      scale=1 -> 256, cos/sin in Q15 (32767 ~= 1.0), and a positive sin
-      means counter-clockwise rotation in canvas coordinates.
-
-      The forward transform takes a source pixel (sy, sx) in the slot's
-      max-bbox local frame (centered at (h/2, w/2)) to canvas coordinates:
-         [dy]   [ cos -sin ] [sy - h/2]   [cy + h/2]
-         [dx] = s[ sin  cos ] [sx - w/2] + [cx + w/2]
-      For sampling we walk dst pixels and apply the inverse:
-         scale_inv = 256 / scaleQ88
-         inv_R = scale_inv * [[ cos,  sin],
-                              [-sin,  cos]]
-         (sy, sx) = inv_R @ (dst_y - cy - h/2, dst_x - cx - w/2) + (h/2, w/2)
-      Identity pose (s=1, cos=1, sin=0) reduces to (sy, sx) = (dst_y - cy,
-      dst_x - cx); with bilinear weights collapsing to (1, 0) the output is
-      byte-equivalent to a plain canvas[cy:cy+h, cx:cx+w] = arr[:h,:w] copy.
+    Pose rotation is discrete: quarterTurns in {0,1,2,3} means clockwise
+    0/90/180/270 degrees. The renderer scales by nearest-neighbour, rotates
+    the scaled pixel grid as an exact permutation, then places the rotated
+    bounding box so its center matches the unrotated scaled feature center.
     """
     try:
         from PIL import Image
@@ -179,7 +165,7 @@ def render_to_canvas(
         x1, y1, w, h = geom[slot]
         if w == 0 or h == 0:
             continue
-        cx, cy, scale_q88, cos_q15, sin_q15 = parse_pose(poses[slot])
+        cx, cy, scale_q88, quarter_turns = parse_pose(poses[slot])
 
         # Decode source frame size: slots 0..7 use canonical REGION_W/H;
         # slots 8..15 (INSERTED) carry their max-bbox via geom (w, h).
@@ -191,73 +177,35 @@ def render_to_canvas(
         if len(region_bytes) != expected:
             continue
         try:
-            arr = np.frombuffer(region_bytes, dtype=np.uint8).reshape(max_h, max_w, 3)
+            arr = np.frombuffer(region_bytes, dtype=np.uint8).reshape(max_h, max_w, 3)[:h, :w]
         except Exception as e:
             print(f"  slot {slot}: reshape error: {e}")
             continue
 
-        # ---- Affine inverse: dst -> src ----
-        scale_inv = 256.0 / float(scale_q88)
-        cos_f = cos_q15 / 32767.0
-        sin_f = sin_q15 / 32767.0
-        inv_R = np.array([[ cos_f,  sin_f],
-                          [-sin_f,  cos_f]], dtype=np.float64) * scale_inv
+        if scale_q88 == 0:
+            continue
+        out_h_unrot = max(1, (h * scale_q88 + 255) >> 8)
+        out_w_unrot = max(1, (w * scale_q88 + 255) >> 8)
+        ys = np.minimum((np.arange(out_h_unrot, dtype=np.int64) * 256) // scale_q88, h - 1)
+        xs = np.minimum((np.arange(out_w_unrot, dtype=np.int64) * 256) // scale_q88, w - 1)
+        scaled = arr[ys[:, None], xs[None, :]]
+        rotated = np.rot90(scaled, k=-(quarter_turns & 3))
+        out_h, out_w = rotated.shape[:2]
 
-        # Conservative bbox of the rotated/scaled rect on canvas, around
-        # the slot's center anchor (cx + w/2, cy + h/2).
-        s_fwd = float(scale_q88) / 256.0
-        ac = abs(cos_f) * s_fwd
-        as_ = abs(sin_f) * s_fwd
-        half_h = 0.5 * (ac * h + as_ * w)
-        half_w = 0.5 * (as_ * h + ac * w)
-        ccy = cy + h / 2.0
-        ccx = cx + w / 2.0
-        y0 = int(np.floor(ccy - half_h));  y1_ = int(np.ceil(ccy + half_h))
-        x0 = int(np.floor(ccx - half_w));  x1_ = int(np.ceil(ccx + half_w))
-        # Clip to canvas bounds.
-        y0 = int(np.clip(y0, 0, 48));  y1_ = int(np.clip(y1_, 0, 48))
-        x0 = int(np.clip(x0, 0, 48));  x1_ = int(np.clip(x1_, 0, 48))
-        if y1_ <= y0 or x1_ <= x0:
+        x0 = (2 * cx + out_w_unrot - out_w) // 2
+        y0 = (2 * cy + out_h_unrot - out_h) // 2
+        x1 = x0 + out_w
+        y1 = y0 + out_h
+
+        dst_x0 = max(0, x0); dst_y0 = max(0, y0)
+        dst_x1 = min(48, x1); dst_y1 = min(48, y1)
+        if dst_x1 <= dst_x0 or dst_y1 <= dst_y0:
             continue
 
-        ys = np.arange(y0, y1_)
-        xs = np.arange(x0, x1_)
-        DY, DX = np.meshgrid(ys, xs, indexing="ij")
-        dy_ = DY.astype(np.float64) - cy - h / 2.0
-        dx_ = DX.astype(np.float64) - cx - w / 2.0
-        src_y = inv_R[0, 0] * dy_ + inv_R[0, 1] * dx_ + h / 2.0
-        src_x = inv_R[1, 0] * dy_ + inv_R[1, 1] * dx_ + w / 2.0
-
-        valid = (src_y >= 0.0) & (src_y <= max_h - 1) & \
-                (src_x >= 0.0) & (src_x <= max_w - 1)
-        if not np.any(valid):
-            continue
-
-        # Bilinear sample (4-corner weighted avg).
-        sy0 = np.floor(src_y).astype(np.int64)
-        sx0 = np.floor(src_x).astype(np.int64)
-        sy1 = np.minimum(sy0 + 1, max_h - 1)
-        sx1 = np.minimum(sx0 + 1, max_w - 1)
-        sy0c = np.clip(sy0, 0, max_h - 1)
-        sx0c = np.clip(sx0, 0, max_w - 1)
-        fy = src_y - sy0
-        fx = src_x - sx0
-
-        arr_f = arr.astype(np.float32)
-        a = arr_f[sy0c, sx0c]
-        b = arr_f[sy0c, sx1]
-        c = arr_f[sy1,  sx0c]
-        d = arr_f[sy1,  sx1]
-        wfy = fy[:, :, None]; wfx = fx[:, :, None]
-        out = ((1 - wfy) * (1 - wfx) * a
-             + (1 - wfy) *      wfx  * b
-             +      wfy  * (1 - wfx) * c
-             +      wfy  *      wfx  * d)
-        out = np.round(out).clip(0, 255).astype(np.uint8)
-
-        # Stamp valid pixels onto the canvas (later slots paint over earlier).
-        DY_v = DY[valid]; DX_v = DX[valid]
-        canvas[DY_v, DX_v] = out[valid]
+        src_x0 = dst_x0 - x0; src_y0 = dst_y0 - y0
+        src_x1 = src_x0 + (dst_x1 - dst_x0)
+        src_y1 = src_y0 + (dst_y1 - dst_y0)
+        canvas[dst_y0:dst_y1, dst_x0:dst_x1] = rotated[src_y0:src_y1, src_x0:src_x1]
 
     Image.fromarray(canvas).save(out_path)
     print(f"  wrote {out_path}")
@@ -269,10 +217,10 @@ def main() -> int:
                     help="Fixture name to render from. Currently supports 'alice0'.")
     ap.add_argument("--out", default=None,
                     help="Output PNG path (default: phase2/logs/render_<fixture>.png)")
-    ap.add_argument("--mutate-slot", default=None, metavar="IDX:CX:CY:SCALEQ88:COSQ15:SINQ15",
+    ap.add_argument("--mutate-slot", default=None, metavar="IDX:CX:CY:SCALEQ88:QUARTER_TURNS",
                     help=("Override one slot's pose for testing rotation/scale. "
-                          "Six colon-separated ints: slot index, cx, cy, scaleQ88 "
-                          "(256=1.0), cosQ15, sinQ15 (32767~=1.0)."))
+                          "Five colon-separated ints: slot index, cx, cy, scaleQ88 "
+                          "(256=1.0), quarterTurns clockwise in [1,3]."))
     args = ap.parse_args()
 
     if args.fixture != "alice0":
@@ -306,7 +254,7 @@ def main() -> int:
             h = (slot_data >> 18) & 0x3F
             geom.append((x, y, w, h))
             # Identity pose (matches mint_shadow's origPose[i]).
-            pose = (x & 0x3F) | ((y & 0x3F) << 6) | (256 << 12) | (32767 << 28)
+            pose = (x & 0x3F) | ((y & 0x3F) << 6) | (256 << 12)
             poses.append(pose)
             kinds.append(SLOT_KIND_ORIGINAL)
         else:
@@ -322,19 +270,20 @@ def main() -> int:
     if args.mutate_slot:
         try:
             parts = args.mutate_slot.split(":")
-            if len(parts) != 6:
-                raise ValueError("need 6 colon-separated ints")
-            idx, mcx, mcy, msc, mco, msi = (int(p) for p in parts)
+            if len(parts) != 5:
+                raise ValueError("need 5 colon-separated ints")
+            idx, mcx, mcy, msc, mturns = (int(p) for p in parts)
         except Exception as e:
             sys.exit(f"--mutate-slot parse error: {e}")
         if not (0 <= idx < 16):
             sys.exit(f"--mutate-slot idx {idx} out of range [0,16)")
-        # Pack pose word per PoseLib layout; cos/sin masked to 16 bits.
+        if not (1 <= mturns < 4):
+            sys.exit(f"--mutate-slot quarterTurns {mturns} out of range [1,4)")
+        # Pack pose word per PoseLib layout.
         pose = ((mcx & 0x3F)
                 | ((mcy & 0x3F) << 6)
                 | ((msc & 0xFFFF) << 12)
-                | ((mco & 0xFFFF) << 28)
-                | ((msi & 0xFFFF) << 44))
+                | ((mturns & 0x03) << 28))
         poses[idx] = pose
         # If the slot was EMPTY (e.g. for visual experiments), upgrade to ORIGINAL.
         if kinds[idx] == SLOT_KIND_EMPTY:

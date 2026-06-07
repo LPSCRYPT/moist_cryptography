@@ -49,27 +49,24 @@ ALICE_FIXTURE = ROOT / "contracts" / "test" / "fixtures" / "mint_shadow" / "alic
 # Pose helpers (mirror PoseLib.sol)
 # =============================================================================
 
-def pack_pose(cx: int, cy: int, scale_q88: int = 256,
-              cos_q15: int = 32767, sin_q15: int = 0) -> int:
+def pack_pose(cx: int, cy: int, scale_q88: int = 256, quarter_turns: int = 0) -> int:
     """Pack into a uint64 matching PoseLib.pack."""
-    cos_u = cos_q15 & 0xFFFF
-    sin_u = sin_q15 & 0xFFFF
+    if not (0 <= quarter_turns < 4):
+        raise ValueError(f"quarter_turns out of range: {quarter_turns}")
     return ((cx & 0x3F)
             | ((cy & 0x3F) << 6)
             | ((scale_q88 & 0xFFFF) << 12)
-            | (cos_u << 28)
-            | (sin_u << 44))
+            | ((quarter_turns & 0x03) << 28))
 
 
-def unpack_pose(p: int) -> tuple[int, int, int, int, int]:
+def unpack_pose(p: int) -> tuple[int, int, int, int]:
     cx = p & 0x3F
     cy = (p >> 6) & 0x3F
     sc = (p >> 12) & 0xFFFF
-    co = (p >> 28) & 0xFFFF
-    si = (p >> 44) & 0xFFFF
-    if co >= 0x8000: co -= 0x10000
-    if si >= 0x8000: si -= 0x10000
-    return cx, cy, sc, co, si
+    turns = (p >> 28) & 0x03
+    if p >> 30:
+        raise ValueError(f"pose reserved bits set: 0x{p:016x}")
+    return cx, cy, sc, turns
 
 
 # =============================================================================
@@ -86,13 +83,11 @@ def render_canvas(per_region_bytes: list[bytes],
 
     Per slot:
       - kind == EMPTY: skip
-      - kind in {ORIGINAL, INSERTED}: sample bytes through inverse-affine
-        bilinear given the slot's pose. Source extent is the slot's ACTUAL
-        (w, h) -- NOT the recolored buffer's max (max_w, max_h). The
-        recolored buffer carries OOB padding past (h, w) that was filled by
-        `nearest_in_palette(0,0,0)` during recolor; that padding must NOT
-        be painted onto the canvas (it'd show up as the darkest palette
-        colour bleeding past every landmark).
+      - kind in {ORIGINAL, INSERTED}: scale by nearest-neighbor, rotate by an
+        exact clockwise quarter-turn, and keep the scaled feature center fixed.
+        Source extent is the slot's ACTUAL (w, h) -- NOT the recolored buffer's
+        max (max_w, max_h). The recolored buffer carries OOB padding past
+        (h, w) that must NOT be painted onto the canvas.
 
     slot_dims_wh[i] = (w, h) of slot i's actual landmark bbox
                      (from boxes_packed for ORIGINAL slots; from the
@@ -110,7 +105,7 @@ def render_canvas(per_region_bytes: list[bytes],
         rb = per_region_bytes[slot]
         if rb is None or len(rb) == 0:
             continue
-        cx, cy, sc_q88, co_q15, si_q15 = unpack_pose(poses[slot])
+        cx, cy, sc_q88, turns = unpack_pose(poses[slot])
         if slot < 8:
             max_w, max_h = REGION_W[slot], REGION_H[slot]
         else:
@@ -128,69 +123,30 @@ def render_canvas(per_region_bytes: list[bytes],
         arr_full = np.frombuffer(rb[: max_w * max_h * 3], dtype=np.uint8).reshape(max_h, max_w, 3)
         arr = arr_full[:h, :w]
 
-        scale_inv = 256.0 / float(sc_q88)
-        cos_f = co_q15 / 32767.0
-        sin_f = si_q15 / 32767.0
-        inv_R = np.array([[cos_f,  sin_f],
-                          [-sin_f, cos_f]], dtype=np.float64) * scale_inv
+        if sc_q88 == 0:
+            continue
+        out_h_unrot = max(1, (h * sc_q88 + 255) >> 8)
+        out_w_unrot = max(1, (w * sc_q88 + 255) >> 8)
+        ys = np.minimum((np.arange(out_h_unrot, dtype=np.int64) * 256) // sc_q88, h - 1)
+        xs = np.minimum((np.arange(out_w_unrot, dtype=np.int64) * 256) // sc_q88, w - 1)
+        scaled = arr[ys[:, None], xs[None, :]]
+        rotated = np.rot90(scaled, k=-(turns & 3))
+        out_h, out_w = rotated.shape[:2]
 
-        # Conservative bbox of the rotated/scaled rect on canvas, sized by
-        # the ACTUAL (w, h), not (max_w, max_h).
-        s_fwd = float(sc_q88) / 256.0
-        ac = abs(cos_f) * s_fwd
-        as_ = abs(sin_f) * s_fwd
-        half_h = 0.5 * (ac * h + as_ * w)
-        half_w = 0.5 * (as_ * h + ac * w)
-        ccy = cy + h / 2.0
-        ccx = cx + w / 2.0
-        y0 = int(np.clip(np.floor(ccy - half_h), 0, 48))
-        y1 = int(np.clip(np.ceil(ccy + half_h),  0, 48))
-        x0 = int(np.clip(np.floor(ccx - half_w), 0, 48))
-        x1 = int(np.clip(np.ceil(ccx + half_w),  0, 48))
-        if y1 <= y0 or x1 <= x0:
+        x0 = (2 * cx + out_w_unrot - out_w) // 2
+        y0 = (2 * cy + out_h_unrot - out_h) // 2
+        x1 = x0 + out_w
+        y1 = y0 + out_h
+
+        dst_x0 = max(0, x0); dst_y0 = max(0, y0)
+        dst_x1 = min(48, x1); dst_y1 = min(48, y1)
+        if dst_x1 <= dst_x0 or dst_y1 <= dst_y0:
             continue
 
-        ys = np.arange(y0, y1)
-        xs = np.arange(x0, x1)
-        DY, DX = np.meshgrid(ys, xs, indexing="ij")
-        dy_ = DY.astype(np.float64) - cy - h / 2.0
-        dx_ = DX.astype(np.float64) - cx - w / 2.0
-        src_y = inv_R[0, 0] * dy_ + inv_R[0, 1] * dx_ + h / 2.0
-        src_x = inv_R[1, 0] * dy_ + inv_R[1, 1] * dx_ + w / 2.0
-
-        # Valid mask uses the ACTUAL (h, w) extent of the landmark, not
-        # the (max_h, max_w) of the recolored buffer.
-        valid = (src_y >= 0.0) & (src_y <= h - 1) & \
-                (src_x >= 0.0) & (src_x <= w - 1)
-        if not np.any(valid):
-            continue
-
-        sy0 = np.floor(src_y).astype(np.int64)
-        sx0 = np.floor(src_x).astype(np.int64)
-        sy1 = sy0 + 1
-        sx1 = sx0 + 1
-        # Clip ALL four bilinear neighbours to the actual (h, w) extent.
-        # Out-of-range samples are masked out by `valid` before painting.
-        sy0c = np.clip(sy0, 0, h - 1)
-        sx0c = np.clip(sx0, 0, w - 1)
-        sy1c = np.clip(sy1, 0, h - 1)
-        sx1c = np.clip(sx1, 0, w - 1)
-        fy = src_y - sy0
-        fx = src_x - sx0
-
-        arr_f = arr.astype(np.float32)
-        a = arr_f[sy0c, sx0c]
-        b = arr_f[sy0c, sx1c]
-        c_ = arr_f[sy1c, sx0c]
-        d = arr_f[sy1c, sx1c]
-        wfy = fy[:, :, None]; wfx = fx[:, :, None]
-        out = ((1 - wfy) * (1 - wfx) * a
-             + (1 - wfy) *      wfx  * b
-             +      wfy  * (1 - wfx) * c_
-             +      wfy  *      wfx  * d)
-        out = np.round(out).clip(0, 255).astype(np.uint8)
-        DY_v = DY[valid]; DX_v = DX[valid]
-        canvas[DY_v, DX_v] = out[valid]
+        src_x0 = dst_x0 - x0; src_y0 = dst_y0 - y0
+        src_x1 = src_x0 + (dst_x1 - dst_x0)
+        src_y1 = src_y0 + (dst_y1 - dst_y0)
+        canvas[dst_y0:dst_y1, dst_x0:dst_x1] = rotated[src_y0:src_y1, src_x0:src_x1]
 
     return canvas
 
@@ -200,22 +156,21 @@ def render_canvas(per_region_bytes: list[bytes],
 # =============================================================================
 
 # 10 turn programme. Each entry is one of:
-#   ("mutate", slot_idx, (cx, cy, scale_q88, cos_q15, sin_q15), label)
-#   ("insert", dst_slot, src_slot, (cx, cy, scale_q88, cos_q15, sin_q15), label)
+#   ("mutate", slot_idx, (cx, cy, scale_q88, quarter_turns), label)
+#   ("insert", dst_slot, src_slot, (cx, cy, scale_q88, quarter_turns), label)
 #                                ^ src slot's bytes get bound into dst (visual demo;
 #                                  on chain this would be a FeatureNFT id)
-# Cos/sin in Q15: 32767 = 1.0; for 30 deg rotation use cos~28377, sin~16383.
 PROGRAMME = [
-    ("mutate", 1, (15,  19, 256,  32767,      0), "eye L\n+3 right"),
-    ("mutate", 2, (22,  19, 256,  32767,      0), "eye R\n-3 left"),
-    ("mutate", 3, ( 5,  10, 384,  32767,      0), "nose\n1.5x scale"),
-    ("insert", 8, 1, (32, 5, 256, 32767,      0), "+ extra eye\n@(32,5)"),
-    ("insert", 9, 6, (10, 38, 256, 32767,     0), "+ extra mouth\n@(10,38)"),
-    ("mutate", 6, (15, 33, 256,  28377,  16383), "mouth\nrotate 30°"),
-    ("mutate", 0, ( 0,  4, 256,  32767,      0), "forehead\nup 4"),
-    ("insert",10, 4, ( 0,  0, 256, 32767,    0), "+ cheek L\n@(0,0)"),
-    ("mutate", 8, (28,  9, 192,  28377, -16383), "extra eye\n0.75x rot -30°"),
-    ("mutate", 7, (13, 35, 256,  32767,      0), "chin\nup 4"),
+    ("mutate", 1, (15,  19, 256, 1), "eye L\n+3 right +90°"),
+    ("mutate", 2, (22,  19, 256, 2), "eye R\n-3 left +180°"),
+    ("mutate", 3, ( 5,  10, 384, 3), "nose\n1.5x +270°"),
+    ("insert", 8, 1, (32, 5, 256, 1), "+ extra eye\n@(32,5) +90°"),
+    ("insert", 9, 6, (10, 38, 256, 2), "+ extra mouth\n@(10,38) +180°"),
+    ("mutate", 6, (15, 33, 256, 1), "mouth\nrotate 90°"),
+    ("mutate", 0, ( 0,  4, 256, 2), "forehead\nup 4 +180°"),
+    ("insert",10, 4, ( 0,  0, 256, 3), "+ cheek L\n@(0,0) +270°"),
+    ("mutate", 8, (28,  9, 192, 3), "extra eye\n0.75x rot 270°"),
+    ("mutate", 7, (13, 35, 256, 1), "chin\nup 4 +90°"),
 ]
 
 assert len(PROGRAMME) == 10
@@ -312,7 +267,7 @@ def main() -> int:
             assert kinds[slot] != SLOT_KIND_EMPTY, (
                 f"can't mutate slot {slot}: still EMPTY"
             )
-            poses[slot] = pack_pose(cx, cy, sc, co, si)
+            poses[slot] = pack_pose(cx, cy, sc, co)
         elif op[0] == "insert":
             _, dst, src, (cx, cy, sc, co, si), label = op
             assert kinds[dst] == SLOT_KIND_EMPTY, (
@@ -332,7 +287,7 @@ def main() -> int:
             # The inserted slot inherits the source slot's actual (w, h)
             # since the demo reuses the source bytes verbatim.
             slot_dims_wh[dst] = slot_dims_wh[src]
-            poses[dst] = pack_pose(cx, cy, sc, co, si)
+            poses[dst] = pack_pose(cx, cy, sc, co)
         else:
             raise ValueError(f"unknown op: {op}")
 

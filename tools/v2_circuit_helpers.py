@@ -125,21 +125,31 @@ def keystream_39(k: int) -> list[int]:
 # Pose is a 64-bit value laid out in plaintext byte 0..7 LSB-first:
 #   bits 0..5    x  (uint6)
 #   bits 6..11   y  (uint6)
-#   bits 12..27  scaleQ88  (uint16; 256 = 1.0)
-#   bits 28..43  cosQ15    (signed 16-bit)
-#   bits 44..59  sinQ15    (signed 16-bit)
-#   bits 60..63  free
+#   bits 12..27  scaleQ88      (uint16; 256 = 1.0)
+#   bits 28..29  quarterTurns  (uint2; clockwise 90-degree turns)
+#   bits 30..63  reserved      (must be zero)
 #
-# v2 uses a conservative axis-aligned containment check; for v2 fixtures we
-# pin pose to identity (no rotation, no scale change) and rely on (w, h) +
-# (x, y) for the canvas-containment proof.
-
-def pack_pose(x: int, y: int, scale_q88: int = 256, cos_q15: int = 32767, sin_q15: int = 0) -> int:
+# Rotation is intentionally discrete. Quarter-turns are exact pixel
+# permutations; renderers keep the scaled feature center fixed when 90/270
+# swap width and height.
+def pack_pose(x: int, y: int, scale_q88: int = 256, quarter_turns: int = 0) -> int:
     if not (0 <= x < 64 and 0 <= y < 64):
         raise ValueError(f"pose x/y out of range: ({x}, {y})")
+    if not (0 <= quarter_turns < 4):
+        raise ValueError(f"quarter_turns out of range: {quarter_turns}")
     pose = (x & 0x3F) | ((y & 0x3F) << 6) | ((scale_q88 & 0xFFFF) << 12)
-    pose |= ((cos_q15 & 0xFFFF) << 28) | ((sin_q15 & 0xFFFF) << 44)
+    pose |= (quarter_turns & 0x03) << 28
     return pose & 0xFFFFFFFFFFFFFFFF
+
+def decode_pose(pose: int) -> tuple[int, int, int, int]:
+    """Inverse of pack_pose for the protocol's uint64 pose encoding."""
+    if pose >> 30:
+        raise ValueError(f"pose reserved bits set: 0x{pose:016x}")
+    x = pose & 0x3F
+    y = (pose >> 6) & 0x3F
+    scale_q88 = (pose >> 12) & 0xFFFF
+    quarter_turns = (pose >> 28) & 0x03
+    return x, y, scale_q88, quarter_turns
 
 
 # ---- plaintext encode/decode ----
@@ -200,6 +210,21 @@ def decode_plaintext_v2(fields: list[int]) -> tuple[int, int, int, list[int]]:
         else:
             indices.append(b & 0xF)
     return pose, w, h, indices
+
+
+def encode_pose_only_mutation(fields: list[int], mutation_kind: int = 0) -> tuple[list[int], int, int, int]:
+    """Return plaintext changed by exactly one pose class, preserving payload bytes."""
+    pose, w, h, indices = decode_plaintext_v2(fields)
+    x, y, scale_q88, quarter_turns = decode_pose(pose)
+    kind = mutation_kind % 3
+    if kind == 0:
+        new_pose = pack_pose(x, y, 384 if scale_q88 != 384 else 256, quarter_turns)
+    elif kind == 1:
+        new_pose = pack_pose(x, y, scale_q88, (quarter_turns + 1) % 4)
+    else:
+        new_x = (x + 1) if x < CANVAS_W - 1 else x - 1
+        new_pose = pack_pose(new_x, y, scale_q88, quarter_turns)
+    return encode_plaintext_v2(new_pose, w, h, indices), new_pose, w, h
 
 
 # ---- liveStateHash, chainTip ----

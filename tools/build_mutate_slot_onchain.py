@@ -98,10 +98,10 @@ sys.path.insert(0, str(REPO))
 from eth_utils import keccak  # type: ignore
 from secret_inbox import G, GRUMPKIN_ORDER, ec_mul  # noqa: E402
 from v2_circuit_helpers import (  # noqa: E402
-    P, PLAINTEXT_FIELDS, CANVAS_W, CANVAS_H,
+    P, PLAINTEXT_FIELDS,
     sponge_39, sponge_6, keystream_39,
     poseidon2_hash_2,
-    encode_plaintext_v2, pack_pose,
+    encode_plaintext_v2, pack_pose, encode_pose_only_mutation,
     ecies_encrypt_v2, ecies_decrypt_v2,
     chain_step, mint_chain_step, live_state_hash,
     fhex, bx32,
@@ -236,11 +236,9 @@ def build_mutate_witness(seed: bytes, mint_state: dict) -> dict:
     slot_idx = mint_state["slot_idx"]
     owner_pk = (mint_state["owner_pk_x"], mint_state["owner_pk_y"])
 
-    # New plaintext: distinct pose/dims so the mutation is observable.
-    new_pose = pack_pose(x=10, y=18)
-    new_w, new_h = 14, 12  # under 48x48 canvas
-    new_indices = [(j * 11 + slot_idx + 5) & 0xF for j in range(new_w * new_h)]
-    new_plaintext = encode_plaintext_v2(new_pose, new_w, new_h, new_indices)
+    # New plaintext: pose-only, exactly one class (translation) so dimensions
+    # and packed palette indices remain byte-identical to the mint state.
+    new_plaintext, new_pose, new_w, new_h = encode_pose_only_mutation(mint_state["plaintext"], 2)
     assert len(new_plaintext) == PLAINTEXT_FIELDS
 
     new_r = deterministic_int_mutate(seed, f"new_r_{slot_idx}".encode(),
