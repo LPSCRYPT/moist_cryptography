@@ -131,17 +131,16 @@ several findings not visible to Slither. Two rounds of remediation
 
 ## Known limitations
 
-1. **KeyRegistry accepts the `(0,0)` sentinel at registration.**
-   `(0,0)` is documented as "unregistered", but `register` does not
-   reject it, so an account can emit a `Registered` event while
-   `isRegistered` still returns false.
-
-2. **Bridge round-trip via OP messenger has 7-day L2->L1 finality**
+1. **Bridge round-trip via OP messenger has 7-day L2->L1 finality**
    (OP withdrawal challenge period). Fast bridges with external trust
    are not implemented.
 
-3. **No external audit.** Forge surface is 202/202 with real proofs
-   and no mocks. A third-party audit has not been commissioned.
+2. **No external audit.** Forge surface is covered by real proofs and no
+   mocks, but a third-party audit has not been commissioned.
+
+3. **Some max-occupancy proof paths are high-gas.** Stress tests cover
+   these paths, but worst-case occupancy remains above common live-chain
+   comfort targets and should be treated as an operational constraint.
 
 Closed by audit remediation pass 1 (pipeline #5):
 - H-03 z-index Field canonicality (cast-and-range guard added in-circuit).

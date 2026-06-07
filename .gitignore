@@ -43,6 +43,7 @@ STAGING_REFACTOR/
 
 # Local-only omp coding-agent project tooling (extensions, dry-run logs)
 .omp/
+.vercel/
 
 # Helper Prover.toml files are transient dispatch buffers, rewritten on each
 # poseidon2_state / keystream call. Track only `*.example` files for these.
