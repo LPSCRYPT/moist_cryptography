@@ -5,9 +5,9 @@ import {Script, console, stdJson} from "forge-std/Script.sol";
 import {ShadowToken} from "../src/ShadowToken.sol";
 import {KeyRegistry} from "../src/KeyRegistry.sol";
 
-/// Broadcast a single `transferShadow` against the live Base Sepolia
-/// deployment, using a fixture produced by
-/// `tools/build_transfer_onchain.py`.
+/// Obsolete: `ShadowToken.transferShadow` is disabled for bounded shadows.
+/// Shadow NFTs are transferable only when every manifest slot is EMPTY, using
+/// normal ERC-721 `transferFrom` / `safeTransferFrom`.
 ///
 /// Witness binding (verified by the contract via `_verifyTransferProof`):
 ///   - PI[0]   shadow_id            = host shadow B
@@ -59,6 +59,7 @@ contract TransferOnSepolia is Script {
     }
 
     function run() external {
+        revert("transferShadow disabled; use ERC721 transfer only for featureless shadows");
         address stAddr = vm.envAddress("ST_ADDRESS");
         address krAddr = vm.envAddress("KR_ADDRESS");
         Loaded memory L = _loadFixture(vm.envString("FIX"));

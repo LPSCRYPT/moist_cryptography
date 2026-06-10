@@ -117,9 +117,9 @@ contract TestableShadowToken is ShadowToken {
         _mint(to, shadowId);
     }
 
-    /// Synthetic mint with N occupied slots seeded at once. Useful for
-    /// transferShadow real-proof tests that require multiple slots populated.
-    /// Slots not in `slotIdxs` remain EMPTY (default-zero).
+    /// Synthetic mint with N occupied slots seeded at once. Useful for tests
+    /// that require multiple bounded features populated. Slots not in `slotIdxs`
+    /// remain EMPTY (default-zero).
     function seedShadowMultiSlot(
         uint256 shadowId,
         address to,

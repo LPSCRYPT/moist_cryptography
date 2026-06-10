@@ -199,43 +199,24 @@ contract GasAttributionTest is Test {
         keyRegistry.register(recipientPkX, recipientPkY);
     }
 
-    function test_transfer_empty_mock_verifiers_baseline_gas() public {
+    function test_plain_transfer_featureless_shadow_gas() public {
         TestableShadowToken st = _deployToken(address(feature));
         st.seedShadowOnly(SHADOW_ID, alice, ownerPkX, ownerPkY);
 
-        ShadowToken.TransferShadowArgs memory args = _transferArgs(false);
-        uint256 used = _measureTransfer(st, args);
-        emit log_named_uint("transfer empty slots, mocked verifiers/features", used);
+        vm.prank(alice);
+        uint256 gasBefore = gasleft();
+        st.transferFrom(alice, bob, SHADOW_ID);
+        uint256 used = gasBefore - gasleft();
+        emit log_named_uint("plain transfer, featureless shadow", used);
     }
 
-    function test_transfer_16_noop_feature_mock_verifiers_gas() public {
+    function test_plain_transfer_16_occupied_reverts() public {
         TestableShadowToken st = _deployToken(address(feature));
         _seed16(st);
-        feature.setMode(AttributionFeatureNFT.Mode.Noop);
 
-        ShadowToken.TransferShadowArgs memory args = _transferArgs(true);
-        uint256 used = _measureTransfer(st, args);
-        emit log_named_uint("transfer 16 occ, noop feature, mocked verifiers", used);
-    }
-
-    function test_transfer_16_storage_feature_mock_verifiers_gas() public {
-        TestableShadowToken st = _deployToken(address(feature));
-        _seed16(st);
-        feature.setMode(AttributionFeatureNFT.Mode.StorageOnly);
-
-        ShadowToken.TransferShadowArgs memory args = _transferArgs(true);
-        uint256 used = _measureTransfer(st, args);
-        emit log_named_uint("transfer 16 occ, feature storage writes, mocked verifiers", used);
-    }
-
-    function test_transfer_16_storage_event_feature_mock_verifiers_gas() public {
-        TestableShadowToken st = _deployToken(address(feature));
-        _seed16(st);
-        feature.setMode(AttributionFeatureNFT.Mode.StorageAndEvents);
-
-        ShadowToken.TransferShadowArgs memory args = _transferArgs(true);
-        uint256 used = _measureTransfer(st, args);
-        emit log_named_uint("transfer 16 occ, feature storage+events, mocked verifiers", used);
+        vm.prank(alice);
+        vm.expectRevert(ShadowToken.TransferGated.selector);
+        st.transferFrom(alice, bob, SHADOW_ID);
     }
 
     function test_incrementalReveal_16_occ_mock_verifier_gas() public {
@@ -295,25 +276,6 @@ contract GasAttributionTest is Test {
         digest = abi.decode(ret, (bytes32));
     }
 
-    function _transferArgs(bool occupied) internal view returns (ShadowToken.TransferShadowArgs memory args) {
-        args.shadowId = SHADOW_ID;
-        args.to = bob;
-        args.proof = hex"01";
-        args.proofT10 = hex"02";
-        args.c2s = new bytes[](N);
-        args.newT10[0] = bytes32(uint256(7001));
-        args.newT10[1] = bytes32(uint256(7002));
-        if (!occupied) return args;
-
-        bytes32 ct = _zeroDigest();
-        for (uint256 i = 0; i < N; i++) {
-            args.newLiveStateHashes[i] = bytes32(uint256(8000 + i));
-            args.newChainTips[i] = bytes32(uint256(9000 + i));
-            args.newCtCommits[i] = ct;
-            args.newMutationCounts[i] = 1;
-            args.c2s[i] = _zeroPlaintext();
-        }
-    }
 
     function _revealArgs(uint8 slotIdx) internal pure returns (ShadowToken.RevealSlotArgs memory args) {
         args.slotIdx = slotIdx;
@@ -325,15 +287,6 @@ contract GasAttributionTest is Test {
         args.proofT10 = hex"04";
     }
 
-    function _measureTransfer(TestableShadowToken st, ShadowToken.TransferShadowArgs memory args)
-        internal
-        returns (uint256 used)
-    {
-        vm.prank(alice);
-        uint256 gasBefore = gasleft();
-        st.transferShadow(args);
-        used = gasBefore - gasleft();
-    }
 
     function _measureIncrementalReveal(TestableShadowToken st) internal returns (uint256 used) {
         vm.startPrank(alice);

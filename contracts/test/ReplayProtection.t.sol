@@ -369,27 +369,17 @@ contract ReplayTransferShadowTest is Test {
         args.proofT10 = _proofT10;
     }
 
-    /// First transfer rotates owner alice -> bob. Replay attempt by alice
-    /// is rejected at the NotShadowOwner guard before any proof work.
-    function test_replay_transferShadow_reverts_NotShadowOwner_after_rotation() public {
+    /// transferShadow is disabled for bounded shadows; replay is impossible
+    /// because the first attempt never rotates ownership or ciphertext state.
+    function test_replay_transferShadow_reverts_TransferGated_without_state_change() public {
         vm.prank(alice);
+        vm.expectRevert(ShadowToken.TransferGated.selector);
         st.transferShadow(args);
 
-        vm.prank(alice);
-        vm.expectRevert(ShadowToken.NotShadowOwner.selector);
-        st.transferShadow(args);
-    }
+        assertEq(st.ownerOf(_shadowId), alice, "owner unchanged");
 
-    /// Even if bob (current owner) tries to replay alice's proof, the
-    /// proof's prev_owner_pk PI fields claim alice was the prev owner --
-    /// but on-chain ecdhPub now holds bob's pk. The chain-built PI mismatches
-    /// the proof, verifier rejects.
-    function test_replay_transferShadow_reverts_when_bob_replays_alices_proof() public {
         vm.prank(alice);
-        st.transferShadow(args);
-
-        vm.prank(bob);
-        vm.expectRevert(ShadowToken.InvalidProof.selector);
+        vm.expectRevert(ShadowToken.TransferGated.selector);
         st.transferShadow(args);
     }
 

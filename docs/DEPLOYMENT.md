@@ -9,12 +9,13 @@ reveal-at-solve lifecycle, but it is no longer the current branch architecture.
 
 ## Latest ciphertext-envelope cutover deployment (2026-06-08)
 
-This deployment reflects the current contract code after the proof-bound ciphertext
-envelope cutover. Mint, `mutateSlot`, and `mutateBatch` were rerun on live Base
-Sepolia with real proofs. `transferShadow` was attempted with a real generated
-fixture and fresh registered recipient, but the network rejected the transaction
-as `gas limit too high` at an estimated 22,376,806 gas; it remains a live-chain
-blocker for the current surface.
+This deployment reflects the proof-bound ciphertext envelope cutover before the
+non-transferable Shadow NFT policy. Mint, `mutateSlot`, and `mutateBatch` were
+rerun on live Base Sepolia with real proofs. `transferShadow` was attempted with
+a real generated fixture and fresh registered recipient, but the network rejected
+the transaction as `gas limit too high` at an estimated 22,376,806 gas. The
+current source now disables `transferShadow`; bounded Shadow NFTs are not
+transferable, and only featureless shadows may use normal ERC-721 transfer.
 
 Latest verified Base Sepolia addresses:
 
@@ -46,7 +47,7 @@ Observed live flow summary:
 | submit ciphertext + finalize | `0xc97b2c28af4092503da8328a631766e1600cdef4a416c0965bf510227caae834` | 7,327,886 |
 | `mutateSlot` slot 0 | `0xa0d04486c62c10b23d2d1e443578e7f98b026c4836c15049b6d29ac43276cbbf` | 7,908,520 |
 | `mutateBatch` slots 1,2 | `0xa00a076eb7503332537bfc41d87e2b1634cc12a11f1b06fe4e0c4729f0962c36` | 12,361,711 |
-| `transferShadow` 8 occupied slots | rejected before inclusion: gas limit too high | 22,376,806 estimated |
+| `transferShadow` 8 occupied slots | rejected before inclusion; current source disables this path | 22,376,806 estimated |
 
 Full report: [`LIVE_SEPOLIA_TEST_REPORT.md`](LIVE_SEPOLIA_TEST_REPORT.md).
 

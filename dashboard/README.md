@@ -37,7 +37,7 @@ Current contract support after the c1 data-availability cutover:
 | phased mint ciphertext submissions | yes | yes, `ShadowSlotEnvelope` at finalization | yes |
 | `mutateSlot` / `mutateBatch` | yes | yes, `ShadowSlotEnvelope` | yes |
 | `insertFeature` | yes | yes, `ShadowSlotEnvelope` | yes |
-| `transferShadow` | yes | yes, `ShadowSlotEnvelope` | yes |
+| `transferShadow` | n/a | n/a | disabled for bounded shadows |
 | `transferFeature` | yes | yes, `FeatureTransferred.newC1X/newC1Y` | yes |
 | incremental reveal | plaintext public | not needed | public |
 

@@ -33,7 +33,7 @@ import {PausableMixin} from "./PausableMixin.sol";
  *           - mutateBatch            N hidden slots in one tx, atomic T10 at end
  *           - extractSlot            OCCUPIED -> EMPTY, no proof, atomic T10
  *           - insertFeature          EMPTY -> OCCUPIED, proof-bound, atomic T10
- *           - transferShadow         rotates hidden slots' encryption + inserted ownership
+ *           - transferShadow         disabled; bounded shadows are non-transferable
  *           - setZIndexCommit        hidden-slot z-order commit, atomic T10
  *           - revealSlots           OCCUPIED -> REVEALED, proof-bound, atomic T10
  *           - bridgeShadow           cross-domain hand-off (unchanged from v1 plan)
@@ -895,9 +895,9 @@ contract ShadowToken is ERC721, PausableMixin {
 
     // ============== transferShadow ==============
 
-    /// Single proof rotates all hidden slots' encryption to a new owner.
-    /// Inserted OCCUPIED carriers' ERC-721 ownership is also rotated atomically
-    /// (the carriers travel with the shadow per single-host invariant).
+    /// Disabled for bounded shadows: ownership cannot move while any slot is
+    /// OCCUPIED or REVEALED. Kept as a reverting entry point so stale callers
+    /// fail explicitly instead of silently bypassing the new non-transferable rule.
     /// Calldata struct for transferShadow. All 16 per-slot arrays are
     /// fixed-size to make the contract's hash-root reconstruction
     /// (sponge_16 over each) deterministic and EIP-170-cheap.
@@ -918,27 +918,7 @@ contract ShadowToken is ERC721, PausableMixin {
 
     function transferShadow(TransferShadowArgs calldata args) external whenNotPaused {
         if (_ownerOf(args.shadowId) != msg.sender) revert NotShadowOwner();
-        Shadow storage s = _shadows[args.shadowId];
-        if (s.solved) revert AlreadySolved();
-        if (address(featureNFT) == address(0)) revert FeatureNFTNotSet();
-        if (address(keyRegistry) == address(0)) revert VerifierNotSet();
-        if (yulSponge16 == address(0)) revert VerifierNotSet();
-        if (args.c2s.length != N_SLOTS) revert BadArrayLen(args.c2s.length, N_SLOTS);
-
-        // ---- 1. recipient pubkey from KeyRegistry ----
-        (bytes32 recipientPkX, bytes32 recipientPkY) = keyRegistry.pkOf(args.to);
-
-        // ---- 2. verify transfer proof (separate fn to dodge stack-too-deep) ----
-        _verifyTransferProof(args, recipientPkX, recipientPkY);
-
-        // ---- 3. apply state changes (separate fn) ----
-        _applyTransferState(args, recipientPkX, recipientPkY);
-
-        // ---- 4. atomic T10 refresh against post-rotation manifest ----
-        _refreshT10Atomically(args.shadowId, args.newT10, args.proofT10);
-
-        // ---- 5. emit aggregate transfer event ----
-        emit ShadowTransferred(args.shadowId, args.to, recipientPkX, recipientPkY);
+        revert TransferGated();
     }
 
     /// Verify the transfer_shadow_v2 proof. Reconstructs PI from chain
@@ -1226,6 +1206,14 @@ contract ShadowToken is ERC721, PausableMixin {
         }
         return false;
     }
+
+    function _hasBoundFeature(uint256 shadowId) internal view returns (bool) {
+        ManifestEntry[16] storage manifest = _manifests[shadowId];
+        for (uint8 i = 0; i < N_SLOTS; i++) {
+            if (manifest[i].kind != SlotKind.EMPTY) return true;
+        }
+        return false;
+    }
     // ============== view accessors ==============
 
     function shadowHeaderOf(uint256 shadowId) external view returns (
@@ -1251,19 +1239,18 @@ contract ShadowToken is ERC721, PausableMixin {
 
     // ============== ERC-721 transfer lockdown ==============
     //
-    // Pre-full-reveal: plain transferFrom is gated. The proof-bound
-    // `transferShadow` path rotates encryption for hidden slots and carrier
-    // ownership for all inserted non-empty slots.
-    //
-    // Fully revealed: plain transferFrom is allowed because no hidden
-    // ciphertext remains to rotate.
+    // Shadow NFTs are transferable only while they have no bound features.
+    // Any OCCUPIED hidden slot or REVEALED public slot permanently binds a
+    // feature to the Shadow NFT and makes the Shadow NFT non-transferable.
+    // Feature movement must happen by extracting standalone features first;
+    // once the shadow manifest is empty, normal ERC-721 transfer is allowed.
     function transferFrom(address from, address to, uint256 tokenId) public override {
-        if (!_shadows[tokenId].solved) revert TransferGated();
+        if (_hasBoundFeature(tokenId)) revert TransferGated();
         super.transferFrom(from, to, tokenId);
     }
 
     function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) public override {
-        if (!_shadows[tokenId].solved) revert TransferGated();
+        if (_hasBoundFeature(tokenId)) revert TransferGated();
         super.safeTransferFrom(from, to, tokenId, data);
     }
 

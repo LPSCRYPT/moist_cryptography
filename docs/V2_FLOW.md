@@ -43,7 +43,7 @@ graph TB
 
     A --> IMG --> PROVER
     PROVER -->|proofs + PI| ST
-    A -->|mintShadow / mutateSlot /<br/>mutateBatch / extractSlot /<br/>insertFeature / setZIndexCommit /<br/>transferShadow / solve| ST
+    A -->|mintShadow / mutateSlot /<br/>mutateBatch / extractSlot /<br/>insertFeature / setZIndexCommit / solve| ST
     B -->|kr.register| KR
     A -->|kr.register| KR
     ST --> V_DISC & V_MINT & V_MUT & V_T10 & V_Z & V_TR & V_SOL
@@ -52,7 +52,7 @@ graph TB
     ST -->|read owner pk| KR
     A -->|approve + bridgeShadow<br/>post-solve| BL
     BL -->|sendMessage| L1
-    ST -.->|ShadowMinted /<br/>ShadowSlotMutated /<br/>ShadowT10Updated /<br/>ShadowTransferred /<br/>ShadowSolved /<br/>SlotExtracted| I
+    ST -.->|ShadowMinted /<br/>ShadowSlotMutated /<br/>ShadowT10Updated /<br/>ShadowSolved /<br/>SlotExtracted| I
     FN -.->|FeatureMinted /<br/>FeatureExtracted /<br/>FeatureInserted| I
 
     classDef actor fill:#fff3cd,stroke:#856404
@@ -135,7 +135,7 @@ stateDiagram-v2
     [*] --> EMPTY: fresh slot<br/>(slots 8..15 at mint)
     [*] --> OCCUPIED: mintShadow<br/>(slots 0..7 with origins)
     EMPTY --> OCCUPIED: insertFeature<br/>(carrier reuses mutate_slot proof)
-    OCCUPIED --> OCCUPIED: mutateSlot<br/>mutateBatch<br/>transferShadow (LSH advances)
+    OCCUPIED --> OCCUPIED: mutateSlot<br/>mutateBatch
     OCCUPIED --> EMPTY: extractSlot
     OCCUPIED --> Frozen: solve (auto-extract)
     EMPTY --> Frozen: solve
@@ -156,7 +156,7 @@ stateDiagram-v2
     Inserted --> Held: extractSlot<br/>solve (auto-extract)
     Held --> Inserted: insertFeature<br/>(host shadow + slot recorded)
     Held --> Held: ERC-721 transferFrom<br/>(standalone, post-extract)
-    Inserted --> Inserted: transferShadow<br/>(carrier ownership rotates with host)
+    Inserted --> Inserted: non-transferable<br/>(bound to host shadow)
 
     note right of Inserted
         Standalone transferFrom REVERTS:
@@ -181,7 +181,7 @@ stateDiagram-v2
 flowchart TB
     subgraph TX["One transaction"]
         direction TB
-        OP[State-changing call<br/>mintShadow / mutateSlot / mutateBatch /<br/>extractSlot / insertFeature /<br/>setZIndexCommit / transferShadow]
+        OP[State-changing call<br/>mintShadow / mutateSlot / mutateBatch /<br/>extractSlot / insertFeature /<br/>setZIndexCommit]
         OP_PROOF[Op-specific proof<br/>+ args]
         T10_PROOF[shadow_t10 proof<br/>bound to POST-state manifest]
 
@@ -262,7 +262,7 @@ sequenceDiagram
   - `solve` -> `Shadow.solved` flag
   - `mutateSlot` / `mutateBatch` / `extractSlot` -> chain-state-bound
     (storage advances, replayed proof's PI mismatches)
-  - `transferShadow` -> `NotShadowOwner` after rotation
+  - `transferShadow` -> disabled with `TransferGated`; no state advances
   - `insertFeature` -> `FeatureAlreadyInserted` single-host guard
   - `setZIndexCommit` -> idempotent-by-design (proof binds only the
     new commit; T10 still passes if manifest unchanged)

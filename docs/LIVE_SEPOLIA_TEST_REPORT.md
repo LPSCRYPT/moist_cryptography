@@ -4,7 +4,7 @@ Last updated: 2026-06-08
 
 ## Deployment under test
 
-Base Sepolia deployment of the latest ciphertext-envelope cutover contracts:
+Base Sepolia deployment of the ciphertext-envelope cutover contracts. This deployment predates the source change that disables `transferShadow` for bounded shadows.
 
 | Contract | Address |
 |---|---|
@@ -103,7 +103,7 @@ Fixture: `contracts/test/fixtures/onchain_mutate_batch/live_latest_batch`.
 
 The fixture included the prior slot-0 mutation in its T10 manifest. The broadcast script checked both target slots' current `liveStateHash` values against the fixture before sending. The receipt succeeded and emitted the expected two mutation entries plus T10/envelope log surface.
 
-### `transferShadow` blocker found on latest contract surface
+### Historical `transferShadow` blocker before disablement
 
 A real transfer fixture was generated for the post-mint/post-mutation shadow and a fresh recipient was funded and registered in `KeyRegistry`.
 
@@ -129,7 +129,7 @@ Estimated total gas used for script: 22376806
 Error: Failed to send transaction after 4 attempts Err(server returned an error response: error code -32099: gas limit too high)
 ```
 
-No `transferShadow` live transaction was included. This is a current live-chain blocker for an 8 occupied-slot `transferShadow` after the envelope cutover: the proof/event payload now exceeds the public-RPC gas envelope. The generated fixture and simulation were real; the network rejected the gas limit before inclusion.
+No `transferShadow` live transaction was included. The generated fixture and simulation were real, but the network rejected the gas limit before inclusion. The current source resolves this by disabling full Shadow NFT transfer while any feature is bound; only featureless shadows may transfer via normal ERC-721 transfer.
 
 ## Current live coverage status
 
@@ -140,11 +140,11 @@ No `transferShadow` live transaction was included. This is a current live-chain 
 | chain-only mint ciphertext decryptability | passed via `verify_onchain_mint.py` (`c2` + emitted `ShadowSlotEnvelope` `c1`) |
 | `mutateSlot` real proof | passed |
 | `mutateBatch` real proofs | passed |
-| `transferShadow` real proof | blocked: estimated 22.38M gas, RPC rejected as gas limit too high |
+| `transferShadow` real proof | disabled in current source; prior live attempt rejected at 22.38M estimated gas |
 | `transferFeatureV2` | not rerun in this pass |
 | extract / insert | not rerun in this pass |
 | reveal / solve | not rerun in this pass |
 | bridge | not rerun in this pass |
 | browser dashboard live-load | dashboard defaults now point at this deployment; manual browser verification still outstanding |
 
-Do not claim full end-to-end live coverage until the `transferShadow` gas regression is fixed or the protocol gains a chunked transfer path, and the remaining feature-transfer/extract/insert/reveal/bridge paths are rerun against this deployment.
+Do not claim full end-to-end live coverage until the remaining feature-transfer/extract/insert/reveal/bridge paths are rerun against a deployment that includes the non-transferable Shadow NFT policy.

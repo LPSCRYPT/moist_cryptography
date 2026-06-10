@@ -162,7 +162,7 @@ Eight ORIGINAL slots, eight EMPTY slots. Operations transition the kind:
 | `extractSlot`  | ORIGINAL       | EMPTY (+new FeatureNFT) | yes | ~4.9M |
 | `insertFeature`| EMPTY          | INSERTED        | no | ~80k |
 | `removeFeature`| INSERTED       | EMPTY           | no | ~50k |
-| `transferShadow`| any           | same; owner rotates | yes | ~8.4M |
+| `transfer`    | all slots EMPTY | owner rotates | no | ~70k |
 | `solve`        | any            | `solved=true` (lock) | yes | ~4.4M |
 
 `mutateSlot` only updates `pose` — never `kind`, never `origPose`. So you
@@ -182,8 +182,8 @@ indexable. Anyone watching the chain sees:
 - Who owns the shadow
 - The full manifest layout (kind / pose / featureId of every slot)
 - Every state-changing event: `ShadowMinted`, `SlotMutated`, `SlotExtracted`,
-  `FeatureInserted`, `FeatureRemoved`, `ShadowTransferred`, `ShadowSolved`,
-  `ShadowT10Updated`
+  `FeatureInserted`, `FeatureRemoved`, `ShadowSolved`, `ShadowT10Updated`.
+  Shadow NFT transfer emits the standard ERC-721 `Transfer` only when no features are bound.
 - The c2 ciphertext bytes (emitted in `ShadowCiphertext` / `FeatureCiphertext`
   events; readable but not decryptable without the recipient's secret key)
 - The current public T10 silhouette (`shadowT10[shadowId]` storage — a 16x16

@@ -21,7 +21,7 @@ slot. All run under the Base Sepolia per-tx 16,777,216 gas cap.
 |--------------------|-------------------:|-----------------|
 | `face_disc`        | 1                  | `mintShadow` (gate) |
 | `landmark_regions` | 18                 | `mintShadow`    |
-| `transfer_shadow`  | 8                  | `transferShadow`|
+| `transfer_shadow`  | 11                 | verifier retained; `transferShadow` disabled |
 | `extract_slot`     | 10                 | `extractSlot`   |
 | `transfer_feature` | 8                  | `transferFeature`|
 | `solve_shadow`     | 262                | `solve`         |

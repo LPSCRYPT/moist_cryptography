@@ -37,7 +37,7 @@ The system rests on three primitives:
 | Per-tx | `pi[k] == liveStateHash[slot]` checks against current chain state | replay of stale proofs against an updated slot |
 | Per-shadow | `pi[shadowIdSlot] == shadowId` for all shadow-bound entries | use of one shadow's proof against a different shadow |
 | Per-chain | every `shadowId` derives from `imageCommit % FR_MOD` and the registered-image set is per-chain | cross-chain replay of the same proof |
-| Per-owner | `_ownerOf(shadowId) == msg.sender` for owner-gated entries (mutateSlot, mutateBatch, extractSlot, insertFeature, transferShadow, solve, bridgeShadow) | unauthorised callers |
+| Per-owner | `_ownerOf(shadowId) == msg.sender` for owner-gated entries (mutateSlot, mutateBatch, extractSlot, insertFeature, solve, bridgeShadow); `transferShadow` is disabled | unauthorised callers |
 | Per-batch | atomic-T10: every state-changing op refreshes `shadowT10` in the same tx via a bundled `shadow_t10` proof bound to the post-write LSH array | stale public view between mutation and T10 refresh |
 
 ## Envelope binding (post-cutover)
@@ -56,14 +56,13 @@ tx; a partial state advance is impossible.
 | `mutateSlot` | `c2` envelope | contract `sponge_39(c2) == newCtCommit` |
 | `mutateBatch` | per-entry `c2` | per-entry contract `sponge_39(e.c2) == e.newCtCommit` |
 | `insertFeature` | `c2` | contract `sponge_39(c2) == newCtCommit` |
-| `transferShadow` | per-slot `c2s[i]` | contract `sponge_39(c2s[i]) == newCtCommits[i]`; per-slot `sponge_16` over `newCtCommits` matches new PI[8] |
+| `transferShadow` | n/a | disabled; bounded Shadow NFTs are non-transferable |
 | `transferFeature` | `c2`, `newC1X`, `newC1Y` | contract `sponge_39(c2) == new_ct_commit_pi` (PI[8]) and exact `newC1X/newC1Y == PI[9]/PI[10]`; all fields canonical |
 | `solve` | per-occupied-slot `plaintexts[i]` | contract `sponge_39(plaintexts[i]) == stateCommits[i]` (proof PI[1]) |
 
-Empty slots (transferShadow, solve) require zero-length `c2`/`plaintexts`
-and zero-valued commitments; the circuit zeros the unoccupied entries
-(`new_ct_commits[i] = occupied * v`) and the chain-side sponge over those
-arrays catches any tampering.
+Empty slots in solve require zero-length plaintexts and zero-valued commitments;
+the circuit zeros unoccupied entries and the chain-side sponge over those arrays
+catches tampering.
 
 The salt envelope (`saltCt`, `c1.x`, `c1.y` in mint-side calldata)
 remains a wire-format sidecar emitted for the owner's benefit; it is
@@ -101,9 +100,9 @@ becomes the source of truth.
   `L2CrossDomainMessenger` predeploys are trusted to deliver messages
   honestly. Same trust model as every OP-Stack bridge.
 - **Off-chain decryption.** No oracle reveals plaintext before a
-  self-initiated `solve`. `transferShadow` and `transferFeature`
-  re-encrypt inside the proof, so the recipient's secret key is the
-  only key that can decrypt the rotated `c2`.
+  self-initiated `solve`. `transferFeature` re-encrypts inside the proof, so
+  the recipient's secret key is the only key that can decrypt the rotated `c2`.
+  Full Shadow NFT transfer is disabled while any feature is bound to the shadow.
 - **face_disc as a soft gate.** `registerImage` requires a `face_disc`
   proof over an image whose `image_commit` is then required by
   `beginMintShadow`. The mint circuit itself (`landmark_regions_v2`) does

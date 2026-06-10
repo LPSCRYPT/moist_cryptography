@@ -24,7 +24,7 @@ according to the current contract state.
       extractSlot    hidden feature → standalone FeatureNFT
       insertFeature  bind a held FeatureNFT into an EMPTY slot
       revealSlots    OCCUPIED → REVEALED, immutable public feature
-      transferShadow ECIES re-encryption to a new owner
+      transfer      only when the Shadow NFT has no bound features
       shadow_t10     bundled public 16x16 grayscale silhouette refresh
        bridgeShadow   L2 lock → L1 mirror via OP messenger, ~720k gas
 ```
@@ -72,7 +72,7 @@ shadow eventually mints a mirror NFT on L1.
   │   face_disc                  → registerImage gate                            │
   │   landmark_regions_v2        → ShadowMintController.beginMintShadow witness  │
   │   mutate_slot                → mutateSlot / mutateBatch / insertFeature      │
-  │   transfer_shadow            → transferShadow  (rotates hidden slots)        │
+  │   transfer_shadow            → verifier retained, contract entry disabled       │
   │   transfer_feature_v2        → transferFeature (held-carrier rotation)       │
   │   zindex_commit              → setZIndexCommit                               │
   │   reveal_slot                → revealSlots                                   │
@@ -99,7 +99,7 @@ shadow eventually mints a mirror NFT on L1.
   │   finalizeMintShadow  → ShadowT10Verifier + ShadowToken installation hook    │
   │                                                                              │
   │ Other entry points: mutateSlot, mutateBatch, extractSlot, insertFeature,     │
-  │ revealSlots, setZIndexCommit, transferShadow, transferFeature, bridgeShadow. │
+  │ revealSlots, setZIndexCommit, transferFeature, bridgeShadow.                 │
   ├──────────────────────────────────────────────────────────────────────────────┤
   │ FeatureNFT    0x414606aBa41297a4Dc71F2603453177885499f16   ERC721            │
   ├──────────────────────────────────────────────────────────────────────────────┤
@@ -152,7 +152,7 @@ shadow eventually mints a mirror NFT on L1.
   │ SlotExtracted(shadowId, slotIdx, featureId, finalLsh)                        │
   │ SlotInserted(shadowId, slotIdx, featureId, newLsh, newCount)                 │
   │ ZIndexCommitSet(shadowId, newCommit)                                         │
-  │ ShadowTransferred(shadowId, fromOwner, toOwner, newEcdhPub, newT10)          │
+  │ Shadow NFT transfer is gated unless every manifest slot is EMPTY.              │
   │ ShadowSolved(shadowId, owner, zIndexRevealed)                                │
   │ FeaturePaletteRevealed(featureId, paletteCommit, palette, salt)   × 8        │
   │ FeatureSlotRevealed   (featureId, shadowId, slotIdx, plaintext)   × 8        │
