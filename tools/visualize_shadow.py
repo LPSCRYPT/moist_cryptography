@@ -673,7 +673,7 @@ def cmd_history(args: argparse.Namespace) -> int:
             # crude parse for "chain hi:" and "chain lo:" lines we wrote earlier;
             # if absent, default to zeros.
             hi = lo = 0
-            # actually read the storage call output stored by anvil_t10_e2e
+            # read the storage-call output from the historical T10 harness format
             for line in txt.split("\n"):
                 if "chain hi" in line.lower() and "0x" in line:
                     hi = int(line.split("0x", 1)[1].strip()[:64], 16)

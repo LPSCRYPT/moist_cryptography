@@ -37,10 +37,10 @@ contract SetZIndexOnSepolia is Script {
         });
 
         ShadowToken st = ShadowToken(stAddr);
-        ShadowToken.Shadow memory s = st.shadowOf(args.shadowId);
-        if (s.zIndexCommit == args.newCommit) {
+        (,,, bytes32 currentZIndexCommit) = st.shadowHeaderOf(args.shadowId);
+        if (currentZIndexCommit == args.newCommit) {
             console.log("SKIP: zIndexCommit already equals fixture's newCommit");
-            console.logBytes32(s.zIndexCommit);
+            console.logBytes32(currentZIndexCommit);
             return;
         }
 

@@ -85,7 +85,9 @@ def main() -> int:
         "FeatureExtracted",
         "FeatureInserted",
         "FeatureInsertedOwnerRotated",
-        "FeaturePaletteSaltEnvelope"
+        "FeaturePaletteSaltEnvelope",
+        "FeaturePaletteRevealed",
+        "FeatureSlotRevealed"
     }
     missing_events = sorted(event_names - documented_events - intentionally_non_zk)
     if missing_events:

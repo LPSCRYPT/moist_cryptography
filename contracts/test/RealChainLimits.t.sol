@@ -5,10 +5,12 @@ import {Test} from "forge-std/Test.sol";
 
 import {Poseidon2YulSponge} from "../src/Poseidon2YulSponge.sol";
 import {Poseidon2YulSponge16} from "../src/Poseidon2YulSponge16.sol";
+import {Poseidon2YulHash2} from "../src/Poseidon2YulHash2.sol";
 import {KeyRegistry} from "../src/KeyRegistry.sol";
 import {ShadowToken} from "../src/ShadowToken.sol";
 import {FeatureNFT} from "../src/FeatureNFT.sol";
 import {MintShadowVerifier} from "../src/MintShadowVerifier.sol";
+import {ShadowMintController} from "../src/ShadowMintController.sol";
 import {FaceDiscVerifier} from "../src/FaceDiscVerifier.sol";
 import {MutateSlotVerifier} from "../src/MutateSlotVerifier.sol";
 import {T10ShadowVerifier} from "../src/T10ShadowVerifier.sol";
@@ -16,6 +18,7 @@ import {ZIndexCommitVerifier} from "../src/ZIndexCommitVerifier.sol";
 import {TransferShadowVerifier} from "../src/TransferShadowVerifier.sol";
 import {SolveShadowVerifier} from "../src/SolveShadowVerifier.sol";
 import {IShadowToken} from "../src/IShadowToken.sol";
+import {IVerifier} from "../src/IVerifier.sol";
 import {IFeatureNFT} from "../src/IFeatureNFT.sol";
 import {ShadowBridgeL2} from "../src/ShadowBridgeL2.sol";
 import {ShadowMirrorL1} from "../src/ShadowMirrorL1.sol";
@@ -111,6 +114,18 @@ contract RealChainLimitsTest is Test {
         ShadowToken st = new ShadowToken(address(sponge));
         FeatureNFT x = new FeatureNFT(address(st));
         _assertUnderEip170("FeatureNFT", address(x));
+    }
+
+    function test_eip170_ShadowMintController() public {
+        Poseidon2YulSponge sponge = new Poseidon2YulSponge();
+        Poseidon2YulSponge16 sponge16 = new Poseidon2YulSponge16();
+        ShadowToken st = new ShadowToken(address(sponge));
+        KeyRegistry kr = new KeyRegistry();
+        MintShadowVerifier verifier = new MintShadowVerifier();
+        ShadowMintController x = new ShadowMintController(
+            st, kr, IVerifier(address(verifier)), address(sponge), address(sponge16), address(new Poseidon2YulHash2())
+        );
+        _assertUnderEip170("ShadowMintController", address(x));
     }
 
     // ============== Honk verifiers ==============

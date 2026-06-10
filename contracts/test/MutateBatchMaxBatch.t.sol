@@ -69,8 +69,8 @@ contract MutateBatchMaxBatchTest is Test {
 
         vMut = new MutateSlotVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_MUTATE_SLOT(), IVerifier(address(vMut)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(2, IVerifier(address(vMut)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         kr = new KeyRegistry();
         st.setKeyRegistry(kr);

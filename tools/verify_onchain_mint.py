@@ -9,17 +9,18 @@ deploy + mint cycle.
 What this checks (each is a hard byte-equality assertion, not a
 heuristic):
 
-    1.  Contract wiring on chain (12 contracts cross-referenced).
+    1.  Contract wiring on chain using public authoritative getters.
     2.  Mint tx receipt: status, gasUsed, expected event count.
     3.  ImageRegistered event emitted with the right imageCommit.
     4.  ShadowMinted event emitted with the right (shadowId, minter,
         mintIdx, imageCommit).
     5.  ShadowT10Updated event emitted with (hi, lo) matching the
         fixture's bundled T10 PI.
-    6.  All 8 ShadowSlotMutated events emitted, in slot order.
-    7.  For each slot:
-          a.  on-chain c2 (event payload) byte-equals fixture c2.
-          b.  ECIES-decrypt the on-chain c2 with the deterministic
+    6.  All 8 ShadowSlotMutated finalization events emitted in slot order,
+        with empty c2 payloads by design.
+    7.  All 8 ShadowMintController.MintCiphertextSubmitted events emitted,
+        with c2 payloads byte-equal to the fixture ciphertexts.
+    8.  For each slot:
               owner_sk; recovered plaintext field-equals an
               independently-computed expected plaintext (from the
               deterministic seed-derived pose/w/h/indices).
@@ -36,11 +37,11 @@ heuristic):
           f.  originFaceId in the slot event derives correctly from
               fixture metadata (binds to imageCommit transitively
               through the proof's chain_tips_root).
-    8.  on-chain shadowT10[shadowId] matches the fixture's t10_hi/lo.
-    9.  shadowId derives byte-exactly from imageCommit % FR_MOD.
-   10.  all 8 decrypted plaintexts are distinct (no collisions).
-   11.  registerImage tx emitted ImageRegistered with the right
-        imageCommit.
+    9.  on-chain shadowT10[shadowId] matches the fixture's t10_hi/lo.
+   10.  shadowId derives byte-exactly from imageCommit % FR_MOD.
+   11.  all 8 decrypted plaintexts are distinct (no collisions).
+   12.  register/begin tx emitted ImageRegistered with the right imageCommit
+        when image registration was included in that batch.
 
 Anything that fails prints the full diagnostic. Exit code is non-zero
 on any failure, so this can be wired into CI.
@@ -50,19 +51,21 @@ Performance note: each Poseidon2 permutation shells out to `nargo`,
 ~16 perms (1 hash_2 + 1 keystream_39 per slot, where keystream_39 is
 batched into 1 helper call). Total ~10-15s for the decrypt phase.
 
-Usage (against pipeline #4 mintShadow):
-    python3 verify_onchain_mint.py \
-        --rpc https://base-sepolia.gateway.tenderly.co \
-        --st 0xe5089e09D7B8393fE37bC2e53E6a44CCD534Ef88 \
-        --fn 0x578eda36Dc4750c35c29E5F12a0789DaD35e2072 \
-        --kr 0x402DCD8f6C615f89D9C34fb6928F4D69e39b3Aa1 \
-        --poseidon39 0x36E5A53dd45eB318C3373486ABe854e80b7451CD \
-        --poseidon16 0x44c498f8B871B8F6ADbEfD28E25EE96748d8258a \
-        --mint-tx 0x4ff2056fe2b011dc0dc5a8d66fcc3ded5afd23a27d6b05c1f0e7986d3a86e255 \
-        --register-tx 0x9311e37cbb971723c689abd928abba07611afb9f524a310e92748cdde5386fa4 \
-        --deployer 0x1b43AFe43afC74bF9D0EBd764787eFD7CCcC2B6F \
-        --fixture contracts/test/fixtures/atomic_mint/palette_reveal_live \
-        --seed palette_reveal_live
+Usage (against the modular phased-mint stack):
+    python3 tools/verify_onchain_mint.py \
+        --rpc https://sepolia.base.org \
+        --st 0x73a2bb3411B1a5D6f9df5a06d3b4bFBA95970e3d \
+        --fn 0x6CfAD30a588a57946b306136D4094ca0c07f51aC \
+        --kr 0x8c00dD1B1AA71099C9055942F22dB63Dc4361F9D \
+        --mc 0x68f777E5B1b8E6b1099F3d8D6153a7C5c9d19A9b \
+        --poseidon39 0xbB664d9Ff720Dc8b381AdBc0422E4fe64c088E03 \
+        --poseidon16 0xD81E987464B3c40CFF033C01aeC99C7eB7956080 \
+        --register-tx 0xbe542296be09dbd9485a0241b4a8906fd32f39daf47e45d60ed37bf43853d238 \
+        --mint-tx 0x99fbc0da74aa89f4eb525320083d52c3272d4f8aeb464a17bbfc818d5f361d39 \
+        --submit-tx 0x769307da37b3a4196c0855ff45787304001185f9a3c2501805114725d944bab5 \
+        --submit-tx ... \
+        --fixture contracts/test/fixtures/atomic_mint/latest_testnet_incremental \
+        --seed latest_testnet_incremental
 """
 from __future__ import annotations
 
@@ -98,6 +101,8 @@ TOPIC_SLOT_MUTATED = keccak(
 ).hex()
 TOPIC_T10_UPDATED = keccak(
     text="ShadowT10Updated(uint256,bytes32,bytes32)").hex()
+TOPIC_MINT_CIPHERTEXT_SUBMITTED = keccak(
+    text="MintCiphertextSubmitted(uint256,uint8,bytes32,bytes)").hex()
 
 
 # ============== Reporting ==============
@@ -148,7 +153,7 @@ class Rpc:
             try:
                 req = urllib.request.Request(
                     self.url, data=body,
-                    headers={"Content-Type": "application/json"})
+                    headers={"Content-Type": "application/json", "User-Agent": "forge/cast"})
                 with urllib.request.urlopen(req, timeout=30) as r:
                     resp = json.loads(r.read())
                 if "error" in resp:
@@ -276,6 +281,20 @@ def parse_slot_mutated(log: dict) -> dict:
         "c2_bytes": c2_bytes,
     }
 
+def parse_mint_ciphertext_submitted(log: dict) -> dict:
+    topics = log["topics"]
+    assert topics[0].lower() == "0x" + TOPIC_MINT_CIPHERTEXT_SUBMITTED.lower()
+    data = bytes.fromhex(log["data"][2:])
+    c2_offset = int.from_bytes(data[0:32], "big")
+    c2_len = int.from_bytes(data[c2_offset:c2_offset + 32], "big")
+    c2_bytes = data[c2_offset + 32:c2_offset + 32 + c2_len]
+    return {
+        "shadow_id": int(topics[1], 16),
+        "slot_idx": int(topics[2], 16),
+        "ct_commit": bytes.fromhex(topics[3][2:]),
+        "c2_bytes": c2_bytes,
+    }
+
 
 def parse_t10_updated(log: dict) -> dict:
     data = bytes.fromhex(log["data"][2:])
@@ -336,9 +355,6 @@ def verify(args: argparse.Namespace) -> bool:
     # ---- 1. Wiring on chain ----
     rep.section("1. Contract wiring (read on chain)")
     (yulSponge,) = call_view(rpc, args.st, "yulSponge()", [], ["address"])
-    (yulSponge16,) = call_view(rpc, args.st, "yulSponge16()", [], ["address"])
-    (kr_addr,) = call_view(rpc, args.st, "keyRegistry()", [], ["address"])
-    (fn_addr,) = call_view(rpc, args.st, "featureNFT()", [], ["address"])
 
     def cmp_addr(name: str, got: str, want: str) -> None:
         if got.lower() == want.lower():
@@ -348,10 +364,13 @@ def verify(args: argparse.Namespace) -> bool:
 
     cmp_addr("ShadowToken.yulSponge -> Poseidon2YulSponge", yulSponge,
              args.poseidon39)
-    cmp_addr("ShadowToken.yulSponge16 -> Poseidon2YulSponge16",
-             yulSponge16, args.poseidon16)
-    cmp_addr("ShadowToken.keyRegistry -> KeyRegistry", kr_addr, args.kr)
-    cmp_addr("ShadowToken.featureNFT -> FeatureNFT", fn_addr, args.fn)
+    (mc_yul16,) = call_view(rpc, args.mc, "yulSponge16()", [], ["address"])
+    cmp_addr("ShadowMintController.yulSponge16 -> Poseidon2YulSponge16",
+             mc_yul16, args.poseidon16)
+
+    # KeyRegistry and FeatureNFT are private on ShadowToken in the current
+    # bytecode-budgeted contract; verify reachable behavior below via FeatureNFT
+    # back-reference, KeyRegistry.pkOf, T10 storage, and slots.
 
     (fn_st_addr,) = call_view(rpc, args.fn, "shadowToken()", [], ["address"])
     cmp_addr("FeatureNFT.shadowToken -> ShadowToken (back-reference)",
@@ -392,6 +411,22 @@ def verify(args: argparse.Namespace) -> bool:
         elif topic0 == "0x" + TOPIC_T10_UPDATED.lower():
             t10_logs.append(parse_t10_updated(log))
 
+    c2_logs = []
+    for tx in args.submit_tx:
+        sub_receipt = rpc.receipt(tx)
+        if sub_receipt is None:
+            rep.fail("submit tx receipt", f"no receipt for {tx}")
+            continue
+        if sub_receipt["status"] != "0x1":
+            rep.fail("submit tx status", f"{tx} status={sub_receipt['status']}")
+            continue
+        rep.ok(f"submit tx status=0x1, gasUsed={int(sub_receipt['gasUsed'], 16):,}")
+        for log in sub_receipt["logs"]:
+            if (log["address"].lower() == args.mc.lower()
+                and log["topics"][0].lower()
+                    == "0x" + TOPIC_MINT_CIPHERTEXT_SUBMITTED.lower()):
+                c2_logs.append(parse_mint_ciphertext_submitted(log))
+
     if len(minted_logs) == 1:
         rep.ok("exactly 1 ShadowMinted event")
     else:
@@ -400,10 +435,17 @@ def verify(args: argparse.Namespace) -> bool:
         rep.ok("exactly 8 ShadowSlotMutated events")
     else:
         rep.fail("ShadowSlotMutated event count", f"got {len(slot_logs)}")
+    if len(c2_logs) == 8:
+        rep.ok("exactly 8 MintCiphertextSubmitted events")
+    else:
+        rep.fail("MintCiphertextSubmitted event count", f"got {len(c2_logs)}")
     if len(t10_logs) == 1:
         rep.ok("exactly 1 ShadowT10Updated event")
     else:
         rep.fail("ShadowT10Updated event count", f"got {len(t10_logs)}")
+
+    if len(minted_logs) != 1 or len(slot_logs) != 8 or len(c2_logs) != 8 or len(t10_logs) != 1:
+        return rep.summary()
 
     # ---- 3. ShadowMinted event payload ----
     rep.section("3. ShadowMinted event payload")
@@ -454,22 +496,28 @@ def verify(args: argparse.Namespace) -> bool:
     # ---- 5. Per-slot integrity ----
     rep.section("5. Per-slot integrity (events + decryption + manifest + carrier)")
     slot_logs.sort(key=lambda x: x["slot_idx"])
+    c2_logs.sort(key=lambda x: x["slot_idx"])
     distinct_plaintexts = set()
     print("    [decrypting all 8 c2s; ~10-15s per slot via nargo]")
 
     for i in range(8):
         slot_log = slot_logs[i]
-        if slot_log["slot_idx"] != i:
+        c2_log = c2_logs[i]
+        if slot_log["slot_idx"] != i or c2_log["slot_idx"] != i:
             rep.fail(f"slot {i} event ordering",
-                     f"got slotIdx={slot_log['slot_idx']}")
+                     f"slotLog={slot_log['slot_idx']} c2Log={c2_log['slot_idx']}")
             continue
 
-        # 5a. on-chain c2 byte-equals fixture c2 (re-encoded as 39 * 32 bytes).
+        # 5a. on-chain submitted c2 byte-equals fixture c2 (re-encoded as 39 * 32 bytes).
         expected_c2_bytes = b"".join(
             v.to_bytes(32, "big") for v in fix_c2_fields[i])
-        if slot_log["c2_bytes"] != expected_c2_bytes:
-            rep.fail(f"slot {i}: on-chain c2 != fixture c2",
-                     f"len {len(slot_log['c2_bytes'])} vs {len(expected_c2_bytes)}")
+        if c2_log["c2_bytes"] != expected_c2_bytes:
+            rep.fail(f"slot {i}: submitted c2 != fixture c2",
+                     f"len {len(c2_log['c2_bytes'])} vs {len(expected_c2_bytes)}")
+            continue
+        if slot_log["c2_bytes"] != b"":
+            rep.fail(f"slot {i}: finalize ShadowSlotMutated c2 not empty",
+                     f"len {len(slot_log['c2_bytes'])}")
             continue
 
         # 5b. ECIES decrypt under owner_sk (uses fixture's c1).
@@ -593,11 +641,9 @@ def verify(args: argparse.Namespace) -> bool:
 
     # ---- 7. Aggregate state ----
     rep.section("7. Aggregate ShadowToken state")
-    (mint_counter,) = call_view(rpc, args.st, "mintCounter()", [], ["uint64"])
-    if mint_counter == 1:
-        rep.ok("mintCounter = 1")
-    else:
-        rep.fail("mintCounter", f"got {mint_counter}")
+    # mintCounter is private in the bytecode-budgeted ShadowToken; the public
+    # ShadowMinted.mintIdx event assertion above verifies the same first-mint
+    # invariant without requiring another getter.
 
     (regd,) = call_view(rpc, args.st, "registeredImages(bytes32)",
                          [meta["image_commit"]], ["bool"])
@@ -620,15 +666,11 @@ def verify(args: argparse.Namespace) -> bool:
     else:
         rep.fail("ownerOf(shadowId)", f"got {owner}")
 
-    # Shadow struct: read full struct, decode 8 fields.
-    sel = _selector("shadowOf(uint256)")
-    raw = rpc.call_contract(args.st, "0x" + sel + _enc_uint(expected_shadow_id))
-    rb = bytes.fromhex(raw[2:])
-    s_ecdh_x = rb[0:32]
-    s_ecdh_y = rb[32:64]
-    s_solved = rb[64:96] != b"\x00" * 32
-    s_zindex_commit = rb[96:128]
-    s_mint_idx = int.from_bytes(rb[192:224], "big")
+    # Shadow header: ecdh pubkey, solved flag, and z-index commitment.
+    (s_ecdh_x, s_ecdh_y, s_solved, s_zindex_commit) = call_view(
+        rpc, args.st, "shadowHeaderOf(uint256)", [expected_shadow_id],
+        ["bytes32", "bytes32", "bool", "bytes32"]
+    )
     if (int.from_bytes(s_ecdh_x, "big") == fix_pkx
         and int.from_bytes(s_ecdh_y, "big") == fix_pky):
         rep.ok("Shadow.ecdhPub matches fixture owner_pk")
@@ -643,20 +685,16 @@ def verify(args: argparse.Namespace) -> bool:
         rep.ok("Shadow.zIndexCommit = 0 (not yet committed)")
     else:
         rep.fail("Shadow.zIndexCommit", f"got {s_zindex_commit.hex()[:18]}")
-    if s_mint_idx == 1:
-        rep.ok("Shadow.mintIdx = 1")
-    else:
-        rep.fail("Shadow.mintIdx", f"got {s_mint_idx}")
 
-    # ---- 8. registerImage tx ----
-    rep.section("8. registerImage tx receipt + event")
+    # ---- 8. register/begin tx ----
+    rep.section("8. register/begin tx receipt + ImageRegistered event")
     reg_receipt = rpc.receipt(args.register_tx)
     if reg_receipt is None:
-        rep.fail("registerImage receipt", "no receipt")
+        rep.fail("register/begin receipt", "no receipt")
     elif reg_receipt["status"] != "0x1":
-        rep.fail("registerImage tx status", f"status={reg_receipt['status']}")
+        rep.fail("register/begin tx status", f"status={reg_receipt['status']}")
     else:
-        rep.ok(f"registerImage tx status=0x1, "
+        rep.ok(f"register/begin tx status=0x1, "
                f"gasUsed={int(reg_receipt['gasUsed'], 16):,}")
         for log in reg_receipt["logs"]:
             if (log["address"].lower() == args.st.lower()
@@ -685,8 +723,12 @@ def main() -> None:
                     help="Poseidon2YulSponge (sponge_39) address")
     ap.add_argument("--poseidon16", required=True,
                     help="Poseidon2YulSponge16 (sponge_16) address")
+    ap.add_argument("--mc", required=True,
+                    help="ShadowMintController address")
     ap.add_argument("--mint-tx", required=True)
     ap.add_argument("--register-tx", required=True)
+    ap.add_argument("--submit-tx", action="append", default=[],
+                    help="ShadowMintController submit tx hash; repeat for each tx containing MintCiphertextSubmitted")
     ap.add_argument("--deployer", required=True)
     ap.add_argument("--fixture",
                     default="contracts/test/fixtures/atomic_mint/atomic_mint_demo")

@@ -71,8 +71,8 @@ contract MutateBatchE2ETest is Test {
 
         vMut = new MutateSlotVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_MUTATE_SLOT(), IVerifier(address(vMut)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(2, IVerifier(address(vMut)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         kr = new KeyRegistry();
         st.setKeyRegistry(kr);
@@ -308,10 +308,10 @@ contract MutateBatchE2ETest is Test {
         ShadowToken.MutateBatchArgs memory args = _buildArgs();
         bytes32 lshABefore = st.slotOf(shadowId, slotAIdx).liveStateHash;
         bytes32 lshBBefore = st.slotOf(shadowId, slotBIdx).liveStateHash;
-        uint256 fr = st.FR_MOD();
+        uint256 fr = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
         _writeField(args.entries[0].c2, 0, fr);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(0), fr));
+        vm.expectRevert(ShadowToken.NonCanonicalField.selector);
         st.mutateBatch(args);
         assertEq(st.slotOf(shadowId, slotAIdx).liveStateHash, lshABefore, "slot A unchanged");
         assertEq(st.slotOf(shadowId, slotBIdx).liveStateHash, lshBBefore, "slot B unchanged");

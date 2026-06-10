@@ -13,14 +13,17 @@ import {T10ShadowVerifier} from "../src/T10ShadowVerifier.sol";
 import {Poseidon2YulSponge} from "../src/Poseidon2YulSponge.sol";
 import {Poseidon2YulSponge16} from "../src/Poseidon2YulSponge16.sol";
 import {Poseidon2YulHash2} from "../src/Poseidon2YulHash2.sol";
+import {ShadowMintController} from "../src/ShadowMintController.sol";
 import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 
-/// @notice Real-proof e2e test for `ShadowToken.registerImage` + `mintShadow`.
+/// @notice Real-proof e2e test for phased `ShadowToken` mint.
 ///
 /// Loads the linked atomic_mint fixture (8 origin slots + face_disc proof
-/// for image alice0 + atomic shadow_t10), then exercises the v2-gas split:
+/// for image alice0 + atomic shadow_t10), then exercises the split flow:
 ///   1. registerImage(imageCommit, proofDisc)  — face_disc verified once.
-///   2. mintShadow(args)                       — gates on registeredImages.
+///   2. beginMintShadow(args, recipient)       — locks a fixed recipient.
+///   3. submitMintCiphertexts(...)             — c2 commitment checks in batches.
+///   4. finalizeMintShadow(...)                — installs carriers and T10.
 ///
 /// Asserts:
 ///   - registeredImages[imageCommit] = true after registerImage
@@ -29,7 +32,7 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 ///   - 8 manifest entries OCCUPIED with the proof's lsh_init values
 ///   - shadowT10 reflects the post-mint manifest hash
 ///   - mintedOrigins[imageCommit] = true (anti-replay armed)
-///   - ImageRegistered + ShadowMinted + 8x ShadowSlotMutated + ShadowT10Updated emitted
+///   - ImageRegistered + ShadowMintStarted + 8x MintCiphertextSubmitted + ShadowMinted emitted
 ///
 /// Fixture: contracts/test/fixtures/atomic_mint/atomic_mint_demo (built
 /// via tools/build_atomic_mint_fixture.py; ~3s wall-clock end-to-end).
@@ -45,6 +48,7 @@ contract MintShadowE2ETest is Test {
     Poseidon2YulSponge16 internal sponge16;
     Poseidon2YulHash2 internal hash2;
     KeyRegistry internal kr;
+    ShadowMintController internal mc;
 
     string internal constant FIX = "./test/fixtures/atomic_mint/atomic_mint_demo";
 
@@ -76,6 +80,7 @@ contract MintShadowE2ETest is Test {
     bytes32[8] internal paletteSaltCts; // per-slot ECIES salt envelopes (advisory)
     bytes32[8] internal saltC1Xs;
     bytes32[8] internal saltC1Ys;
+    bytes[] internal mintC2s;
 
     function setUp() public {
         sponge = new Poseidon2YulSponge();
@@ -90,12 +95,14 @@ contract MintShadowE2ETest is Test {
         vMint = new MintShadowVerifier();
         vDisc = new FaceDiscVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_MINT_SHADOW(), IVerifier(address(vMint)));
-        st.setVerifier(st.SLOT_FACE_DISC(), IVerifier(address(vDisc)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(0, IVerifier(address(vMint)));
+        st.setVerifier(1, IVerifier(address(vDisc)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         kr = new KeyRegistry();
         st.setKeyRegistry(kr);
+        mc = new ShadowMintController(st, kr, IVerifier(address(vMint)), address(sponge), address(sponge16), address(hash2));
+        st.setMintController(address(mc));
 
         // Load proofs.
         proofMint = vm.readFileBinary(string.concat(FIX, "/proof_mint.bin"));
@@ -114,6 +121,7 @@ contract MintShadowE2ETest is Test {
         require(piDisc[0] == imageCommit, "imageCommit mismatch fixture");
 
         _loadFromMeta();
+        mintC2s = _loadMintC2s();
 
         // Register alice with the prover's owner_pk.
         vm.prank(alice);
@@ -121,7 +129,7 @@ contract MintShadowE2ETest is Test {
     }
 
     /// Helper: register the fixture's imageCommit. Tests that exercise
-    /// registerImage failure paths (or want to verify mintShadow's
+    /// registerImage failure paths (or want to verify beginMintShadow's
     /// `ImageNotRegistered` gate) do NOT call this.
     function _registerImage() internal {
         st.registerImage(imageCommit, proofDisc);
@@ -157,7 +165,7 @@ contract MintShadowE2ETest is Test {
         }
     }
 
-    function _buildArgs() internal returns (ShadowToken.MintShadowArgs memory args) {
+    function _buildArgs() internal view returns (ShadowToken.MintShadowArgs memory args) {
         args.proofMint = proofMint;
         args.imageCommit = imageCommit;
         args.liveStateHashInits = lshInits;
@@ -168,9 +176,14 @@ contract MintShadowE2ETest is Test {
         args.saltC1Ys = saltC1Ys;
         args.originFaceIds = originFaceIds;
         args.ctCommits = ctCommits;
+        bytes32[2] memory t10;
+        t10[0] = piT10[2];
+        t10[1] = piT10[3];
+        args.newT10 = t10;
+    }
 
-        // Per-slot c2 (39 fields = 1248 bytes), pulled from meta.json.
-        bytes[] memory c2s = new bytes[](8);
+    function _loadMintC2s() internal returns (bytes[] memory c2s) {
+        c2s = new bytes[](8);
         string memory j = vm.readFile(string.concat(FIX, "/meta.json"));
         for (uint256 i = 0; i < 8; i++) {
             string memory idx = vm.toString(i);
@@ -181,13 +194,38 @@ contract MintShadowE2ETest is Test {
             }
             c2s[i] = buf;
         }
-        args.c2s = c2s;
+    }
 
-        bytes32[2] memory t10;
-        t10[0] = piT10[2]; // hi
-        t10[1] = piT10[3]; // lo
-        args.newT10 = t10;
-        args.proofT10 = proofT10;
+    function _submitOne(uint256 sid, uint8 slot, bytes memory c2) internal {
+        uint8[] memory slots = new uint8[](1);
+        bytes[] memory c2s = new bytes[](1);
+        slots[0] = slot;
+        c2s[0] = c2;
+        mc.submitMintCiphertexts(sid, slots, c2s);
+    }
+
+    function _submitAll(uint256 sid) internal {
+        for (uint8 i = 0; i < 8; i++) {
+            _submitOne(sid, i, mintC2s[i]);
+        }
+    }
+
+    function _slotRange(uint8 start, uint8 count) internal pure returns (uint8[] memory slots) {
+        slots = new uint8[](count);
+        for (uint8 i = 0; i < count; i++) slots[i] = start + i;
+    }
+
+    function _c2Range(uint8 start, uint8 count) internal view returns (bytes[] memory c2s) {
+        c2s = new bytes[](count);
+        for (uint8 i = 0; i < count; i++) c2s[i] = mintC2s[start + i];
+    }
+
+    function _completeMint(address recipient) internal returns (uint256 sid) {
+        ShadowToken.MintShadowArgs memory args = _buildArgs();
+        vm.prank(alice);
+        sid = mc.beginMintShadow(args, recipient);
+        _submitAll(sid);
+        mc.finalizeMintShadow(sid, proofT10);
     }
 
     // ============== registerImage ==============
@@ -232,53 +270,44 @@ contract MintShadowE2ETest is Test {
         assertLt(used, 4_000_000, "registerImage gas regressed");
     }
 
-    // ============== mintShadow ==============
+    // ============== phased mint ==============
 
-    function _decodeShadowSlotMutatedC2(bytes memory data) internal pure returns (bytes memory emittedC2) {
-        (uint256 featureId_, uint16 count_, bytes32 prevTip_, bytes32 newTip_, bytes memory c2_) =
-            abi.decode(data, (uint256, uint16, bytes32, bytes32, bytes));
-        featureId_;
-        count_;
-        prevTip_;
-        newTip_;
-        return c2_;
-    }
-
-    function test_mintShadow_success_creates_shadow_and_8_carriers() public {
+    function test_phasedMint_success_creates_shadow_and_8_carriers() public {
         _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
 
-        // Pre-state: shadow doesn't exist; mintedOrigins clean.
         assertFalse(st.mintedOrigins(imageCommit), "imageCommit not yet minted");
+        assertFalse(mc.pendingOrigins(imageCommit), "imageCommit not yet pending");
 
         vm.recordLogs();
         vm.prank(alice);
-        uint256 mintedShadowId = st.mintShadow(args);
+        uint256 mintedShadowId = mc.beginMintShadow(args, alice);
+        assertEq(mintedShadowId, shadowId, "begin returned shadowId");
+        assertTrue(mc.pendingOrigins(imageCommit), "pending after begin");
+        assertEq(mc.pendingMintSubmittedBitmap(shadowId), 0, "no c2 submitted yet");
 
-        // ---- Post-state ----
-        assertEq(mintedShadowId, shadowId, "returned shadowId matches PI[0]");
-        assertEq(st.ownerOf(shadowId), alice, "shadow ERC-721 to alice");
+        _submitAll(shadowId);
+        assertEq(mc.pendingMintSubmittedBitmap(shadowId), 0xff, "all c2 submitted");
+        mc.finalizeMintShadow(shadowId, proofT10);
+
+        assertEq(st.ownerOf(shadowId), alice, "shadow ERC-721 to fixed recipient");
         assertTrue(st.mintedOrigins(imageCommit), "anti-replay armed");
+        assertFalse(mc.pendingOrigins(imageCommit), "pending cleared");
 
-        ShadowToken.Shadow memory s = st.shadowOf(shadowId);
-        assertEq(s.ecdhPubX, ownerPkX, "shadow ecdhPubX seeded");
-        assertEq(s.ecdhPubY, ownerPkY, "shadow ecdhPubY seeded");
-        assertFalse(s.solved, "fresh shadow not solved");
-        assertEq(s.zIndexCommit, bytes32(0), "fresh zIndexCommit zero");
-        assertEq(s.mintIdx, 1, "first mint idx = 1");
+        {
+            (bytes32 ecdhPubX, bytes32 ecdhPubY, bool solved, bytes32 zIndexCommit) = st.shadowHeaderOf(shadowId);
+            assertEq(ecdhPubX, ownerPkX, "shadow ecdhPubX seeded");
+            assertEq(ecdhPubY, ownerPkY, "shadow ecdhPubY seeded");
+            assertFalse(solved, "fresh shadow not solved");
+            assertEq(zIndexCommit, bytes32(0), "fresh zIndexCommit zero");
+        }
 
-        // 8 origin slots OCCUPIED with the proof's lsh_init values.
         for (uint8 i = 0; i < 8; i++) {
             ShadowToken.ManifestEntry memory m = st.slotOf(shadowId, i);
-            assertEq(
-                uint256(m.kind),
-                uint256(ShadowToken.SlotKind.OCCUPIED),
-                string.concat("slot ", vm.toString(uint256(i)), " OCCUPIED")
-            );
-            assertEq(m.liveStateHash, lshInits[i], string.concat("slot ", vm.toString(uint256(i)), " lsh = lsh_init"));
+            assertEq(uint256(m.kind), uint256(ShadowToken.SlotKind.OCCUPIED), "origin slot OCCUPIED");
+            assertEq(m.liveStateHash, lshInits[i], "slot lsh = lsh_init");
             assertGt(m.featureId, 0, "carrier minted");
-            // Cross-check carrier metadata.
-            assertEq(fn.ownerOf(m.featureId), alice, "carrier owned by alice");
+            assertEq(fn.ownerOf(m.featureId), alice, "carrier owned by recipient");
             assertTrue(fn.isInserted(m.featureId), "carrier inserted");
             assertEq(fn.hostShadowIdOf(m.featureId), shadowId, "carrier host");
             assertEq(fn.hostSlotIdxOf(m.featureId), i, "carrier slot idx");
@@ -287,178 +316,288 @@ contract MintShadowE2ETest is Test {
             assertEq(fn.paletteCommitOf(m.featureId), paletteCommits[i], "paletteCommit stored");
         }
 
-        // Slots 8..15 EMPTY (default-zero values).
         for (uint8 i = 8; i < 16; i++) {
             ShadowToken.ManifestEntry memory m = st.slotOf(shadowId, i);
-            assertEq(
-                uint256(m.kind),
-                uint256(ShadowToken.SlotKind.EMPTY),
-                string.concat("slot ", vm.toString(uint256(i)), " EMPTY")
-            );
+            assertEq(uint256(m.kind), uint256(ShadowToken.SlotKind.EMPTY), "tail slot EMPTY");
             assertEq(m.featureId, 0, "EMPTY slot featureId = 0");
             assertEq(m.liveStateHash, bytes32(0), "EMPTY slot lsh = 0");
         }
 
-        // T10 reflects post-mint state.
         assertEq(st.shadowT10(shadowId, 0), args.newT10[0], "T10 hi");
         assertEq(st.shadowT10(shadowId, 1), args.newT10[1], "T10 lo");
 
-        // Events.
         Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool sawStarted = false;
         bool sawMinted = false;
         bool sawT10 = false;
+        uint256 sawC2 = 0;
         uint256 sawSlotMutated = 0;
+        bytes32 sigStarted = keccak256("ShadowMintStarted(uint256,address,bytes32)");
         bytes32 sigMinted = keccak256("ShadowMinted(uint256,address,uint64,bytes32)");
         bytes32 sigT10 = keccak256("ShadowT10Updated(uint256,bytes32,bytes32)");
+        bytes32 sigC2 = keccak256("MintCiphertextSubmitted(uint256,uint8,bytes32,bytes)");
         bytes32 sigSM = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
         for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].emitter != address(st)) continue;
-            if (logs[i].topics[0] == sigMinted) {
-                sawMinted = true;
-            } else if (logs[i].topics[0] == sigT10) {
-                sawT10 = true;
-            } else if (logs[i].topics[0] == sigSM) {
-                uint8 emittedSlot = uint8(uint256(logs[i].topics[2]));
-                bytes memory emittedC2 = _decodeShadowSlotMutatedC2(logs[i].data);
-                assertEq(emittedC2, args.c2s[emittedSlot], "ShadowSlotMutated c2 matches mint calldata");
-                sawSlotMutated++;
+            if (logs[i].emitter == address(mc)) {
+                if (logs[i].topics[0] == sigStarted) sawStarted = true;
+                else if (logs[i].topics[0] == sigC2) sawC2++;
+            } else if (logs[i].emitter == address(st)) {
+                if (logs[i].topics[0] == sigMinted) sawMinted = true;
+                else if (logs[i].topics[0] == sigT10) sawT10 = true;
+                else if (logs[i].topics[0] == sigSM) sawSlotMutated++;
             }
         }
+        assertTrue(sawStarted, "ShadowMintStarted emitted");
         assertTrue(sawMinted, "ShadowMinted emitted");
         assertTrue(sawT10, "ShadowT10Updated emitted");
-        assertEq(sawSlotMutated, 8, "8 ShadowSlotMutated emitted (one per origin slot)");
+        assertEq(sawC2, 8, "8 ciphertext events emitted");
+        assertEq(sawSlotMutated, 8, "8 slot install events emitted");
     }
 
-    /// Audit M-03: pre-fix, `ShadowToken.shadowIdOf` returned a domain-
-    /// separated keccak that did NOT match `mintShadow`'s formula
-    /// (`uint256(imageCommit) % FR_MOD`). Indexers/scripts using shadowIdOf
-    /// to look up minted tokens got the wrong id. After the fix, the view
-    /// helper and the minted token id must agree byte-for-byte.
-    function test_shadowIdOf_matches_mintShadow_derivation() public {
+    function test_phasedMint_fixes_recipient_at_begin() public {
         _registerImage();
-        ShadowToken.MintShadowArgs memory args = _buildArgs();
+        uint256 sid = mc.beginMintShadow(_buildArgs(), alice);
+        _submitAll(sid);
+        mc.finalizeMintShadow(sid, proofT10);
+        assertEq(st.ownerOf(sid), alice, "finalize caller cannot redirect recipient");
+    }
+
+    function test_beginMintShadow_uses_canonical_shadow_id_derivation() public {
+        _registerImage();
         vm.prank(alice);
-        uint256 minted = st.mintShadow(args);
-        assertEq(minted, st.shadowIdOf(imageCommit), "shadowIdOf == minted id");
-        // And the formula matches what mintShadow uses internally.
+        uint256 minted = mc.beginMintShadow(_buildArgs(), alice);
         uint256 FR_MOD = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
         assertEq(minted, uint256(imageCommit) % FR_MOD, "= imageCommit % FR_MOD");
     }
 
-    function test_mintShadow_reverts_when_image_not_registered() public {
-        // No _registerImage() call. mintShadow MUST refuse.
-        ShadowToken.MintShadowArgs memory args = _buildArgs();
+    function test_beginMintShadow_reverts_when_image_not_registered() public {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(ShadowToken.ImageNotRegistered.selector, imageCommit));
-        st.mintShadow(args);
+        mc.beginMintShadow(_buildArgs(), alice);
     }
 
-    function test_mintShadow_reverts_when_already_minted() public {
+    function test_beginMintShadow_reverts_when_already_minted() public {
         _registerImage();
-        ShadowToken.MintShadowArgs memory args = _buildArgs();
-        vm.prank(alice);
-        st.mintShadow(args);
-
-        // Re-submitting same imageCommit must trip anti-replay.
+        _completeMint(alice);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(ShadowToken.AlreadyMinted.selector, imageCommit));
-        st.mintShadow(args);
+        mc.beginMintShadow(_buildArgs(), alice);
     }
 
-    function test_mintShadow_reverts_when_mint_proof_tampered() public {
+    function test_beginMintShadow_reverts_when_pending_exists() public {
+        _registerImage();
+        vm.prank(alice);
+        mc.beginMintShadow(_buildArgs(), alice);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowMintController.PendingMintExists.selector, imageCommit));
+        mc.beginMintShadow(_buildArgs(), alice);
+    }
+
+    function test_beginMintShadow_reverts_when_mint_proof_tampered() public {
         _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
-        // Flip a byte in the middle of the mint proof.
         args.proofMint[256] = bytes1(uint8(args.proofMint[256]) ^ 0x40);
         vm.prank(alice);
         vm.expectRevert(ShadowToken.InvalidProof.selector);
-        st.mintShadow(args);
+        mc.beginMintShadow(args, alice);
     }
 
-    /// c2 calldata is byte-bound on chain. Tampering c2 is tested
-    /// separately via DigestMismatch; tampering ctCommits exercises the
-    /// proof-bound PI[5] root.
-    function test_mintShadow_reverts_when_ctCommits_tampered() public {
+    function test_beginMintShadow_reverts_when_ctCommits_tampered() public {
         _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
         args.ctCommits[0] = bytes32(uint256(args.ctCommits[0]) ^ 1);
         vm.prank(alice);
         vm.expectRevert(ShadowToken.InvalidProof.selector);
-        st.mintShadow(args);
+        mc.beginMintShadow(args, alice);
     }
 
-    /// Audit H-05 negative: caller-supplied `originFaceIds[i]` must equal
-    /// `poseidon2_hash_2(imageCommit, i)` (canonical circuit derivation).
-    /// Pre-fix the contract trusted the caller; now the contract recomputes
-    /// the expected face id via the Poseidon2 hash_2 Yul wrapper and
-    /// reverts on mismatch BEFORE invoking the verifier.
-    function test_mintShadow_reverts_when_originFaceIds_tampered() public {
+    function test_beginMintShadow_reverts_when_originFaceIds_tampered() public {
         _registerImage();
         ShadowToken.MintShadowArgs memory args = _buildArgs();
         args.originFaceIds[3] = bytes32(uint256(args.originFaceIds[3]) ^ 1);
         vm.prank(alice);
-        // EIP-170 budget consolidation: H-05 originFaceId mismatch reverts
-        // with the existing `InvalidProof` selector rather than a dedicated
-        // error. The contract has STATICCALL'd Poseidon2YulHash2 already, so
-        // the revert IS the proof-bound check firing -- the loss is only the
-        // error name's diagnostic payload, not the soundness guarantee.
         vm.expectRevert(ShadowToken.InvalidProof.selector);
-        st.mintShadow(args);
+        mc.beginMintShadow(args, alice);
     }
 
-    /// Audit H-05 positive: the `originFaceIdOf` view must agree byte-for-byte
-    /// with what `_mintOneAtom` stored. Pre-fix it returned a keccak
-    /// placeholder that matched nothing the circuit produced.
-    function test_originFaceIdOf_matches_minted_carrier() public {
+    function test_originFaceId_matches_minted_carrier() public {
         _registerImage();
+        uint256 sid = _completeMint(alice);
         ShadowToken.MintShadowArgs memory args = _buildArgs();
-        vm.prank(alice);
-        uint256 sid = st.mintShadow(args);
         for (uint8 i = 0; i < 8; i++) {
             ShadowToken.ManifestEntry memory m = st.slotOf(sid, i);
-            bytes32 fnOfi = fn.originFaceIdOf(m.featureId);
-            bytes32 stOfi = st.originFaceIdOf(imageCommit, i);
-            assertEq(fnOfi, stOfi, "FN.originFaceIdOf(fid) == ST.originFaceIdOf(image, i)");
-            assertEq(stOfi, args.originFaceIds[i], "derived matches fixture");
+            assertEq(fn.originFaceIdOf(m.featureId), args.originFaceIds[i], "derived matches fixture");
         }
     }
 
-    /// Envelope-binding cutover (audit H-02): tampered c2 in mintShadow
-    /// MUST revert. Pre-cutover the per-slot c2 calldata was advisory and
-    /// only ctCommits[i] was bound to the proof. The contract now
-    /// recomputes sponge_39(args.c2s[i]) and asserts equality with
-    /// args.ctCommits[i] before any FN.mintAtShadowMint call.
-    function test_mintShadow_reverts_when_c2_tampered() public {
+    function test_submitMintCiphertexts_reverts_when_c2_tampered() public {
         _registerImage();
-        ShadowToken.MintShadowArgs memory args = _buildArgs();
-        args.c2s[0][7] = bytes1(uint8(args.c2s[0][7]) ^ 0x80);
         vm.prank(alice);
-        vm.expectRevert();
-        st.mintShadow(args);
-    }
-
-    function test_mintShadow_reverts_when_c2_field_noncanonical() public {
-        _registerImage();
-        ShadowToken.MintShadowArgs memory args = _buildArgs();
-        uint256 fr = st.FR_MOD();
-        _writeField(args.c2s[0], 0, fr);
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(0), fr));
-        st.mintShadow(args);
+        uint256 sid = mc.beginMintShadow(_buildArgs(), alice);
+        bytes memory bad = mintC2s[0];
+        bad[7] = bytes1(uint8(bad[7]) ^ 0x80);
+        vm.expectRevert(ShadowMintController.DigestMismatch.selector);
+        _submitOne(sid, 0, bad);
         assertFalse(st.mintedOrigins(imageCommit), "mintedOrigins unchanged");
     }
 
-    /// Gas-pin: mintShadow body now performs 8 on-chain sponge_39 c2
-    /// re-hashes (audit H-02) + 8 on-chain hash_2 originFaceId binds
-    /// (audit H-05). Post-cutover local cost ~14.6M, well under the 16M
-    /// block budget. Budget 15.5M leaves regression-detection headroom.
-    function test_mintShadow_gas_under_block_budget() public {
+    function test_submitMintCiphertexts_reverts_when_c2_field_noncanonical() public {
         _registerImage();
-        ShadowToken.MintShadowArgs memory args = _buildArgs();
         vm.prank(alice);
+        uint256 sid = mc.beginMintShadow(_buildArgs(), alice);
+        bytes memory bad = mintC2s[0];
+        uint256 fr = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
+        _writeField(bad, 0, fr);
+        vm.expectRevert(ShadowMintController.NonCanonicalField.selector);
+        _submitOne(sid, 0, bad);
+        assertFalse(st.mintedOrigins(imageCommit), "mintedOrigins unchanged");
+    }
+
+    function test_submitMintCiphertexts_reverts_duplicate_slot() public {
+        _registerImage();
+        vm.prank(alice);
+        uint256 sid = mc.beginMintShadow(_buildArgs(), alice);
+        _submitOne(sid, 0, mintC2s[0]);
+        vm.expectRevert(abi.encodeWithSelector(ShadowMintController.SlotAlreadySubmitted.selector, 0));
+        _submitOne(sid, 0, mintC2s[0]);
+    }
+
+    function test_submitMintCiphertexts_accepts_multi_slot_batch() public {
+        _registerImage();
+        vm.prank(alice);
+        uint256 sid = mc.beginMintShadow(_buildArgs(), alice);
+        uint8[] memory slots = new uint8[](2);
+        bytes[] memory c2s = new bytes[](2);
+        slots[0] = 0;
+        slots[1] = 1;
+        c2s[0] = mintC2s[0];
+        c2s[1] = mintC2s[1];
+        mc.submitMintCiphertexts(sid, slots, c2s);
+        assertEq(mc.pendingMintSubmittedBitmap(sid), 0x03, "two slots submitted");
+    }
+
+    function test_shadowToken_rejects_direct_finalize_without_controller() public {
+        _registerImage();
+        vm.expectRevert(ShadowToken.NotDeployer.selector);
+        st.finalizeMintFromController(_buildArgs(), alice, ownerPkX, ownerPkY, proofT10);
+    }
+
+    function test_finalizeMintShadow_reverts_until_all_ciphertexts_submitted() public {
+        _registerImage();
+        vm.prank(alice);
+        uint256 sid = mc.beginMintShadow(_buildArgs(), alice);
+        _submitOne(sid, 0, mintC2s[0]);
+        vm.expectRevert(abi.encodeWithSelector(ShadowMintController.MintIncomplete.selector, uint8(1), uint8(0xff)));
+        mc.finalizeMintShadow(sid, proofT10);
+    }
+
+    function test_executeMintBatch_registers_begins_and_submits_prefix() public {
+        ShadowMintController.MintBatch memory batch;
+        batch.doRegisterImage = true;
+        batch.imageCommit = imageCommit;
+        batch.proofDisc = proofDisc;
+        batch.doBeginMint = true;
+        batch.mintArgs = _buildArgs();
+        batch.recipient = alice;
+        batch.submitSlots = _slotRange(0, 4);
+        batch.submitC2s = _c2Range(0, 4);
+
+        vm.prank(alice);
+        (uint256 sid, uint256 mintedSid) = mc.executeMintBatch(batch);
+
+        assertEq(sid, shadowId, "batch returned derived shadowId");
+        assertEq(mintedSid, 0, "not finalized");
+        assertTrue(st.registeredImages(imageCommit), "image registered in same tx");
+        assertTrue(mc.pendingOrigins(imageCommit), "mint pending");
+        assertEq(mc.pendingMintSubmittedBitmap(shadowId), 0x0f, "first four c2 submitted");
+        assertFalse(st.mintedOrigins(imageCommit), "not minted before finalize");
+    }
+
+    function test_executeMintBatch_two_transactions_can_complete_full_mint() public {
+        ShadowMintController.MintBatch memory first;
+        first.doRegisterImage = true;
+        first.imageCommit = imageCommit;
+        first.proofDisc = proofDisc;
+        first.doBeginMint = true;
+        first.mintArgs = _buildArgs();
+        first.recipient = alice;
+        first.submitSlots = _slotRange(0, 4);
+        first.submitC2s = _c2Range(0, 4);
+
+        vm.prank(alice);
+        (uint256 sid,) = mc.executeMintBatch(first);
+        assertEq(mc.pendingMintSubmittedBitmap(sid), 0x0f, "first batch submitted");
+
+        ShadowMintController.MintBatch memory second;
+        second.shadowId = sid;
+        second.submitSlots = _slotRange(4, 4);
+        second.submitC2s = _c2Range(4, 4);
+        second.doFinalize = true;
+        second.proofT10 = proofT10;
+
+        (, uint256 mintedSid) = mc.executeMintBatch(second);
+
+        assertEq(mintedSid, shadowId, "finalized expected shadow");
+        assertEq(st.ownerOf(shadowId), alice, "recipient fixed from begin tx");
+        assertTrue(st.mintedOrigins(imageCommit), "anti-replay armed");
+        assertFalse(mc.pendingOrigins(imageCommit), "pending cleared");
+        assertEq(mc.pendingMintSubmittedBitmap(shadowId), 0, "pending session deleted");
+    }
+
+    function test_executeMintBatch_reverts_when_register_image_mismatches_mint_args() public {
+        ShadowMintController.MintBatch memory batch;
+        batch.doRegisterImage = true;
+        batch.imageCommit = bytes32(uint256(imageCommit) ^ 1);
+        batch.proofDisc = proofDisc;
+        batch.doBeginMint = true;
+        batch.mintArgs = _buildArgs();
+        batch.recipient = alice;
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowMintController.ImageCommitMismatch.selector, batch.imageCommit, imageCommit));
+        mc.executeMintBatch(batch);
+    }
+
+    function test_executeMintBatch_reverts_when_supplied_shadow_id_mismatches_begin() public {
+        _registerImage();
+        ShadowMintController.MintBatch memory batch;
+        batch.doBeginMint = true;
+        batch.mintArgs = _buildArgs();
+        batch.recipient = alice;
+        batch.shadowId = shadowId + 1;
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ShadowMintController.ShadowIdMismatch.selector, shadowId + 1, shadowId));
+        mc.executeMintBatch(batch);
+    }
+
+    function test_executeMintBatch_reverts_when_missing_shadow_id_for_followup() public {
+        ShadowMintController.MintBatch memory batch;
+        batch.doFinalize = true;
+        batch.proofT10 = proofT10;
+
+        vm.expectRevert(ShadowMintController.MissingShadowId.selector);
+        mc.executeMintBatch(batch);
+    }
+
+
+    function test_phasedMint_gas_steps_under_public_rpc_budget() public {
+        _registerImage();
         uint256 gasBefore = gasleft();
-        st.mintShadow(args);
-        uint256 used = gasBefore - gasleft();
-        assertLt(used, 15_500_000, "mintShadow gas regressed");
+        vm.prank(alice);
+        uint256 sid = mc.beginMintShadow(_buildArgs(), alice);
+        uint256 beginUsed = gasBefore - gasleft();
+        assertLt(beginUsed, 8_000_000, "beginMintShadow gas regressed");
+
+        gasBefore = gasleft();
+        _submitOne(sid, 0, mintC2s[0]);
+        uint256 submitUsed = gasBefore - gasleft();
+        assertLt(submitUsed, 3_000_000, "single submit gas regressed");
+
+        for (uint8 i = 1; i < 8; i++) _submitOne(sid, i, mintC2s[i]);
+        gasBefore = gasleft();
+        mc.finalizeMintShadow(sid, proofT10);
+        uint256 finalizeUsed = gasBefore - gasleft();
+        assertLt(finalizeUsed, 8_000_000, "finalizeMintShadow gas regressed");
     }
 }

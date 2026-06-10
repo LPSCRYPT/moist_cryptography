@@ -104,7 +104,7 @@ unless prefixed with `eth-` (`https://sepolia.etherscan.io/tx/<hash>`).
 | 5.6 | solve with tampered palette | FORGE | `test_solve_reverts_when_palette_tampered` |
 | 5.7 | solve with tampered salt | FORGE | `test_solve_reverts_when_salt_tampered` |
 | 5.8 | solve when already solved | FORGE | `test_solve_reverts_when_already_solved` |
-| 5.9 | solve with stale palette_commit (not openable via sponge) | DONE-lesson | B' broadcasted setZIndex `0x475bf0ed...` but solve impossible; hard-stop at FeatureNFT.revealPaletteAtSolve |
+| 5.9 | reveal with stale palette_commit (not openable via sponge) | DONE-lesson | B' broadcasted setZIndex `0x475bf0ed...` but reveal impossible; hard-stop at FeatureNFT.revealInsertedFeature |
 | 5.10 | event-only render: 8 palette + 8 plaintext events drive a complete sprite render with NO --sk and NO --c1-sidecar | DONE | A, C, D all verified via `tools/render_onchain_shadow.py`; D rendered 2026-04-29 with --rpc base-sepolia.gateway.tenderly.co (public RPC rate-limits getLogs) -- 8 sprite PNGs + composite + strip emitted under `/tmp/shadow_d_render` |
 
 ## 6. Bridge flow (L2-leg)

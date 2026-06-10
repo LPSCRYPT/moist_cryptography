@@ -73,8 +73,8 @@ contract TransferShadowE2ETest is Test {
         st.setYulSponge16(address(sponge16));
         vT = new TransferShadowVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_TRANSFER_SHADOW(), IVerifier(address(vT)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(5, IVerifier(address(vT)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         kr = new KeyRegistry();
         st.setKeyRegistry(kr);
@@ -111,7 +111,7 @@ contract TransferShadowE2ETest is Test {
     }
 
     function _bumpCanonical(uint256 value) internal view returns (uint256) {
-        uint256 mod = st.FR_MOD();
+        uint256 mod = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
         return value + 1 == mod ? value - 1 : value + 1;
     }
 
@@ -249,9 +249,9 @@ contract TransferShadowE2ETest is Test {
         // ---- Post-state assertions ----
         assertEq(st.ownerOf(shadowId), bob, "shadow owner rotated");
 
-        ShadowToken.Shadow memory s = st.shadowOf(shadowId);
-        assertEq(s.ecdhPubX, recipientPkX, "ecdhPubX rotated");
-        assertEq(s.ecdhPubY, recipientPkY, "ecdhPubY rotated");
+        (bytes32 ecdhPubX, bytes32 ecdhPubY,,) = st.shadowHeaderOf(shadowId);
+        assertEq(ecdhPubX, recipientPkX, "ecdhPubX rotated");
+        assertEq(ecdhPubY, recipientPkY, "ecdhPubY rotated");
 
         for (uint256 i = 0; i < occupiedIdxs.length; i++) {
             uint8 sIdx = occupiedIdxs[i];
@@ -332,10 +332,10 @@ contract TransferShadowE2ETest is Test {
     function test_transferShadow_reverts_when_c2_field_noncanonical() public {
         ShadowToken.TransferShadowArgs memory args = _buildArgs();
         uint8 sIdx = occupiedIdxs[0];
-        uint256 fr = st.FR_MOD();
+        uint256 fr = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
         _writeField(args.c2s[sIdx], 0, fr);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(0), fr));
+        vm.expectRevert(ShadowToken.NonCanonicalField.selector);
         st.transferShadow(args);
         assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
     }
@@ -363,10 +363,10 @@ contract TransferShadowE2ETest is Test {
     function test_transferShadow_reverts_when_newC1_field_noncanonical() public {
         ShadowToken.TransferShadowArgs memory args = _buildArgs();
         uint8 sIdx = occupiedIdxs[0];
-        uint256 fr = st.FR_MOD();
+        uint256 fr = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
         args.newC1Xs[sIdx] = fr;
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(sIdx), fr));
+        vm.expectRevert(ShadowToken.NonCanonicalField.selector);
         st.transferShadow(args);
         assertEq(st.ownerOf(shadowId), alice, "owner unchanged");
     }

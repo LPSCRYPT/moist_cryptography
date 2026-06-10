@@ -6,11 +6,11 @@ Selectively-revealable face-bound NFTs.
 
 Deployed on Base L2 with a cross-chain mirror to Ethereum Sepolia. 
 
-A 48×48 RGB image is encrypted under the owner's key and
-bound, via a zero-knowledge proof, to eight landmark commitments. Owners can
-re-pose, eject (extract), insert (assemble), transfer, and ultimately *solve*
-the shadow — revealing its plaintext, freezing its dynamic operations, and
-optionally bridging it to L1 mainnet.
+A 48×48 RGB image is face-gated by `registerImage`, then minted through a
+modular phased flow that can split the eight encrypted feature payloads across
+multiple transactions. Owners can re-pose, eject (extract), insert (assemble),
+transfer, incrementally reveal individual features, and ultimately solve/bridge
+according to the current contract state.
 
 ```
    ┌──────────────── shadow ────────────────┐
@@ -19,13 +19,13 @@ optionally bridging it to L1 mainnet.
    │  c2 (ECIES)    encrypted plaintext     │
    │  solved        boolean reveal flag     │
    └────────────────────────────────────────┘
-       mutateSlot     pose-only, ~50k gas
-       extractSlot    landmark → standalone FeatureNFT, ~4.9M gas
-       insertFeature  bind a FeatureNFT into an EMPTY slot
-       removeFeature  unbind without burning
-       transferShadow ECIES re-encryption to a new owner, ~8.4M gas
-       solve          reveal + freeze, ~4.4M gas
-       setShadowT10   refresh the public 16x16 grayscale silhouette, ~3.6M gas
+      phased mint    register/begin → submit ciphertext chunks → finalize
+      mutateSlot     one permissible hidden-slot mutation at a time
+      extractSlot    hidden feature → standalone FeatureNFT
+      insertFeature  bind a held FeatureNFT into an EMPTY slot
+      revealSlots    OCCUPIED → REVEALED, immutable public feature
+      transferShadow ECIES re-encryption to a new owner
+      shadow_t10     bundled public 16x16 grayscale silhouette refresh
        bridgeShadow   L2 lock → L1 mirror via OP messenger, ~720k gas
 ```
 
@@ -66,50 +66,40 @@ shadow eventually mints a mirror NFT on L1.
   │                               verifier_target=evm)                           │
   │                                                                              │
   │ Eleven circuits, eight on-chain Honk verifiers                               │
-  │ (mutate_slot reused by mutate_batch; landmark_regions_v2 + face_disc         │
-  │ both verify at mintShadow + registerImage; rest are 1-to-1)                  │
+  │ (mutate_slot reused by mutate_batch; landmark_regions_v2 verifies the       │
+  │ phased mint witness; face_disc gates registerImage; rest are 1-to-1)        │
   │                                                                              │
   │   face_disc                  → registerImage gate                            │
-  │   landmark_regions_v2        → mintShadow witness                            │
-  │   mutate_slot                → mutateSlot   (single)                         │
-  │                              → mutateBatch (called twice in same tx)         │
-  │   extract_slot               → extractSlot                                   │
-  │   insert_feature             → insertFeature                                 │
-  │   transfer_shadow            → transferShadow  (rotates all 16 slots)        │
+  │   landmark_regions_v2        → ShadowMintController.beginMintShadow witness  │
+  │   mutate_slot                → mutateSlot / mutateBatch / insertFeature      │
+  │   transfer_shadow            → transferShadow  (rotates hidden slots)        │
   │   transfer_feature_v2        → transferFeature (held-carrier rotation)       │
   │   zindex_commit              → setZIndexCommit                               │
-  │   shadow_t10                 → bundled with mutate / setZIndex / solve       │
-  │   solve_shadow_v2            → solve  (PI + chain palette open + freeze)     │
+  │   reveal_slot                → revealSlots                                   │
+  │   shadow_t10                 → bundled with state/view updates               │
+  │   solve_shadow_v2            → solve/reveal verification path                │
   └──────────────────────────────────────────────────────────────────────────────┘
          │  B. forge script broadcasts tx; verifier reads PI from proof bytes
          ▼
   ┌──────────────────────────────────────────────────────────────────────────────┐
-  │ 3.  Base Sepolia (L2)  —  pipeline #5  canonical                             │
+  │ 3.  Base Sepolia (L2)  — current modular phased-mint stack                   │
   ├──────────────────────────────────────────────────────────────────────────────┤
-  │ KeyRegistry            0xA71143F4E5bB5a11C98e9A1eE8D02b4344f3a2eE            │
-  │   pkOf(EOA) → (Grumpkin pk_x, pk_y);  one-shot register per EOA.             │
-  │   Every proof-bound entry point reads pkOf(msg.sender) and asserts           │
-  │   it matches the proof's owner_pk PI fields.                                 │
-  ├──────────────────────────────────────────────────────────────────────────────┤
-  │ ShadowToken    0xbf9f3FC142f497774986345F027d3eaCa7Eba810   ERC721           │
-  ├──────────────────────────────────────────────────────────────────────────────┤
-  │ shadows[id]    { ecdhPubX/Y, t10Hi/Lo, zIndexCommit, zIndexRevealed,         │
-  │                  solved }                                                    │
-  │ manifest[id][16]    ManifestEntry { kind, featureId, liveStateHash }         │
-  │ registeredImages[imageCommit]   set by registerImage (1-shot)                │
-  │ mintedOrigins[imageCommit]      set by mintShadow    (1-shot)                │
+  │ KeyRegistry            0x8c00dD1B1AA71099C9055942F22dB63Dc4361F9D            │
+  │ ShadowMintController   0x68f777E5B1b8E6b1099F3d8D6153a7C5c9d19A9b            │
+  │ ShadowToken            0x73a2bb3411B1a5D6f9df5a06d3b4bFBA95970e3d            │
+  │ FeatureNFT             0x6CfAD30a588a57946b306136D4094ca0c07f51aC            │
   │                                                                              │
-  │ Entry points and the verifier each invokes:                                  │
+  │ registeredImages[imageCommit]   set by registerImage                         │
+  │ mintedOrigins[imageCommit]      set at phased mint finalization              │
+  │                                                                              │
+  │ Current mint path:                                                           │
   │   registerImage       → FaceDiscVerifier                                     │
-  │   mintShadow          → MintShadowVerifier  + ShadowT10Verifier              │
-  │   mutateSlot          → MutateSlotVerifier  + ShadowT10Verifier              │
-  │   mutateBatch         → MutateSlotVerifier ×2  + ShadowT10Verifier           │
-  │   extractSlot         → ShadowT10Verifier   (FeatureNFT.mint side)           │
-  │   insertFeature       → ShadowT10Verifier   (lsh checkpoint check)           │
-  │   setZIndexCommit     → ZIndexCommitVerifier + ShadowT10Verifier             │
-  │   transferShadow      → TransferShadowVerifier + ShadowT10Verifier           │
-  │   solve               → SolveShadowVerifier + per-slot palette open          │
-  │   bridgeShadow        → no ZK (requires isSolved + ownership)                │
+  │   beginMintShadow     → MintShadowVerifier                                   │
+  │   submitCiphertexts   → on-chain sponge_39(c2) == proof-bound ctCommit       │
+  │   finalizeMintShadow  → ShadowT10Verifier + ShadowToken installation hook    │
+  │                                                                              │
+  │ Other entry points: mutateSlot, mutateBatch, extractSlot, insertFeature,     │
+  │ revealSlots, setZIndexCommit, transferShadow, transferFeature, bridgeShadow. │
   ├──────────────────────────────────────────────────────────────────────────────┤
   │ FeatureNFT    0x414606aBa41297a4Dc71F2603453177885499f16   ERC721            │
   ├──────────────────────────────────────────────────────────────────────────────┤
@@ -118,7 +108,7 @@ shadow eventually mints a mirror NFT on L1.
   │                  hostShadowId or 0  (custody-locked while inserted) }        │
   │                                                                              │
   │ paletteCommit  immutable, set at mint via mintAtShadowMint(...)              │
-  │                opened at solve via revealPaletteAtSolve(...)  which          │
+  │                opened by incremental revealInsertedFeature(...) which       │
   │                recomputes sponge_palette_salt(palette,salt) on chain         │
   │                and asserts == features[id].paletteCommit.                    │
   │ ERC721 transferFrom is GATED — reverts while a carrier is inserted           │
@@ -274,21 +264,24 @@ written to `runs/validation_renders/`.
 
 ## Real-network verification
 
-Both end-to-end scenarios passed on Base Sepolia. Tx hashes for one canonical
-run (38/38 checks) are recorded in [`examples/verification.md`](examples/verification.md).
+Current Base Sepolia verification uses the modular phased-mint deploy/mint scripts
+and the on-chain verifier script recorded in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+The removed legacy `sepolia_e2e.py` harness targeted the pre-controller mint
+surface and should not be used as evidence for the current contracts.
 
-To run your own:
+Typical current flow:
 
 ```sh
-cd tools
-python3 gen_test_keys.py                      # mints fresh Grumpkin + secp256k1 keypairs
-python3 sepolia_e2e.py --scenario transfer    # 34 checks: mint, mutate, extract, transferShadow
-python3 sepolia_e2e.py --scenario solve       # 38 checks: + solve + transferFeature + post-solve
-python3 run_bridge.py                         # L2 → L1 cross-chain bridge (lock-on-L2 leg)
+cd contracts
+forge script script/DeployShadowPipeline.s.sol:DeployShadowPipeline --broadcast --rpc-url $BASE_SEPOLIA_RPC --private-key $PRIVATE_KEY
+ST_ADDRESS=0x... KR_ADDRESS=0x... MC_ADDRESS=0x... FIX=./test/fixtures/atomic_mint/latest_testnet_incremental \
+  BEGIN_SUBMIT_COUNT=0 SUBMIT_CHUNK_SIZE=1 \
+  forge script script/MintOnSepolia.s.sol:MintOnSepolia --broadcast --rpc-url $BASE_SEPOLIA_RPC --private-key $PRIVATE_KEY
+cd ..
+python3 tools/verify_onchain_mint.py ...
 ```
 
-Requires `PRIVATE_KEY` in a top-level `.env` and a funded Base Sepolia EOA
-(deploys cost ~0.001 ETH per scenario).
+Requires `PRIVATE_KEY` in a top-level `.env` and a funded Base Sepolia EOA.
 
 ## Documentation
 

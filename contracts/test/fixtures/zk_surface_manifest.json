@@ -60,18 +60,17 @@
       "negative_tests": ["test_mutateBatch_reverts_when_entry_c2_tampered", "test_mutateBatch_reverts_when_entry_c2_field_noncanonical", "test_mutateBatch_reverts_when_first_proof_tampered", "test_mutateBatch_reverts_when_second_proof_tampered"]
     },
     {
-      "name": "solveShadow",
-      "contract_entrypoints": ["ShadowToken.solve"],
+      "name": "incrementalFeatureReveal",
+      "contract_entrypoints": ["ShadowToken.revealSlots"],
       "circuit_dir": "circuits/solve_shadow_v2",
       "verifier": "contracts/src/SolveShadowVerifier.sol",
-      "external_public_inputs": 7,
+      "external_public_inputs": 9,
       "byte_outputs": [
-        {"name": "plaintexts", "event": "FeatureSlotRevealed", "kind": "bytes[16]", "binding": "sponge_39(plaintext[i]) == stateCommits[i]; sponge_16(stateCommits) == solve PI[1]"},
-        {"name": "paletteRGB", "event": "FeaturePaletteRevealed", "kind": "bytes", "binding": "palette/salt sponge_17 equals stored paletteCommit; RGB fields must be uint24"},
-        {"name": "zIndexRevealed", "event": "ShadowSolved", "kind": "uint64", "binding": "solve proof PI[6]"}
+        {"name": "plaintext", "event": "FeatureSlotRevealed", "kind": "bytes", "binding": "ShadowToken requires sponge_39(plaintext) == reveal PI[4] stateCommit before calling FeatureNFT.revealInsertedFeature"},
+        {"name": "paletteRGB", "event": "FeaturePaletteRevealed", "kind": "bytes", "binding": "FeatureNFT recomputes sponge_palette_salt(palette, salt) == stored paletteCommit; reveal PI[5] binds that paletteCommit"}
       ],
-      "positive_tests": ["test_solve_success_freezes_shadow_and_extracts_carriers"],
-      "negative_tests": ["test_solve_reverts_when_plaintext_tampered", "test_solve_reverts_when_plaintext_field_noncanonical", "test_solve_reverts_when_empty_slot_has_nonzero_plaintext", "test_solve_reverts_when_empty_slot_has_nonzero_state_commit"]
+      "positive_tests": ["test_revealSlot_reveals_one_slot_without_global_solve_session", "test_revealSlots_batches_and_sets_solved_when_no_hidden_slots_remain"],
+      "negative_tests": ["test_revealSlot_reverts_when_plaintext_not_proof_bound", "test_revealSlot_reverts_for_already_revealed_slot"]
     },
     {
       "name": "transferShadow",

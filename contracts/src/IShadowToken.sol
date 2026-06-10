@@ -9,31 +9,28 @@ pragma solidity ^0.8.27;
 interface IShadowToken {
     enum SlotKind {
         EMPTY,
-        OCCUPIED
+        OCCUPIED,
+        REVEALED
     }
 
     struct ManifestEntry {
         SlotKind kind;
         uint256 featureId;
         bytes32 liveStateHash;
+        uint16 mutationCount;
+        bytes32 chainTip;
     }
 
-    struct Shadow {
-        bytes32 ecdhPubX;
-        bytes32 ecdhPubY;
-        bool solved;
-        bytes32 zIndexCommit;
-        uint64 zIndexRevealed;
-        bool zIndexRevealedSet;
-        uint64 mintIdx;
-        uint64 mintedAt;
-    }
 
     function ownerOf(uint256 tokenId) external view returns (address);
     function transferFrom(address from, address to, uint256 tokenId) external;
-    function isSolved(uint256 tokenId) external view returns (bool);
-    function shadowOf(uint256 shadowId) external view returns (Shadow memory);
-    function manifestOf(uint256 shadowId) external view returns (ManifestEntry[16] memory);
+    function shadowHeaderOf(uint256 shadowId) external view returns (
+        bytes32 ecdhPubX,
+        bytes32 ecdhPubY,
+        bool solved,
+        bytes32 zIndexCommit
+    );
+    function slotOf(uint256 shadowId, uint8 slotIdx) external view returns (ManifestEntry memory);
     function shadowT10(uint256 shadowId, uint256 i) external view returns (bytes32);
     /// Address of the deployed `Poseidon2YulSponge` wrapper. FeatureNFT uses
     /// this for byte-level c2 binding in `transferFeature` (audit H-02)

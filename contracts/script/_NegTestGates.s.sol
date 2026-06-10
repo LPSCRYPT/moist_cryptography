@@ -3,16 +3,17 @@ pragma solidity ^0.8.27;
 
 import {Script, console, stdJson} from "forge-std/Script.sol";
 import {ShadowToken} from "../src/ShadowToken.sol";
+import {ShadowMintController} from "../src/ShadowMintController.sol";
 
 /// Simulate (via eth_call, no broadcast) the two negative paths against
 /// the live deployed ShadowToken to capture the literal revert selectors:
 ///
-///   (a) mintShadow with an UNREGISTERED imageCommit -> ImageNotRegistered
-///   (b) mintShadow with the SAME imageCommit that's already minted ->
+///   (a) beginMintShadow with an UNREGISTERED imageCommit -> ImageNotRegistered
+///   (b) beginMintShadow with the SAME imageCommit that's already minted ->
 ///       AlreadyMinted (this also proves the anti-replay armed)
 ///
 /// Run:
-///   ST_ADDRESS=0x... FIX=./test/fixtures/atomic_mint/atomic_mint_demo \
+///   ST_ADDRESS=0x... MC_ADDRESS=0x... FIX=./test/fixtures/atomic_mint/atomic_mint_demo \
 ///     forge script script/_NegTestGates.s.sol:_NegTestGates \
 ///         --rpc-url $RPC --sender 0x1b43AFe43afC74bF9D0EBd764787eFD7CCcC2B6F
 contract _NegTestGates is Script {
@@ -80,43 +81,43 @@ contract _NegTestGates is Script {
         args.paletteSaltCts = _paletteSaltCts;
         args.saltC1Xs = _saltC1Xs;
         args.saltC1Ys = _saltC1Ys;
-        args.c2s = _c2s;
         args.newT10 = _t10;
-        args.proofT10 = _proofT10;
     }
 
     function run() external {
         address stAddr = vm.envAddress("ST_ADDRESS");
+        address mcAddr = vm.envAddress("MC_ADDRESS");
         string memory fix = vm.envString("FIX");
         _loadFixture(fix);
         ShadowToken st = ShadowToken(stAddr);
+        ShadowMintController mc = ShadowMintController(mcAddr);
 
         console.log("=== NEG TEST (a): mint with UNREGISTERED imageCommit ===");
         bytes32 fakeIc = bytes32(uint256(0xdeadbeefcafebabe));
         require(!st.registeredImages(fakeIc), "fake ic accidentally registered");
         require(!st.mintedOrigins(fakeIc), "fake ic accidentally minted");
-        try st.mintShadow(_buildArgs(fakeIc)) {
+        try mc.beginMintShadow(_buildArgs(fakeIc), msg.sender) {
             revert("expected revert, got success");
         } catch (bytes memory err) {
             bytes4 sel;
             assembly { sel := mload(add(err, 0x20)) }
             console.log("revert selector (4 bytes):");
             console.logBytes4(sel);
-            require(sel == ShadowToken.ImageNotRegistered.selector, "expected ImageNotRegistered selector");
+            require(sel == ShadowMintController.ImageNotRegistered.selector, "expected ImageNotRegistered selector");
             console.log("OK: ImageNotRegistered(bytes32) selector matched");
         }
 
         console.log("");
         console.log("=== NEG TEST (b): mint with ALREADY-MINTED imageCommit ===");
         require(st.mintedOrigins(_imageCommit), "preconditions broken");
-        try st.mintShadow(_buildArgs(_imageCommit)) {
+        try mc.beginMintShadow(_buildArgs(_imageCommit), msg.sender) {
             revert("expected revert, got success");
         } catch (bytes memory err) {
             bytes4 sel;
             assembly { sel := mload(add(err, 0x20)) }
             console.log("revert selector (4 bytes):");
             console.logBytes4(sel);
-            require(sel == ShadowToken.AlreadyMinted.selector, "expected AlreadyMinted selector");
+            require(sel == ShadowMintController.AlreadyMinted.selector, "expected AlreadyMinted selector");
             console.log("OK: AlreadyMinted(bytes32) selector matched");
         }
 

@@ -1,3 +1,5 @@
+<!-- Superseded by incremental per-slot reveal. Kept only as historical design context. -->
+
 # Reveal at solve — full canonical-image design
 
 **Branch:** `reveal-update`. **Status:** in progress, supersedes
@@ -77,7 +79,7 @@ now derives it on chain via `sponge_39(plaintexts[i])`.
 7. s.solved = true; s.zIndexRevealed = uint64(zPermPacked); s.zIndexRevealedSet = true;  (existing)
 8. For each OCCUPIED slot i:
      featureId = manifest[i].featureId
-     featureNFT.revealPaletteAtSolve(featureId, palettes[i], paletteSalts[i])  (NEW)
+     featureNFT.revealInsertedFeature(featureId, palettes[i], paletteSalts[i])
        which on FeatureNFT:
          - asserts sponge_palette_salt(palette, salt) == f.paletteCommit  (NEW Yul)
          - asserts !f.paletteRevealed                              (NEW)
@@ -112,7 +114,7 @@ event ShadowSolved(uint256 indexed shadowId, address indexed solver, uint64 zInd
 |---|---|
 | `FeatureNFT.revealPalette(featureId, proof, pi)` | Reveal happens in solve only |
 | `FeatureNFT.paletteRevealVerifier` slot + `setPaletteRevealVerifier` | No verifier needed |
-| `FeatureNFT.PaletteAlreadyRevealed` error | One-shot enforced via `paletteRevealed` flag at `revealPaletteAtSolve` |
+| `FeatureNFT.PaletteAlreadyRevealed` error | One-shot enforced via `paletteRevealed` flag at `revealInsertedFeature` |
 | `FeatureNFT.PALETTE_REVEAL_PI_LEN` | n/a |
 | `FeatureNFT.SLOT_PALETTE_REVEAL` | n/a |
 | `circuits/palette_reveal_v2/` | Soundness via on-chain sponge |
@@ -184,7 +186,7 @@ implemented and tested:
 
 1. `Poseidon2YulSpongePaletteSalt` Yul contract + integration test.
 2. FeatureNFT: drop standalone revealPalette surface.
-3. FeatureNFT: add `revealPaletteAtSolve` ShadowToken-only.
+3. FeatureNFT: add `revealInsertedFeature` ShadowToken-only.
 4. FeatureNFT: add `FeatureSlotRevealed` event.
 5. ShadowToken.solve: extend SolveArgs, add per-slot reveal logic,
    derive stateCommits internally.

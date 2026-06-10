@@ -49,7 +49,6 @@ STAGING_REFACTOR/
 # poseidon2_state / keystream call. Track only `*.example` files for these.
 circuits/_poseidon2_state_helper/Prover.toml
 circuits/_ecies_keystream_helper/Prover.toml
-circuits/*/target/
 circuits/mutate_slot/Prover.toml
 circuits/zindex_commit/Prover.toml
 circuits/shadow_t10/Prover.toml

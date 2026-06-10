@@ -9,7 +9,7 @@ import {ShadowBridgeL2} from "../src/ShadowBridgeL2.sol";
 ///
 /// Pre-conditions (verified at runtime; will revert loud rather than silent):
 ///   - msg.sender == ShadowToken.ownerOf(shadowId)
-///   - ShadowToken.isSolved(shadowId)
+///   - ShadowToken.shadowHeaderOf(shadowId).solved
 ///   - L2 bridge has L1 mirror set
 ///   - L2 bridge has approval to transfer the shadow (requires the owner
 ///     to have called setApprovalForAll(bridge, true) OR approve(bridge,
@@ -38,7 +38,8 @@ contract BridgeShadowOnSepolia is Script {
         ShadowToken st = ShadowToken(stAddr);
 
         require(br.l1Mirror() != address(0), "L2 bridge: l1Mirror not set");
-        require(st.isSolved(shadowId), "shadow not solved");
+        (,, bool solved,) = st.shadowHeaderOf(shadowId);
+        require(solved, "shadow not solved");
 
         console.log("=== bridgeShadow ===");
         console.log("ST       :", stAddr);

@@ -1,10 +1,9 @@
 # Security
 
-This document describes the security model of the **pipeline #6
-contract set** (envelope-binding cutover; canonical addresses in
-[`DEPLOYMENT.md`](DEPLOYMENT.md)). Pipeline #5 is the prior live deployment
-and remains functionally unchanged but does NOT carry the byte-level binding
-this document describes.
+This document describes the security model of the **current modular phased-mint
+contract set** (envelope-binding cutover plus `ShadowMintController`; canonical
+addresses in [`DEPLOYMENT.md`](DEPLOYMENT.md)). Historical pipeline labels in
+older docs are deployment references only, not the current source-of-truth model.
 
 This is the security posture as it actually behaves on chain today, not
 as originally specified. Where current behaviour is weaker than the
@@ -44,16 +43,16 @@ The system rests on three primitives:
 ## Envelope binding (post-cutover)
 
 Every byte payload the contract emits on a state-changing op is
-**bound to the proof at the byte level**: the contract recomputes the
-byte digest in the same transaction and asserts equality with the
-proof-bound commitment, before any state write or event emission.
+**bound to the proof at the byte level**: the relevant contract recomputes
+the byte digest in the same transaction and asserts equality with the
+proof-bound commitment, before accepting the payload or writing final state.
 Tampering with the wire bytes after proof generation reverts the entire
 tx; a partial state advance is impossible.
 
 | Op | Bound bytes | Binding mechanism |
 |---|---|---|
-| `mintShadow` | per-slot `c2s[i]` (ECIES envelope) | contract `sponge_39(c2s[i]) == ctCommits[i]` (proof PI[5]) |
-| `mintShadow` | per-slot `originFaceIds[i]` | contract `poseidon2_hash_2(imageCommit, i) == originFaceIds[i]` via Yul `hash_2` staticcall |
+| phased mint `submitMintCiphertexts` | per-slot `c2s[i]` (ECIES envelope) | `ShadowMintController` checks `sponge_39(c2s[i]) == ctCommits[i]`; `ctCommits` are bound by mint proof PI[5] at `beginMintShadow` |
+| phased mint `beginMintShadow` / `finalizeMintShadow` | per-slot `originFaceIds[i]` | controller and token check `poseidon2_hash_2(imageCommit, i) == originFaceIds[i]` via Yul `hash_2` staticcall |
 | `mutateSlot` | `c2` envelope | contract `sponge_39(c2) == newCtCommit` |
 | `mutateBatch` | per-entry `c2` | per-entry contract `sponge_39(e.c2) == e.newCtCommit` |
 | `insertFeature` | `c2` | contract `sponge_39(c2) == newCtCommit` |
@@ -107,7 +106,7 @@ becomes the source of truth.
   only key that can decrypt the rotated `c2`.
 - **face_disc as a soft gate.** `registerImage` requires a `face_disc`
   proof over an image whose `image_commit` is then required by
-  `mintShadow`. The mint circuit itself (`landmark_regions_v2`) does
+  `beginMintShadow`. The mint circuit itself (`landmark_regions_v2`) does
   not bind face semantics — it proves "I know an image with these
   per-region commitments". Face gating lives in the flow, not in the
   mint circuit. A `face_disc` verifier with weak discriminator
@@ -129,14 +128,32 @@ A local code-and-cryptography audit (`/audit/`, gitignored) identified
 several findings not visible to Slither. Two rounds of remediation
 (passes 1 and 2) have landed; see "Known limitations" for what remains.
 
+## Test taxonomy
+
+The repo uses different test categories for different evidence:
+
+- **Real-proof tests** exercise generated verifier contracts with committed proof
+  fixtures and are release/security evidence.
+- **Generated-verifier rejection/fuzz tests** check verifier and public-input
+  surfaces against malformed witnesses or calldata.
+- **Mock-verifier behavior tests** isolate contract state-machine behavior and
+  edge cases; they are useful regression tests but are not cryptographic
+  evidence.
+- **Mock-verifier gas attribution tests** isolate storage/event overhead; they
+  are diagnostics, not proof/security evidence.
+
+Do not summarize the whole Forge surface as "no mocks" unless referring only to
+the real-proof assurance subset.
+
 ## Known limitations
 
 1. **Bridge round-trip via OP messenger has 7-day L2->L1 finality**
    (OP withdrawal challenge period). Fast bridges with external trust
    are not implemented.
 
-2. **No external audit.** Forge surface is covered by real proofs and no
-   mocks, but a third-party audit has not been commissioned.
+2. **No external audit.** The repo has real-proof assurance tests and separate
+   mock-verifier behavior/diagnostic tests, but a third-party audit has not been
+   commissioned.
 
 3. **Some max-occupancy proof paths are high-gas.** Stress tests cover
    these paths, but worst-case occupancy remains above common live-chain

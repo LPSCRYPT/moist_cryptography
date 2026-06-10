@@ -85,10 +85,10 @@ contract GeneratedVerifierMatrixTest is Test {
             Fixture({
                 name: "SolveShadowVerifier",
                 verifier: IGeneratedVerifier(address(new SolveShadowVerifier())),
-                proofPath: "./test/fixtures/solve_shadow_v2/solve_demo/proof.bin",
-                piPath: "./test/fixtures/solve_shadow_v2/solve_demo/public_inputs.bin",
-                piLen: 7,
-                generatedPiLen: 15
+                proofPath: "./test/fixtures/solve_shadow_v2/incremental_reveal_contract/proof.bin",
+                piPath: "./test/fixtures/solve_shadow_v2/incremental_reveal_contract/public_inputs.bin",
+                piLen: 9,
+                generatedPiLen: 17
             })
         );
     }

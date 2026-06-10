@@ -16,7 +16,7 @@ pragma solidity >=0.8.8;
 ///
 /// Calldata: exactly 17 fields = 544 bytes, big-endian; first 16 are
 /// the palette (24-bit RGB packed as full Fields, high bits ignored
-/// by the FeatureNFT.revealPaletteAtSolve unpacker), 17th is the salt.
+/// by the FeatureNFT.revealInsertedFeature unpacker), 17th is the salt.
 /// Returns: 32 bytes = state[0] reduced mod PRIME.
 ///
 /// @dev Permutation body identical to Poseidon2YulSponge16 (verbatim copy).

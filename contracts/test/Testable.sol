@@ -184,16 +184,11 @@ contract TestableShadowToken is ShadowToken {
         s.zIndexCommit = commit;
     }
 
-    /// Test-only: mark a shadow as solved + write zIndexRevealed +
-    /// shadowT10. Used by BridgeShadow tests to simulate a post-solve
-    /// chain state without driving the full solve flow (which requires
-    /// a real solve_shadow_v2 proof). Spec criterion: bridge MUST work
-    /// against v2 storage post-solve.
-    function setShadowSolvedForTest(uint256 shadowId, uint64 zIndexRevealed, bytes32 t10Hi, bytes32 t10Lo) external {
+    /// Test-only: mark a shadow as fully revealed/solved + write shadowT10.
+    /// Used by BridgeShadow tests to simulate bridgeable state.
+    function setShadowSolvedForTest(uint256 shadowId, bytes32 t10Hi, bytes32 t10Lo) external {
         Shadow storage s = _shadowsStorage(shadowId);
         s.solved = true;
-        s.zIndexRevealed = zIndexRevealed;
-        s.zIndexRevealedSet = true;
         shadowT10[shadowId][0] = t10Hi;
         shadowT10[shadowId][1] = t10Lo;
     }
@@ -209,12 +204,11 @@ contract TestableShadowToken is ShadowToken {
     }
 
     /// Pinned storage slot of `ShadowToken._shadows` mapping. Derived from
-    /// `forge inspect ShadowToken storage-layout`. Bumped from 19 → 20 in
-    /// the envelope-binding cutover when `yulHash2` + `_yulHash2Locked`
-    /// were inserted before `keyRegistry` to set up the H-05 binding.
-    uint256 private constant _SHADOWS_SLOT = 20;
-    /// Pinned storage slot of `ShadowToken._manifests` mapping. Bumped 20→21.
-    uint256 private constant _MANIFESTS_SLOT = 21;
+    /// `forge inspect ShadowToken storage-layout`. Bumped 20 → 21 when the
+    /// phased mint controller pointer was inserted before verifier storage.
+    uint256 private constant _SHADOWS_SLOT = 21;
+    /// Pinned storage slot of `ShadowToken._manifests` mapping. Bumped 21→22.
+    uint256 private constant _MANIFESTS_SLOT = 22;
 
     function _shadowsStorage(uint256 shadowId) private pure returns (Shadow storage s) {
         uint256 slot = _SHADOWS_SLOT;

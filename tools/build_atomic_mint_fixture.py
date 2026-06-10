@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate a *linked* landmark_regions_v2 + shadow_t10 mint fixture.
+"""Generate a linked landmark_regions_v2 + shadow_t10 phased-mint fixture.
 
-Bundles a real-proof set the ShadowToken.mintShadow Forge test consumes:
+Bundles a real-proof set consumed by ShadowMintController/ShadowToken Forge tests:
 
   - landmark_regions_v2: 8 origin slots witnessed by owner; 7 PI matched
     against on-chain hash-roots (lsh_inits_root, ct_commits_root,
-    chain_tips_root) reconstructed from per-slot calldata.
+    chain_tips_root) reconstructed from per-slot ciphertext submissions.
   - face_disc: pre-baked from contracts/test/fixtures/face_disc/alice0
     (its imageCommit drives the mint witness so both proofs share PI[1]).
   - shadow_t10: built against the post-mint manifest array
@@ -176,9 +176,9 @@ def build_witness(seed: bytes, image_commit: int, owner_seed: bytes | None = Non
         salt_c1_ys.append(c1_salt[1])
 
     # CONSISTENCY: every emitted palette_commit MUST open via sponge_palette_salt
-    # to the published palettes/palette_salts. Without this, ShadowToken.solve will
-    # revert at FeatureNFT.revealPaletteAtSolve. Old fixtures (atomic_mint_demo,
-    # atomic_mint_demo_b) violated this and stranded their on-chain shadows
+    # to the published palettes/palette_salts. Without this, incremental reveal
+    # will revert at FeatureNFT.revealInsertedFeature. Old fixtures
+    # (atomic_mint_demo, atomic_mint_demo_b) violated this and stranded their
     # un-solvable -- assertion blocks any future drift.
     for i in range(N_MINT):
         recomputed = sponge_palette_salt(palettes[i], palette_salts[i])

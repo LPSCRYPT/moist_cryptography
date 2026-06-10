@@ -284,6 +284,8 @@ def main() -> None:
     ap.add_argument("--out-seed", default="transfer_feature_v2_a_slot0")
     ap.add_argument("--no-prove", action="store_true",
                     help="just write witness JSON; skip nargo execute / bb prove")
+    ap.add_argument("--keep-prover", action="store_true",
+                    help="leave Prover.toml in place after --no-prove witness materialization")
     ap.add_argument("--rebuild-verifier", action="store_true",
                     help="after prove+verify, regenerate contracts/src/TransferFeatureV2Verifier.sol")
     args = ap.parse_args()
@@ -314,7 +316,8 @@ def main() -> None:
     print(f"[3/6] write Prover.toml")
     prover = CIRCUIT_DIR / "Prover.toml"
     write_prover_toml(w, prover)
-    atexit.register(_delete_if_exists, prover)
+    if not args.keep_prover:
+        atexit.register(_delete_if_exists, prover)
 
     fix_dir = FIXTURE_ROOT / args.out_seed
     fix_dir.mkdir(parents=True, exist_ok=True)

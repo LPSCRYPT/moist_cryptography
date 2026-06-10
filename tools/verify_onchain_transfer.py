@@ -4,7 +4,7 @@
 For the host shadow whose transferShadow tx is the latest broadcast in
 contracts/broadcast/TransferOnSepolia.s.sol/<chain>/run-latest.json:
   1. Read the post-rotation per-slot LSH from chain (`slotOf`).
-  2. Read the post-rotation ecdhPub from chain (`shadowOf`).
+  2. Read the post-rotation ecdhPub from chain (`shadowHeaderOf`).
   3. Read the recipient's address from chain (`ownerOf(shadowId)`).
   4. Pull the per-slot c2 calldata from the broadcast's tx receipt logs
      (or from the fixture's meta.json side-car; we do the latter for
@@ -79,10 +79,10 @@ def main() -> None:
 
     # 2. ecdhPub check.
     sout = cast_call(args.rpc, args.st,
-                     "shadowOf(uint256)((bytes32,bytes32,bool,bytes32,uint64,bool,uint64,uint64))",
+                     "shadowHeaderOf(uint256)(bytes32,bytes32,bool,bytes32)",
                      shadow_id)
     # Parse the tuple's first two elements.
-    # cast outputs: (0x..., 0x..., bool, 0x..., uint, bool, uint, uint)
+    # cast outputs: 0x..., 0x..., bool, 0x...
     pieces = [p.strip() for p in sout.strip("()").split(",")]
     ecdh_x_chain = pieces[0]
     ecdh_y_chain = pieces[1]
@@ -90,7 +90,7 @@ def main() -> None:
         f"ecdhPubX mismatch: chain={ecdh_x_chain} fixture={meta['recipient_pk_x']}"
     assert ecdh_y_chain.lower() == meta["recipient_pk_y"].lower(), \
         f"ecdhPubY mismatch: chain={ecdh_y_chain} fixture={meta['recipient_pk_y']}"
-    print(f"[ok] shadow.ecdhPub rotated to recipient_pk")
+    print(f"[ok] shadow header ecdhPub rotated to recipient_pk")
 
     # 3. Per-slot LSH match.
     for i in range(16):

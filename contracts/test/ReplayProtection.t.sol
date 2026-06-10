@@ -66,8 +66,8 @@ contract ReplayMutateSlotTest is Test {
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         vMut = new MutateSlotVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_MUTATE_SLOT(), IVerifier(address(vMut)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(2, IVerifier(address(vMut)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         _seedAndBuildArgs();
     }
@@ -168,7 +168,7 @@ contract ReplayExtractSlotTest is Test {
         fn = new TestableFeatureNFT(address(st));
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
 
@@ -263,8 +263,8 @@ contract ReplayTransferShadowTest is Test {
         st.setYulSponge16(address(sponge16));
         vT = new TransferShadowVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_TRANSFER_SHADOW(), IVerifier(address(vT)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(5, IVerifier(address(vT)));
+        st.setVerifier(3, IVerifier(address(vT10)));
         kr = new KeyRegistry();
         st.setKeyRegistry(kr);
     }
@@ -434,8 +434,8 @@ contract ReplayInsertFeatureTest is Test {
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         vMut = new MutateSlotVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_MUTATE_SLOT(), IVerifier(address(vMut)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(2, IVerifier(address(vMut)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         bytes memory proofMut = vm.readFileBinary(string.concat(FIX, "/proof_mut.bin"));
         bytes32[] memory piMut = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), 16);
@@ -545,8 +545,8 @@ contract ReplaySetZIndexCommitTest is Test {
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         vZ = new ZIndexCommitVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_ZINDEX_COMMIT(), IVerifier(address(vZ)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(4, IVerifier(address(vZ)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         bytes memory proofZ = vm.readFileBinary(string.concat(FIX, "/proof_z.bin"));
         bytes memory proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
@@ -580,13 +580,13 @@ contract ReplaySetZIndexCommitTest is Test {
     function test_setZIndexCommit_replay_is_idempotent_by_design() public {
         vm.prank(alice);
         st.setZIndexCommit(args);
-        bytes32 zPost1 = st.shadowOf(shadowId).zIndexCommit;
+        (,,, bytes32 zPost1) = st.shadowHeaderOf(shadowId);
         assertEq(zPost1, newZCommit, "first: commit set");
 
         // Second identical call must succeed (no anti-replay state).
         vm.prank(alice);
         st.setZIndexCommit(args);
-        bytes32 zPost2 = st.shadowOf(shadowId).zIndexCommit;
+        (,,, bytes32 zPost2) = st.shadowHeaderOf(shadowId);
         assertEq(zPost2, newZCommit, "second: commit same value (idempotent)");
     }
 
@@ -598,7 +598,7 @@ contract ReplaySetZIndexCommitTest is Test {
 
         // Mark solved via test harness (no real solve proof needed for this
         // assertion; the AlreadySolved guard fires before any proof work).
-        st.setShadowSolvedForTest(shadowId, 0x0123456789abcdef, bytes32(uint256(1)), bytes32(uint256(2)));
+        st.setShadowSolvedForTest(shadowId, bytes32(uint256(1)), bytes32(uint256(2)));
 
         vm.prank(alice);
         vm.expectRevert(ShadowToken.AlreadySolved.selector);

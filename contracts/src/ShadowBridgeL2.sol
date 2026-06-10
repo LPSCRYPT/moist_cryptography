@@ -82,36 +82,39 @@ contract ShadowBridgeL2 {
     /// is determined by the v2 solve circuit and validated off-chain
     /// by the L1 indexer.
     function bridgeShadow(uint256 shadowId, address l1Recipient, bytes calldata revealedPi) external {
+        IShadowToken st = shadowToken;
         if (l1Mirror == address(0)) revert L1MirrorNotSet();
         if (l1Recipient == address(0)) revert ZeroAddress();
-        if (shadowToken.ownerOf(shadowId) != msg.sender) revert NotShadowOwner();
-        if (!shadowToken.isSolved(shadowId)) revert NotSolved();
+        if (st.ownerOf(shadowId) != msg.sender) revert NotShadowOwner();
         if (revealedPi.length == 0 || revealedPi.length % 32 != 0) revert BadRevealedPi();
 
-        IShadowToken.Shadow memory s = shadowToken.shadowOf(shadowId);
-        IShadowToken.ManifestEntry[16] memory m = shadowToken.manifestOf(shadowId);
-
+        (bytes32 ecdhPubX, bytes32 ecdhPubY, bool solved, bytes32 zIndexCommit) = st.shadowHeaderOf(shadowId);
+        if (!solved) revert NotSolved();
         ShadowMirrorL1.BridgePayload memory p;
         p.shadowId = shadowId;
         p.recipient = l1Recipient;
-        p.ecdhPubX = s.ecdhPubX;
-        p.ecdhPubY = s.ecdhPubY;
-        p.t10Hi = shadowToken.shadowT10(shadowId, 0);
-        p.t10Lo = shadowToken.shadowT10(shadowId, 1);
-        p.zIndexCommit = s.zIndexCommit;
-        p.zIndexRevealed = s.zIndexRevealed;
-        for (uint256 i = 0; i < 16; i++) {
-            p.manifest[i] = m[i];
-            if (m[i].kind == IShadowToken.SlotKind.OCCUPIED) {
-                p.typeIdxs[i] = featureNFT.typeIdxOf(m[i].featureId);
-                p.originFaceIds[i] = featureNFT.originFaceIdOf(m[i].featureId);
-                p.paletteCommits[i] = featureNFT.paletteCommitOf(m[i].featureId);
+        p.ecdhPubX = ecdhPubX;
+        p.ecdhPubY = ecdhPubY;
+        p.t10Hi = st.shadowT10(shadowId, 0);
+        p.t10Lo = st.shadowT10(shadowId, 1);
+        p.zIndexCommit = zIndexCommit;
+        IFeatureNFT fn = featureNFT;
+        for (uint256 i = 0; i < 16;) {
+            IShadowToken.ManifestEntry memory m = st.slotOf(shadowId, uint8(i));
+            p.manifest[i] = m;
+            if (m.kind == IShadowToken.SlotKind.OCCUPIED) {
+                p.typeIdxs[i] = fn.typeIdxOf(m.featureId);
+                p.originFaceIds[i] = fn.originFaceIdOf(m.featureId);
+                p.paletteCommits[i] = fn.paletteCommitOf(m.featureId);
+            }
+            unchecked {
+                ++i;
             }
         }
         p.revealedPi = revealedPi;
 
         bridged[shadowId] = BridgeState.OWNED_ON_L1;
-        shadowToken.transferFrom(msg.sender, address(this), shadowId);
+        st.transferFrom(msg.sender, address(this), shadowId);
 
         bytes memory message = abi.encodeWithSelector(ShadowMirrorL1.mintFromBridge.selector, p);
 

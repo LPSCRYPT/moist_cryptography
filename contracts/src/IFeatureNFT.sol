@@ -6,8 +6,8 @@ pragma solidity ^0.8.27;
 /// In v2 every atom is a FeatureNFT from the moment it exists. ShadowToken
 /// drives three privileged transitions on FeatureNFT:
 ///
-///   1. mintAtShadowMint: at shadow-mint, atomically mint 8 carriers and
-///      install them into slots 0..7 of the new shadow.
+///   1. mintAtShadowMint: at phased mint finalization, atomically mint 8
+///      carriers and install them into slots 0..7 of the new shadow.
 ///   2. extractFromShadow: when a slot is extracted, copy the slot's
 ///      current `liveStateHash` into the carrier's checkpoint and clear
 ///      `isInserted`. The carrier becomes a held ERC-721.
@@ -22,12 +22,12 @@ pragma solidity ^0.8.27;
 /// only exit is `extractFromShadow`, which the host shadow drives.
 interface IFeatureNFT {
     /// Bundle of the per-carrier palette commitment + its salt envelope at
-    /// mint. The commit is stored on chain (bound by `revealPalette`); the
-    /// envelope (saltCt, c1.x, c1.y) is purely advisory wire-format emitted
-    /// in `FeaturePaletteSaltEnvelope` so the owner can off-chain decrypt
-    /// the salt later. Soundness of `revealPalette` flows from the commit
-    /// storage check + the proof's commitment binding; the envelope is
-    /// trustless from the chain's perspective.
+    /// mint. The commit is stored on chain and later opened during incremental
+    /// reveal via `revealInsertedFeature`; the envelope (saltCt, c1.x, c1.y) is
+    /// advisory wire-format emitted in `FeaturePaletteSaltEnvelope` so the owner
+    /// can off-chain decrypt the salt later. Soundness of reveal flows from the
+    /// commit storage check + Poseidon2 opening; the envelope is trustless from
+    /// the chain's perspective.
     struct PaletteAtMint {
         bytes32 commit;
         bytes32 saltCt;
@@ -78,12 +78,10 @@ interface IFeatureNFT {
     ///         custody lock; only ShadowToken may call.
     function rotateInsertedOwner(uint256 featureId, uint256 expectedHostShadowId, address to) external;
 
-    /// @notice Privileged: open the carrier's `paletteCommit` to its 16
-    ///         RGB colors and emit the per-slot plaintext, atomic with
-    ///         ShadowToken.solve(). Bypasses owner gating because the
-    ///         caller is the host shadow, mid-solve. Single-shot: reverts
-    ///         if `paletteRevealed` is already true.
-    function revealPaletteAtSolve(
+    /// @notice Privileged palette/plaintext reveal hook. Incremental slot
+    ///         reveal calls this once after ShadowToken has verified the slot
+    ///         reveal proof and state-commit byte binding.
+    function revealInsertedFeature(
         uint256 featureId,
         uint256 shadowId,
         uint8 slotIdx,

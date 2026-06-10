@@ -10,6 +10,7 @@ python3 tools/check_byte_binding_tests.py
 python3 tools/check_metadata_authority.py
 python3 tools/check_verifier_manifest.py
 python3 tools/generate_poseidon2_vectors.py --check
+python3 tools/fuzz_proof_witnesses.py --cases "${PROOF_WITNESS_FUZZ_CASES:-32}"
 (
   cd contracts
   forge build

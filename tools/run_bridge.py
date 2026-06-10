@@ -12,9 +12,9 @@ Phases:
   6. Verify L2 lock + sendMessage event
   7. Document the withdrawal-finalization step (7-day wait on L1)
 
-Run AFTER running `sepolia_e2e.py --scenario solve` (which produces a solved
-shadow on L2). The script reads the solve run's addresses.json + the test
-keys to find the shadow and its owner.
+Run only with an explicit solved-shadow run directory produced by current
+deployment tooling. The removed `sepolia_e2e.py` harness targeted stale v1/v2
+surfaces and is no longer a valid prerequisite.
 
 Usage:
     python3 run_bridge.py [--solve-run-dir DIR] [--out-dir DIR]
@@ -166,7 +166,7 @@ def main() -> int:
         candidates = sorted((ROOT / "runs").glob("sepolia_solve_*"), reverse=True)
         candidates = [c for c in candidates if (c / "addresses.json").exists()]
         if not candidates:
-            sys.exit("no sepolia_solve_* directory found; run sepolia_e2e.py --scenario solve first")
+            sys.exit("no sepolia_solve_* directory found; pass --solve-run-dir from current deployment tooling")
         solve_dir = candidates[0]
     print(f"  solve_dir : {solve_dir}")
     addrs = json.loads((solve_dir / "addresses.json").read_text())
@@ -183,7 +183,7 @@ def main() -> int:
     is_solved = cast_call([SHADOW, "solved(uint256)(bool)", str(sid)], L2_RPC).split()[0]
     print(f"  is_solved : {is_solved}")
     if "true" not in is_solved.lower():
-        sys.exit("shadow not solved; run sepolia_e2e.py --scenario solve first")
+        sys.exit("shadow not solved; pass a solved-shadow --solve-run-dir from current deployment tooling")
     owner = cast_call([SHADOW, "ownerOf(uint256)(address)", str(sid)], L2_RPC).split()[0]
     print(f"  l2_owner  : {owner}")
 

@@ -86,8 +86,8 @@ contract TransferShadowMaxOccupancyTest is Test {
         st.setYulSponge16(address(sponge16));
         vT = new TransferShadowVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_TRANSFER_SHADOW(), IVerifier(address(vT)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(5, IVerifier(address(vT)));
+        st.setVerifier(3, IVerifier(address(vT10)));
         kr = new KeyRegistry();
         st.setKeyRegistry(kr);
     }
@@ -227,9 +227,9 @@ contract TransferShadowMaxOccupancyTest is Test {
 
         // Post-state: bob owns shadow + all 16 carriers; LSH rotated for each.
         assertEq(st.ownerOf(shadowId), bob, "shadow owner rotated");
-        ShadowToken.Shadow memory s = st.shadowOf(shadowId);
-        assertEq(s.ecdhPubX, _stashedRecipientPkX, "ecdhPubX rotated");
-        assertEq(s.ecdhPubY, _stashedRecipientPkY, "ecdhPubY rotated");
+        (bytes32 ecdhPubX, bytes32 ecdhPubY,,) = st.shadowHeaderOf(shadowId);
+        assertEq(ecdhPubX, _stashedRecipientPkX, "ecdhPubX rotated");
+        assertEq(ecdhPubY, _stashedRecipientPkY, "ecdhPubY rotated");
 
         for (uint256 i = 0; i < 16; i++) {
             assertEq(st.slotOf(shadowId, uint8(i)).liveStateHash, _newLsh[i], "slot LSH advanced");

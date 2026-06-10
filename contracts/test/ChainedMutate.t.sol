@@ -106,8 +106,8 @@ contract ChainedMutateTest is Test {
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         vMut = new MutateSlotVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_MUTATE_SLOT(), IVerifier(address(vMut)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(2, IVerifier(address(vMut)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         _loadStep(m1, "_m1", "_t10_after_m1");
         _loadStep(m2, "_m2", "_t10_after_m2");

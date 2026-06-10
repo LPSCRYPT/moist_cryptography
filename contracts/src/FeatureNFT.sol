@@ -11,8 +11,8 @@ import {IShadowToken} from "./IShadowToken.sol";
 /**
  * @title  FeatureNFT (v2 carrier)
  * @notice ERC-721 carrier for an atom of pixels in the moist_cryptography
- *         system. Created exclusively by `ShadowToken.mintShadow` (which
- *         atomically mints 1 shadow + 8 carriers).
+ *         system. Created during phased mint finalization by ShadowToken
+ *         after ShadowMintController has collected all proof-bound ciphertexts.
  *
  *         Carrier state:
  *           Immutable from mint:
@@ -58,7 +58,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         bool isInserted;
         uint256 hostShadowId;
         uint8 hostSlotIdx;
-        bool paletteRevealed; // flipped by `revealPaletteAtSolve`
+        bool paletteRevealed; // flipped by `revealInsertedFeature`
     }
 
     // ============== constants ==============
@@ -96,9 +96,9 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     bool private _transferFeatureVerifierLocked;
 
     /// Yul Poseidon2 sponge over (palette[16], salt) -> 17 fields. Used by
-    /// `revealPaletteAtSolve` to verify the palette + salt witness opens
+    /// `revealInsertedFeature` to verify the palette + salt witness opens
     /// the stored `paletteCommit` byte-for-byte. Set once via
-    /// `setPaletteSponge`; address(0) until then (revealPaletteAtSolve will
+    /// `setPaletteSponge`; address(0) until then (revealInsertedFeature will
     /// revert).
     address public paletteSpongeYul;
     bool private _paletteSpongeLocked;
@@ -123,8 +123,8 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         bytes32 paletteCommit,
         bytes paletteRGB // 16 colors x 3 bytes = 48 bytes
     );
-    /// Per-slot plaintext reveal at solve. Emitted by
-    /// `revealPaletteAtSolve` after the palette commitment opens, so
+    /// Per-slot plaintext reveal. Emitted by
+    /// `revealInsertedFeature` after the palette commitment opens, so
     /// indexers receive the full 39-field plaintext (pose, w, h, palette
     /// indices) bound to chain state in a single tx alongside the
     /// palette colors.
@@ -137,7 +137,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     /// Salt envelope for the per-carrier paletteCommit, ECIES-encrypted to
     /// the carrier's owner pk. Emitted alongside `FeatureMinted` at mint;
     /// not stored on chain. Owner decrypts off-chain to recover the salt
-    /// needed to call `revealPaletteAtSolve` (driven from ShadowToken.solve).
+    /// needed to call `revealInsertedFeature` (driven from ShadowToken reveal).
     /// not depend on these values being honest -- the on-chain
     /// `paletteCommit` storage check is the binding; this event is purely
     /// the wire-format envelope so the owner can decrypt later.
@@ -407,34 +407,31 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         }
     }
 
-    // ============== revealPaletteAtSolve (privileged: ShadowToken-only) ==============
+    // ============== revealInsertedFeature (privileged: ShadowToken-only) ==============
 
-    /// @notice Open the carrier's `paletteCommit` to the actual 16 RGB
-    ///         colors. Called only by ShadowToken inside its `solve`
-    ///         flow, atomic with the per-slot plaintext reveal and shadow
-    ///         freeze. Single-shot: `paletteRevealed` is set on success
-    ///         and a second call reverts.
+    /// @notice Open an inserted carrier's `paletteCommit` to the actual 16
+    ///         RGB colors during incremental slot reveal. Called only by
+    ///         ShadowToken after it has verified the slot plaintext proof.
+    ///         Single-shot: `paletteRevealed` is set on success and a second
+    ///         call reverts.
     /// @dev    Soundness: the contract recomputes
     ///         `sponge_palette_salt(palette, salt)` via the deployed Yul
     ///         contract `paletteSpongeYul` and asserts equality with
     ///         `f.paletteCommit` (immutable since mint). Poseidon2's
     ///         collision-resistance binds the witness; no ZK proof needed.
-    /// @param  shadowId               host shadow id at solve time;
-    ///                                emitted in `FeatureSlotRevealed` for
-    ///                                cross-event linkage
-    /// @param  slotIdx                host slot index at solve time;
-    ///                                emitted in `FeatureSlotRevealed`
+    /// @param  shadowId               host shadow id at reveal time; emitted
+    ///                                in `FeatureSlotRevealed` for cross-event linkage
+    /// @param  slotIdx                host slot index at reveal time; emitted
+    ///                                in `FeatureSlotRevealed`
     /// @param  palette                16 colors, each Field's low 24 bits
     ///                                interpreted as 0xRRGGBB
     /// @param  salt                   the per-carrier salt mixed into
     ///                                paletteCommit at mint
     /// @param  plaintext              39-field slot plaintext, emitted
     ///                                via FeatureSlotRevealed; bound by
-    ///                                ShadowToken's solve flow against the
-    ///                                proof's stateCommit (so the bytes here
-    ///                                are guaranteed to be what the proof
-    ///                                witnessed)
-    function revealPaletteAtSolve(
+    ///                                ShadowToken's reveal proof against the
+    ///                                proof's stateCommit
+    function revealInsertedFeature(
         uint256 featureId,
         uint256 shadowId,
         uint8 slotIdx,

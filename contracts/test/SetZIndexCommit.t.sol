@@ -53,8 +53,8 @@ contract SetZIndexCommitE2ETest is Test {
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         vZ = new ZIndexCommitVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_ZINDEX_COMMIT(), IVerifier(address(vZ)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(4, IVerifier(address(vZ)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         proofZ = vm.readFileBinary(string.concat(FIX, "/proof_z.bin"));
         piZ = _loadFields(string.concat(FIX, "/public_inputs_z.bin"), Z_PI_LEN);
@@ -95,7 +95,8 @@ contract SetZIndexCommitE2ETest is Test {
         ShadowToken.SetZIndexCommitArgs memory args = _buildArgs();
 
         // Pre.
-        assertEq(st.shadowOf(shadowId).zIndexCommit, bytes32(0));
+        (,,, bytes32 zPre) = st.shadowHeaderOf(shadowId);
+        assertEq(zPre, bytes32(0));
 
         vm.expectEmit(true, false, false, true);
         emit ShadowT10Updated(shadowId, newT10[0], newT10[1]);
@@ -106,7 +107,8 @@ contract SetZIndexCommitE2ETest is Test {
         st.setZIndexCommit(args);
 
         // Post.
-        assertEq(st.shadowOf(shadowId).zIndexCommit, newZCommit);
+        (,,, bytes32 zPost) = st.shadowHeaderOf(shadowId);
+        assertEq(zPost, newZCommit);
         assertEq(st.shadowT10(shadowId, 0), newT10[0]);
         assertEq(st.shadowT10(shadowId, 1), newT10[1]);
     }

@@ -30,7 +30,6 @@ contract ShadowMirrorL1 is ERC721 {
         bytes32 t10Hi;
         bytes32 t10Lo;
         bytes32 zIndexCommit;
-        uint64 zIndexRevealed;
         IShadowToken.ManifestEntry[16] manifest;
         uint8[16] typeIdxs;
         bytes32[16] originFaceIds;
@@ -46,7 +45,6 @@ contract ShadowMirrorL1 is ERC721 {
         bytes32 t10Hi;
         bytes32 t10Lo;
         bytes32 zIndexCommit;
-        uint64 zIndexRevealed;
         IShadowToken.ManifestEntry[16] manifest;
         uint8[16] typeIdxs;
         bytes32[16] originFaceIds;
@@ -110,7 +108,6 @@ contract ShadowMirrorL1 is ERC721 {
         st.t10Hi = p.t10Hi;
         st.t10Lo = p.t10Lo;
         st.zIndexCommit = p.zIndexCommit;
-        st.zIndexRevealed = p.zIndexRevealed;
         for (uint256 i = 0; i < 16; i++) {
             st.manifest[i] = p.manifest[i];
             st.typeIdxs[i] = p.typeIdxs[i];

@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "production_roots": [
+    "contracts/src",
+    "circuits",
+    "tools"
+  ],
+  "test_roots": [
+    "contracts/test"
+  ],
+  "active_verifiers": [
+    "contracts/src/FaceDiscVerifier.sol",
+    "contracts/src/MintShadowVerifier.sol",
+    "contracts/src/T10ShadowVerifier.sol",
+    "contracts/src/MutateSlotVerifier.sol",
+    "contracts/src/SolveShadowVerifier.sol",
+    "contracts/src/TransferShadowVerifier.sol",
+    "contracts/src/TransferFeatureV2Verifier.sol",
+    "contracts/src/ZIndexCommitVerifier.sol"
+  ],
+  "active_circuits": [
+    "circuits/landmark_regions_v2/src/main.nr",
+    "circuits/shadow_t10/src/main.nr",
+    "circuits/mutate_slot/src/main.nr",
+    "circuits/solve_shadow_v2/src/main.nr",
+    "circuits/transfer_shadow_v2/src/main.nr",
+    "circuits/transfer_feature_v2/src/main.nr",
+    "circuits/zindex_commit/src/main.nr"
+  ],
+  "classified_non_production": [
+    {
+      "path": "contracts/src/ExtractSlotVerifier.sol",
+      "status": "legacy_without_current_fixture",
+      "reason": "Current extractSlot path is proofless plus T10 refresh; verifier has no tracked real fixture in verifier_manifest.json."
+    },
+    {
+      "path": "contracts/src/TransferFeatureVerifier.sol",
+      "status": "superseded",
+      "reason": "Pre-v2 verifier superseded by TransferFeatureV2Verifier."
+    },
+    {
+      "path": "circuits/landmark_regions/src/main.nr",
+      "status": "historical",
+      "reason": "Superseded by landmark_regions_v2 active mint/registerImage circuit."
+    },
+    {
+      "path": "circuits/solve_shadow/src/main.nr",
+      "status": "historical",
+      "reason": "Superseded by solve_shadow_v2 active solve circuit."
+    },
+    {
+      "path": "circuits/transfer_shadow/src/main.nr",
+      "status": "historical",
+      "reason": "Superseded by transfer_shadow_v2 active transfer circuit."
+    },
+    {
+      "path": "circuits/transfer_feature/src/main.nr",
+      "status": "historical",
+      "reason": "Superseded by transfer_feature_v2 active transferFeature circuit."
+    },
+    {
+      "path": "circuits/extract_slot/src/main.nr",
+      "status": "legacy_without_current_fixture",
+      "reason": "No active verifier fixture; extraction behavior is covered through current ShadowToken/FeatureNFT flows and T10 refresh tests."
+    },
+    {
+      "path": "circuits/face_disc/src/main.nr",
+      "status": "historical",
+      "reason": "Superseded by landmark_regions_v2 face discriminator surface used by FaceDiscVerifier."
+    },
+    {
+      "path": "circuits/_ecies_keystream_helper/src/main.nr",
+      "status": "helper_only",
+      "reason": "Development helper circuit, not an on-chain verifier surface."
+    },
+    {
+      "path": "circuits/_poseidon2_state_helper/src/main.nr",
+      "status": "helper_only",
+      "reason": "Development helper circuit, not an on-chain verifier surface."
+    }
+  ],
+  "generated_allowlist_terms": [
+    {
+      "glob": "contracts/src/*Verifier.sol",
+      "term": "dummy_round",
+      "reason": "Generated UltraHonk verifier internal naming."
+    }
+  ],
+  "test_only_allowlist_terms": ["mock", "stub", "fake", "dummy", "unused"]
+}

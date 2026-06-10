@@ -1,48 +1,68 @@
 # Deployment
 
-This document records every Base Sepolia deploy of the v2 contract set
-plus the on-chain operations executed against it.
+This document records Base Sepolia deploys of the v2 contract set plus the
+on-chain operations executed against them.
 
-**Canonical live deployment: pipeline #5** (full reveal at solve --
-palette + plaintext revealed atomically inside `solve()`, no separate
-verifier). Pipelines #3 and #4 preserved as historical references; see
-"Historical pipelines" near the end of this document.
+**Canonical current branch deployment: modular phased mint + incremental feature reveal**.
+Historical pipeline #5 remains documented below because it exercised the older full
+reveal-at-solve lifecycle, but it is no longer the current branch architecture.
 
-## Status (canonical = pipeline #5)
+## Latest modular phased-mint testnet deployment (2026-06-08)
 
-| Spec criterion | Pipeline | Status |
-|---|---|---|
-| Fresh contract set deployed (full-reveal-at-solve ABI) | **#5** | done -- 27 deploy txs, 99.7M gas |
-| `registerImage` (face_disc proof) | #5 | done |
-| `mintShadow` (1 shadow + 8 carriers, real palette + salt envelopes) | #5 | done |
-| `setZIndexCommit` | #5 | done |
-| **`solve` with palette + plaintext reveal** (item 5 spec, atomic) | **#5** | done -- tx [`0xea461ee9...`](https://sepolia.basescan.org/tx/0xea461ee94e8e41b5ed47e71589524050ea2c7545883eaeef946d211813ce1394), 8.14M gas, block 40,783,890. **8 `FeaturePaletteRevealed` + 8 `FeatureSlotRevealed` events** in single tx. |
-| Visualizer renders solved shadow WITHOUT sk | #5 | done -- `tools/render_onchain_shadow.py` decodes plaintexts from FeatureSlotRevealed events; palettes from FeaturePaletteRevealed events; canonical NFT image from chain alone |
-| `mutateSlot` (chained to live state) | **#5** | done -- B' slot 0, tx [`0x77c94d80...`](https://sepolia.basescan.org/tx/0x77c94d80f436e395b2461b8c82ee1ff92054d3c7c3eb35d5821a76c709969874), 7.12M gas, block 40,791,976 |
-| `mutateBatch` (multi-slot in one tx) | **#5** | done -- B' slots 1+2, tx [`0x66ad4960...`](https://sepolia.basescan.org/tx/0x66ad496000c16901fbfe348eb5a2912069d14563f13a13c73c467deedc7f24ea), 10.80M gas, block 40,792,154 |
-| `extractSlot` | **#5** | done -- B' slot 3, tx [`0xad84c4f2...`](https://sepolia.basescan.org/tx/0xad84c4f2b2f969cd191b02b840e55113fb974b82b41ca8321e3443ef4908efd2), 3.43M gas, block 40,792,228 |
-| `insertFeature` (held carrier into empty slot) | **#5** | done -- carrier from B' slot 3 → B' slot 8, tx [`0xc8a2c7ba...`](https://sepolia.basescan.org/tx/0xc8a2c7bac817e014c17b7f39866a579b2a8238efd6837bba09f7dc35473d5c25), 7.25M gas, block 40,792,355 |
-| **`transferShadow`** proof-bound (8-slot ECIES rotation) | **#5** | done -- B' PK2 → deployer, tx [`0x05ca2cf4...`](https://sepolia.basescan.org/tx/0x05ca2cf49db35adcd9750b761db9327163eb876ce63a435bd9c8bfeee0275482), 9.06M gas, block 40,792,654 |
-| `transferFeature` V2 (held-carrier rotation) | **#5** | done -- A' slot-0 carrier deployer → PK2, tx [`0xb9470c0f...`](https://sepolia.basescan.org/tx/0xb9470c0f9aae7ef0526d423186059158a3e020c6c35ab798cd3877757c92b08e), 3.70M gas, block 40,792,820 |
-| `bridgeShadow` L2-leg | **#5** | done -- A' → ShadowBridgeL2 #5, tx [`0x7e27fcb4...`](https://sepolia.basescan.org/tx/0x7e27fcb4b8737dec037238721640c5c46dd93987dfdaec3a9b38747a8e368556), 0.40M gas, block 40,792,879 |
-| `bridgeShadow` L1 finalize | n/a | calendar-bound (~7d OP Stack window) -- bridge L2 wired to historical L1 mirror; deploy fresh mirror to exercise |
+The current implementation splits the old one-shot `mintShadow` into a
+`ShadowMintController` session: `beginMintShadow`, one or more
+`submitMintCiphertexts` calls, then `finalizeMintShadow`. The controller owns
+pending mint state and ciphertext collection; `ShadowToken` owns only final
+installed shadow state. Final mint installation emits empty `ShadowSlotMutated.c2`
+payloads by design. The authoritative mint ciphertext bytes are emitted by
+`ShadowMintController.MintCiphertextSubmitted`.
 
-**Reveal architecture** (pipeline #5):
-  * `FeatureNFT.revealPaletteAtSolve(featureId, shadowId, slotIdx, palette[16],
-    salt, plaintext)` -- ShadowToken-only. Verifies
-    `sponge_palette_salt(palette, salt) == storedPaletteCommit` via the
-    new `Poseidon2YulSpongePaletteSalt` Yul contract (no ZK proof needed;
-    soundness via Poseidon2 collision-resistance). Sets `paletteRevealed`,
-    emits `FeaturePaletteRevealed(fid, commit, rgb_48b)` +
-    `FeatureSlotRevealed(fid, shadowId, slotIdx, plaintext_1248b)`.
-  * `ShadowToken.solve()` calls `revealPaletteAtSolve` per occupied slot,
-    then auto-extracts. As of pipeline #6 (envelope-binding cutover) the
-    contract recomputes `sponge_39(plaintexts[i]) == stateCommits[i]` for
-    every occupied slot before firing any reveal event, so the emitted
-    plaintext bytes are bound to the proof's PI[1] at the byte level.
-  * Removed: `revealPalette()` standalone fn, `palette_reveal_v2`
-    circuit + verifier, `setPaletteRevealVerifier`. Replaced by the
-    on-chain Yul sponge_17 + per-slot reveal at solve.
+Latest verified Base Sepolia addresses:
+
+| Contract | Address |
+|---|---|
+| `ShadowToken` | `0x73a2bb3411B1a5D6f9df5a06d3b4bFBA95970e3d` |
+| `FeatureNFT` | `0x6CfAD30a588a57946b306136D4094ca0c07f51aC` |
+| `KeyRegistry` | `0x8c00dD1B1AA71099C9055942F22dB63Dc4361F9D` |
+| `ShadowMintController` | `0x68f777E5B1b8E6b1099F3d8D6153a7C5c9d19A9b` |
+| `Poseidon2YulSponge` | `0xbB664d9Ff720Dc8b381AdBc0422E4fe64c088E03` |
+| `Poseidon2YulSponge16` | `0xD81E987464B3c40CFF033C01aeC99C7eB7956080` |
+
+Observed successful modular mint tx gas on Base Sepolia:
+
+| Step | Tx | Gas used |
+|---|---|---:|
+| register + begin | `0xbe542296be09dbd9485a0241b4a8906fd32f39daf47e45d60ed37bf43853d238` | 11,654,925 |
+| submit slot 0 | `0x769307da37b3a4196c0855ff45787304001185f9a3c2501805114725d944bab5` | 816,222 |
+| submit slot 1 | `0x7098a5bf73b8234d5836c395842095515d3bda324e6b7044df93812b64528527` | 816,174 |
+| submit slot 2 | `0x08ea762c377ab11be572ed8dd0391284b9e4221b559bdc9b06c4d11afac79047` | 816,186 |
+| submit slot 3 | `0x10b8de83280c785b58cf3c9737548c8a343b49286e9279028f1c739e7f747a53` | 816,162 |
+| submit slot 4 | `0xdd000d2a44826041bc757cfda1337a078133a494dc6c7a7a57738a3eb47dd894` | 816,222 |
+| submit slot 5 | `0x763537dc78c56d8293e46575642f4d1bcc7a57bfbf674e3e6207968cdfea6a23` | 816,162 |
+| submit slot 6 | `0x3cb9806c6e2cf01147a76a89f8a485a298bfa4c1b41233ed8dbdb7e6985971ec` | 816,198 |
+| submit slot 7 + finalize | `0x99fbc0da74aa89f4eb525320083d52c3272d4f8aeb464a17bbfc818d5f361d39` | 7,300,874 |
+
+On-chain postconditions checked: owner is `0x1b43AFe43afC74bF9D0EBd764787eFD7CCcC2B6F`,
+`registeredImages[imageCommit] == true`, `mintedOrigins[imageCommit] == true`,
+controller `pendingOrigins[imageCommit] == false`, controller submitted bitmap
+cleared to `0`, and slots 0..7 are `OCCUPIED`.
+
+`executeMintBatch` can combine the fixed-order steps register -> begin -> submit
+-> finalize, but batching is a gas-planning choice rather than a protocol
+requirement. The gas-safe default used by `MintOnSepolia.s.sol` is:
+
+```text
+BEGIN_SUBMIT_COUNT=0
+SUBMIT_CHUNK_SIZE=1
+```
+
+That default sends register+begin first, then one ciphertext per tx, then the
+last ciphertext with finalize. Larger batches can simulate successfully but fail
+on-chain under Base Sepolia transaction gas / calldata-fee envelope behavior, so
+the conservative path is the recorded canonical testnet path.
+
+**Historical pipeline #5** (full reveal at solve; no separate mint controller) is
+preserved below as a prior deployment reference.
 ---
 
 ## Network

@@ -85,8 +85,8 @@ contract MutateSlotE2ETest is Test {
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         vMut = new MutateSlotVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_MUTATE_SLOT(), IVerifier(address(vMut)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(2, IVerifier(address(vMut)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         proofMut = vm.readFileBinary(string.concat(FIX, "/proof_mut.bin"));
         piMut = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), MUT_PI_LEN);
@@ -261,11 +261,11 @@ contract MutateSlotE2ETest is Test {
 
     function test_mutateSlot_reverts_when_c2_field_noncanonical() public {
         ShadowToken.MutateSlotArgs memory args = _buildArgs();
-        uint256 fr = st.FR_MOD();
+        uint256 fr = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
         _writeField(args.c2, 0, fr);
         bytes32 lshBefore = st.slotOf(shadowId, slotIdx).liveStateHash;
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(0), fr));
+        vm.expectRevert(ShadowToken.NonCanonicalField.selector);
         st.mutateSlot(args);
         assertEq(st.slotOf(shadowId, slotIdx).liveStateHash, lshBefore, "lsh unchanged");
     }
@@ -282,9 +282,9 @@ contract MutateSlotE2ETest is Test {
     function test_mutateSlot_reverts_when_oldLsh_mismatch() public {
         // Tamper with chain state's stored lsh; proof's PI[6] no longer matches.
         // Storage-poke: ManifestEntry now spans 5 slots: kind, featureId,
-        // liveStateHash, mutationCount, chainTip. _MANIFESTS_SLOT = 21 post
-        // envelope-binding cutover.
-        bytes32 outerBase = keccak256(abi.encode(shadowId, uint256(21)));
+        // liveStateHash, mutationCount, chainTip. _MANIFESTS_SLOT = 22 after
+        // the phased mint controller pointer was inserted into ShadowToken.
+        bytes32 outerBase = keccak256(abi.encode(shadowId, uint256(22)));
         bytes32 entryBase = bytes32(uint256(outerBase) + uint256(slotIdx) * 5);
         bytes32 lshSlot = bytes32(uint256(entryBase) + 2);
         vm.store(address(st), lshSlot, bytes32(uint256(oldLsh) ^ 1));
@@ -302,7 +302,7 @@ contract MutateSlotE2ETest is Test {
         // Simpler: call solve() via TestableShadowToken... wait, solve() is
         // stubbed and reverts. So we must storage-poke. Compute the slot
         // manually by mirroring _shadowsStorage's keccak base + offset 2.
-        bytes32 baseSlot = keccak256(abi.encode(shadowId, uint256(20))); // _SHADOWS_SLOT (bumped 19→20)
+        bytes32 baseSlot = keccak256(abi.encode(shadowId, uint256(21))); // _SHADOWS_SLOT
         bytes32 solvedSlot = bytes32(uint256(baseSlot) + 2); // Shadow.solved offset
         vm.store(address(st), solvedSlot, bytes32(uint256(1)));
 

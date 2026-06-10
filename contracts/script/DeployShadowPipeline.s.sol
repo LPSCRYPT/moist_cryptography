@@ -10,6 +10,7 @@ import {IVerifier} from "../src/IVerifier.sol";
 import {KeyRegistry} from "../src/KeyRegistry.sol";
 import {ShadowToken} from "../src/ShadowToken.sol";
 import {FeatureNFT} from "../src/FeatureNFT.sol";
+import {ShadowMintController} from "../src/ShadowMintController.sol";
 
 import {MintShadowVerifier} from "../src/MintShadowVerifier.sol";
 import {FaceDiscVerifier} from "../src/FaceDiscVerifier.sol";
@@ -25,7 +26,7 @@ import {Poseidon2YulSpongePaletteSalt} from "../src/Poseidon2YulSpongePaletteSal
 ///         - 2 Yul sponge contracts (sponge_39 and sponge_16)
 ///         - KeyRegistry
 ///         - ShadowToken + FeatureNFT (cross-wired)
-///         - 7 Honk verifiers, each one-shot wired into ShadowToken
+///         - ShadowMintController for phased/chunked mint sessions
 ///
 ///         Every privileged surface on ShadowToken is reachable after
 ///         this script returns. The one-shot setters lock immediately
@@ -86,41 +87,43 @@ contract DeployShadowPipeline is Script {
         // ---- 4. Verifiers (deploy + one-shot wire) ----
         IVerifier mintV = IVerifier(address(new MintShadowVerifier()));
         console.log("MintShadowVerifier   :", address(mintV));
-        st.setVerifier(st.SLOT_MINT_SHADOW(), mintV);
+        st.setVerifier(0, mintV);
+        ShadowMintController mc = new ShadowMintController(st, kr, mintV, address(sponge), address(sponge16), address(hash2));
+        console.log("ShadowMintController  :", address(mc));
+        st.setMintController(address(mc));
 
         IVerifier discV = IVerifier(address(new FaceDiscVerifier()));
         console.log("FaceDiscVerifier     :", address(discV));
-        st.setVerifier(st.SLOT_FACE_DISC(), discV);
+        st.setVerifier(1, discV);
 
         IVerifier mutateV = IVerifier(address(new MutateSlotVerifier()));
         console.log("MutateSlotVerifier   :", address(mutateV));
-        st.setVerifier(st.SLOT_MUTATE_SLOT(), mutateV);
+        st.setVerifier(2, mutateV);
 
         IVerifier t10V = IVerifier(address(new T10ShadowVerifier()));
         console.log("T10ShadowVerifier    :", address(t10V));
-        st.setVerifier(st.SLOT_T10_SHADOW(), t10V);
+        st.setVerifier(3, t10V);
 
         IVerifier zV = IVerifier(address(new ZIndexCommitVerifier()));
         console.log("ZIndexCommitVerifier :", address(zV));
-        st.setVerifier(st.SLOT_ZINDEX_COMMIT(), zV);
+        st.setVerifier(4, zV);
 
         IVerifier transferV = IVerifier(address(new TransferShadowVerifier()));
         console.log("TransferShadowVerifier:", address(transferV));
-        st.setVerifier(st.SLOT_TRANSFER_SHADOW(), transferV);
+        st.setVerifier(5, transferV);
 
         IVerifier solveV = IVerifier(address(new SolveShadowVerifier()));
-        console.log("SolveShadowVerifier  :", address(solveV));
-        st.setVerifier(st.SLOT_SOLVE_SHADOW(), solveV);
+        console.log("SolveShadowVerifier :", address(solveV));
+        st.setVerifier(6, solveV);
 
         // ---- 5. FeatureNFT-side verifiers ----
         IVerifier transferFeatureV = IVerifier(address(new TransferFeatureV2Verifier()));
         console.log("TransferFeatureV2Verifier:", address(transferFeatureV));
         fn.setTransferFeatureVerifier(transferFeatureV);
 
-        // FeatureNFT-side palette commitment opening at solve time uses an
-        // on-chain Yul Poseidon2 sponge-17 (palette[16] + salt). No ZK
-        // verifier needed; soundness comes from the chain-stored
-        // paletteCommit + Poseidon2 collision-resistance.
+        // Canvas-only solve no longer opens per-feature palettes on chain; the
+        // palette sponge remains available for legacy/internal tests and any
+        // future explicit carrier-claim flow that needs palette commitment checks.
         Poseidon2YulSpongePaletteSalt paletteSponge = new Poseidon2YulSpongePaletteSalt();
         console.log("Poseidon2YulSpongePaletteSalt:", address(paletteSponge));
         fn.setPaletteSponge(address(paletteSponge));

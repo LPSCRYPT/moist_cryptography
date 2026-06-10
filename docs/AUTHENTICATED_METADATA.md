@@ -22,7 +22,7 @@ This project distinguishes chain-authenticated data from fixture or indexing con
    - `meta.json`, `plaintexts.json`, `slot_specs/*.json`, and local run outputs are reconstruction inputs for tests/tools. They are not chain authority unless recomputed from proof inputs and state.
 
 2. **Encrypted salt envelopes**
-   - `FeaturePaletteSaltEnvelope` is an encrypted delivery channel. Palette correctness is authenticated later by `revealPaletteAtSolve` via `sponge_palette_salt(palette, salt) == paletteCommit`.
+   - `FeaturePaletteSaltEnvelope` is an encrypted delivery channel. Palette correctness is authenticated later by `revealInsertedFeature` via `sponge_palette_salt(palette, salt) == paletteCommit`.
 
 3. **Indexing history summaries**
    - Consumers may index mutation counts and tips from events, but should reconcile against contract state when making security decisions.

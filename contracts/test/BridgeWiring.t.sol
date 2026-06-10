@@ -171,7 +171,6 @@ contract BridgeWiringTest is Test {
         assertEq(st.t10Hi, p.t10Hi);
         assertEq(st.t10Lo, p.t10Lo);
         assertEq(st.zIndexCommit, p.zIndexCommit);
-        assertEq(st.zIndexRevealed, p.zIndexRevealed);
 
         // revealedPi round-trip
         bytes memory storedPi = mirror.revealedPiOf(sid);
@@ -372,7 +371,6 @@ contract BridgeWiringTest is Test {
         p.t10Hi = bytes32(uint256(0x1111));
         p.t10Lo = bytes32(uint256(0x2222));
         p.zIndexCommit = bytes32(uint256(0xbeef));
-        p.zIndexRevealed = 0xfedcba9876543210;
         // Manifest, typeIdxs, originFaceIds, paletteCommits left zero
         // (EMPTY shadow post-auto-extract).
         p.revealedPi = new bytes(7 * 32);

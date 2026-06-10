@@ -4,17 +4,17 @@ pragma solidity ^0.8.27;
 import {Script, console, stdJson} from "forge-std/Script.sol";
 import {ShadowToken} from "../src/ShadowToken.sol";
 import {KeyRegistry} from "../src/KeyRegistry.sol";
+import {ShadowMintController} from "../src/ShadowMintController.sol";
 
 /// @notice Real on-chain registerImage + mint against deployed contracts.
 ///
 /// Reads a v2 atomic_mint fixture, registers the fixture's owner_pk
 /// against `msg.sender` in KeyRegistry, registers the fixture's
-/// imageCommit (via face_disc proof), then calls `mintShadow`.
-/// Produces 1 shadow + 8 carriers in slots 0..7 in the mint tx.
+/// imageCommit (via face_disc proof), then executes modular phased mint through
+/// ShadowMintController in gas-sized ordered batches.
 ///
-/// v2-gas split: face_disc verification moved out of `mintShadow` into
-/// a separate `registerImage` tx, so the bundled mint stays under the
-/// 16M public-RPC gas-LIMIT ceiling.
+/// The recipient is fixed at beginMintShadow and finalize installs the
+/// fully loaded 8-carrier Shadow NFT at that address.
 ///
 /// All three steps (key register, image register, mint) are idempotent
 /// at the script level: each is skipped if its on-chain state already
@@ -22,7 +22,7 @@ import {KeyRegistry} from "../src/KeyRegistry.sol";
 /// must not revert at any pre-checked step.
 ///
 /// Usage:
-///   ST_ADDRESS=0x...  KR_ADDRESS=0x...  FIX=./test/fixtures/atomic_mint/atomic_mint_demo \
+///   ST_ADDRESS=0x...  KR_ADDRESS=0x... MC_ADDRESS=0x... FIX=./test/fixtures/atomic_mint/atomic_mint_demo \
 ///   forge script script/MintOnSepolia.s.sol:MintOnSepolia \
 ///       --broadcast --rpc-url $BASE_SEPOLIA_RPC --private-key $PRIVATE_KEY
 contract MintOnSepolia is Script {
@@ -50,7 +50,12 @@ contract MintOnSepolia is Script {
     function run() external {
         address stAddr = vm.envAddress("ST_ADDRESS");
         address krAddr = vm.envAddress("KR_ADDRESS");
+        address mcAddr = vm.envAddress("MC_ADDRESS");
         string memory fix = vm.envString("FIX");
+        uint256 beginSubmitCount = vm.envOr("BEGIN_SUBMIT_COUNT", uint256(0));
+        uint256 submitChunkSize = vm.envOr("SUBMIT_CHUNK_SIZE", uint256(1));
+        require(beginSubmitCount <= 8, "BEGIN_SUBMIT_COUNT > 8");
+        require(submitChunkSize > 0 && submitChunkSize <= 8, "bad SUBMIT_CHUNK_SIZE");
 
         _loadFixture(fix);
 
@@ -62,6 +67,7 @@ contract MintOnSepolia is Script {
 
         ShadowToken st = ShadowToken(stAddr);
         KeyRegistry kr = KeyRegistry(krAddr);
+        ShadowMintController mc = ShadowMintController(mcAddr);
 
         vm.startBroadcast();
         // Step 1: idempotent key registration.
@@ -74,26 +80,60 @@ contract MintOnSepolia is Script {
             console.log("KeyRegistry.register: skipped (already registered)");
         }
 
-        // Step 2: idempotent image registration. The face_disc verifier
-        // proves imageCommit derives from a real face image. Anyone can
-        // call this (proof itself is the credential); we check on-chain
-        // before broadcasting to avoid wasting gas on a known-failure tx.
-        if (!st.registeredImages(_imageCommit)) {
-            st.registerImage(_imageCommit, _proofDisc);
-            console.log("ShadowToken.registerImage: tx broadcast");
-        } else {
-            console.log("ShadowToken.registerImage: skipped (already registered)");
-        }
-
-        // Step 3: idempotent mint. mintedOrigins[imageCommit] enforces
-        // anti-replay; if a previous run succeeded, skip.
-        uint256 shadowId;
+        // Step 2: modular phased mint. The first batch can register, begin,
+        // and submit a configurable prefix of ciphertexts; follow-up batches
+        // submit bounded chunks and finalize only once the last missing slot is
+        // included. This keeps both EVM gas and Base calldata fees controllable.
+        uint256 shadowId = _expectedShadowId;
         if (!st.mintedOrigins(_imageCommit)) {
-            shadowId = st.mintShadow(_buildArgs());
-            console.log("ShadowToken.mintShadow: tx broadcast");
+            bool pending = mc.pendingOrigins(_imageCommit);
+            if (!pending) {
+                ShadowMintController.MintBatch memory first;
+                if (!st.registeredImages(_imageCommit)) {
+                    first.doRegisterImage = true;
+                    first.imageCommit = _imageCommit;
+                    first.proofDisc = _proofDisc;
+                }
+                first.doBeginMint = true;
+                first.mintArgs = _buildArgs();
+                first.recipient = msg.sender;
+                (first.submitSlots, first.submitC2s) = _missingSlotBatch(0, 8, 0, beginSubmitCount);
+                (shadowId,) = mc.executeMintBatch(first);
+                console.log(beginSubmitCount == 0
+                    ? "ShadowMintController.executeMintBatch: register/begin tx broadcast"
+                    : "ShadowMintController.executeMintBatch: register/begin/prefix tx broadcast");
+            } else {
+                console.log("ShadowMintController.beginMintShadow: skipped (pending mint exists)");
+            }
+
+            while (true) {
+                uint8 bitmap = mc.pendingMintSubmittedBitmap(shadowId);
+                if (bitmap == 0xff) {
+                    ShadowMintController.MintBatch memory finalOnly;
+                    finalOnly.shadowId = shadowId;
+                    finalOnly.doFinalize = true;
+                    finalOnly.proofT10 = _proofT10;
+                    (, shadowId) = mc.executeMintBatch(finalOnly);
+                    console.log("ShadowMintController.executeMintBatch: finalize tx broadcast");
+                    break;
+                }
+
+                ShadowMintController.MintBatch memory next;
+                next.shadowId = shadowId;
+                (next.submitSlots, next.submitC2s) = _missingSlotBatch(0, 8, bitmap, submitChunkSize);
+                uint8 nextBitmap = _bitmapAfter(bitmap, next.submitSlots);
+                next.doFinalize = nextBitmap == 0xff;
+                if (next.doFinalize) next.proofT10 = _proofT10;
+                (, uint256 mintedShadowId) = mc.executeMintBatch(next);
+                console.log("ShadowMintController.executeMintBatch: submit chunk tx broadcast");
+                if (next.doFinalize) {
+                    shadowId = mintedShadowId;
+                    break;
+                }
+            }
         } else {
             shadowId = _expectedShadowId;
-            console.log("ShadowToken.mintShadow: skipped (already minted)");
+            console.log("ShadowToken phased mint: skipped (already minted)");
         }
         vm.stopBroadcast();
 
@@ -145,6 +185,34 @@ contract MintOnSepolia is Script {
         }
     }
 
+    function _missingSlotBatch(uint8 start, uint8 count, uint8 bitmap, uint256 maxOut)
+        internal
+        view
+        returns (uint8[] memory slots, bytes[] memory c2s)
+    {
+        uint256 n = 0;
+        for (uint8 i = 0; i < count && n < maxOut; i++) {
+            uint8 slot = start + i;
+            if ((bitmap & (uint8(1) << slot)) == 0) n++;
+        }
+        slots = new uint8[](n);
+        c2s = new bytes[](n);
+        uint256 out = 0;
+        for (uint8 i = 0; i < count && out < n; i++) {
+            uint8 slot = start + i;
+            if ((bitmap & (uint8(1) << slot)) != 0) continue;
+            slots[out] = slot;
+            c2s[out] = _c2s[slot];
+            out++;
+        }
+    }
+
+    function _bitmapAfter(uint8 bitmap, uint8[] memory slots) internal pure returns (uint8 out) {
+        out = bitmap;
+        for (uint256 i = 0; i < slots.length; i++) out |= uint8(1) << slots[i];
+    }
+
+
     function _buildArgs() internal view returns (ShadowToken.MintShadowArgs memory args) {
         args.proofMint = _proofMint;
         args.imageCommit = _imageCommit;
@@ -156,9 +224,7 @@ contract MintOnSepolia is Script {
         args.paletteSaltCts = _paletteSaltCts;
         args.saltC1Xs = _saltC1Xs;
         args.saltC1Ys = _saltC1Ys;
-        args.c2s = _c2s;
         args.newT10 = _t10;
-        args.proofT10 = _proofT10;
     }
 
     function _loadFields(string memory path, uint256 expectedLen) internal view returns (bytes32[] memory out) {

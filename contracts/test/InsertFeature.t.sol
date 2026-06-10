@@ -88,8 +88,8 @@ contract InsertFeatureE2ETest is Test {
         st.setFeatureNFT(IFeatureNFT(address(fn)));
         vMut = new MutateSlotVerifier();
         vT10 = new T10ShadowVerifier();
-        st.setVerifier(st.SLOT_MUTATE_SLOT(), IVerifier(address(vMut)));
-        st.setVerifier(st.SLOT_T10_SHADOW(), IVerifier(address(vT10)));
+        st.setVerifier(2, IVerifier(address(vMut)));
+        st.setVerifier(3, IVerifier(address(vT10)));
 
         proofMut = vm.readFileBinary(string.concat(FIX, "/proof_mut.bin"));
         piMut = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), MUT_PI_LEN);
@@ -254,8 +254,8 @@ contract InsertFeatureE2ETest is Test {
 
     function test_insertFeature_reverts_when_slot_occupied() public {
         // Pre-occupy the destination slot via storage poke (avoid double-mint).
-        // _manifests mapping is slot 21; ManifestEntry now spans 5 storage slots.
-        bytes32 outerBase = keccak256(abi.encode(shadowId, uint256(21)));
+        // _manifests mapping is slot 22; ManifestEntry now spans 5 storage slots.
+        bytes32 outerBase = keccak256(abi.encode(shadowId, uint256(22)));
         bytes32 entryBase = bytes32(uint256(outerBase) + uint256(slotIdx) * 5);
         // entry slot 0: kind packed in low byte (1 = OCCUPIED)
         vm.store(address(st), entryBase, bytes32(uint256(1)));
@@ -297,10 +297,10 @@ contract InsertFeatureE2ETest is Test {
     function test_insertFeature_reverts_when_c2_field_noncanonical() public {
         ShadowToken.InsertFeatureArgs memory args = _buildArgs();
         ShadowToken.SlotKind kindBefore = st.slotOf(shadowId, slotIdx).kind;
-        uint256 fr = st.FR_MOD();
+        uint256 fr = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
         _writeField(args.c2, 0, fr);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ShadowToken.NonCanonicalField.selector, uint256(0), fr));
+        vm.expectRevert(ShadowToken.NonCanonicalField.selector);
         st.insertFeature(args);
         assertEq(uint256(st.slotOf(shadowId, slotIdx).kind), uint256(kindBefore), "slot kind unchanged");
         assertFalse(fn.isInserted(featureId), "feature remains held");
