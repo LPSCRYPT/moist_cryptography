@@ -39,6 +39,8 @@ contract MintOnSepolia is Script {
     bytes32[2] private _t10;
     bytes32[8] private _lshInits;
     bytes32[8] private _chainTips;
+    bytes32[8] private _c1Xs;
+    bytes32[8] private _c1Ys;
     bytes32[8] private _paletteCommits;
     bytes32[8] private _originFaceIds;
     bytes32[8] private _ctCommits;
@@ -148,7 +150,7 @@ contract MintOnSepolia is Script {
 
     function _loadFixture(string memory fix) internal {
         _proofMint = vm.readFileBinary(string.concat(fix, "/proof_mint.bin"));
-        bytes32[] memory piMint = _loadFields(string.concat(fix, "/public_inputs_mint.bin"), 7);
+        bytes32[] memory piMint = _loadFields(string.concat(fix, "/public_inputs_mint.bin"), 9);
         _proofDisc = vm.readFileBinary(string.concat(fix, "/proof_disc.bin"));
         bytes32[] memory piDisc = _loadFields(string.concat(fix, "/public_inputs_disc.bin"), 1);
         _proofT10 = vm.readFileBinary(string.concat(fix, "/proof_t10.bin"));
@@ -172,6 +174,8 @@ contract MintOnSepolia is Script {
             _paletteCommits[i] = j.readBytes32(string.concat(".palette_commits[", idx, "]"));
             _originFaceIds[i] = j.readBytes32(string.concat(".origin_face_ids[", idx, "]"));
             _ctCommits[i] = j.readBytes32(string.concat(".ct_commits[", idx, "]"));
+            _c1Xs[i] = j.readBytes32(string.concat(".c1_xs[", idx, "]"));
+            _c1Ys[i] = j.readBytes32(string.concat(".c1_ys[", idx, "]"));
             _paletteSaltCts[i] = j.readBytes32(string.concat(".palette_salt_cts[", idx, "]"));
             _saltC1Xs[i] = j.readBytes32(string.concat(".salt_c1_xs[", idx, "]"));
             _saltC1Ys[i] = j.readBytes32(string.concat(".salt_c1_ys[", idx, "]"));
@@ -218,6 +222,8 @@ contract MintOnSepolia is Script {
         args.imageCommit = _imageCommit;
         args.liveStateHashInits = _lshInits;
         args.chainTips = _chainTips;
+        args.c1Xs = _c1Xs;
+        args.c1Ys = _c1Ys;
         args.paletteCommits = _paletteCommits;
         args.originFaceIds = _originFaceIds;
         args.ctCommits = _ctCommits;

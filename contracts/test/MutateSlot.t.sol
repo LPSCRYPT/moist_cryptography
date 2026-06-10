@@ -63,7 +63,7 @@ contract MutateSlotE2ETest is Test {
 
     address internal alice = makeAddr("alice");
 
-    uint256 internal constant MUT_PI_LEN = 16;
+    uint256 internal constant MUT_PI_LEN = 18;
     uint256 internal constant T10_PI_LEN = 20;
 
     event ShadowSlotMutated(
@@ -77,6 +77,7 @@ contract MutateSlotE2ETest is Test {
         bytes c2
     );
     event ShadowT10Updated(uint256 indexed shadowId, bytes32 hi, bytes32 lo);
+    event ShadowSlotEnvelope(uint256 indexed shadowId, uint8 indexed slotIdx, bytes32 c1X, bytes32 c1Y);
 
     function setUp() public {
         sponge = new Poseidon2YulSponge();
@@ -103,12 +104,12 @@ contract MutateSlotE2ETest is Test {
         oldLsh = piMut[6];
         newLsh = piMut[7];
         newCtCommit = piMut[8];
-        ownerPkX = piMut[10];
-        ownerPkY = piMut[11];
-        prevChainTip = piMut[12];
-        newChainTip = piMut[13];
-        prevMutationCount = uint16(uint256(piMut[14]));
-        newMutationCount = uint16(uint256(piMut[15]));
+        ownerPkX = piMut[12];
+        ownerPkY = piMut[13];
+        prevChainTip = piMut[14];
+        newChainTip = piMut[15];
+        prevMutationCount = uint16(uint256(piMut[16]));
+        newMutationCount = uint16(uint256(piMut[17]));
 
         // Seed the FeatureNFT carrier so its stored values match what the
         // mutate_slot proof PI claims.
@@ -149,8 +150,8 @@ contract MutateSlotE2ETest is Test {
             shadowId: shadowId,
             slotIdx: slotIdx,
             proofMutate: proofMut,
-            newC1X: 0, // not bound on chain in v2; viewer hint via event
-            newC1Y: 0, // (folded into liveStateHash in-circuit)
+            newC1X: uint256(piMut[9]),
+            newC1Y: uint256(piMut[10]),
             newLiveStateHash: newLsh,
             newCtCommit: newCtCommit,
             c2FieldCount: uint16(newC2.length / 32),
@@ -175,13 +176,15 @@ contract MutateSlotE2ETest is Test {
         assertEq(uint256(mPre.kind), uint256(ShadowToken.SlotKind.OCCUPIED));
 
         // Contract emits in order: ShadowT10Updated (from _refreshT10Atomically),
-        // then ShadowSlotMutated.
+        // then ShadowSlotMutated and ShadowSlotEnvelope.
         vm.expectEmit(true, false, false, true);
         emit ShadowT10Updated(shadowId, args.newT10[0], args.newT10[1]);
         vm.expectEmit(true, true, true, true);
         emit ShadowSlotMutated(
             shadowId, slotIdx, originFaceId, featureId, newMutationCount, prevChainTip, newChainTip, newC2
         );
+        vm.expectEmit(true, true, false, true);
+        emit ShadowSlotEnvelope(shadowId, slotIdx, bytes32(args.newC1X), bytes32(args.newC1Y));
 
         vm.prank(alice);
         st.mutateSlot(args);

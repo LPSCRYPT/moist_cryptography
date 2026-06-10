@@ -110,8 +110,8 @@ def build_witness(
     owner_pk = ec_mul(G, owner_sk)
     assert owner_pk is not None
 
-    # Synthetic public binding values (transcript-only in the circuit).
-    print("[2/9] PI binding stubs")
+    # Synthetic public binding values (transcript-bound in the circuit).
+    print("[2/9] PI binding values")
     shadow_id = deterministic_int(seed, b"shadow_id", P)
     # slot_idx = caller-supplied (default 3 for the canonical demo).
     # witness_label distinguishes per-slot witness state when callers
@@ -250,6 +250,8 @@ def write_prover_toml(w: dict) -> None:
         f"old_live_state_hash = {fhex(w['old_lsh'])}",
         f"new_live_state_hash = {fhex(w['new_lsh'])}",
         f"new_ct_commit = {fhex(w['new_ct_commit'])}",
+        f"new_c1_x = {fhex(w['new_c1_x'])}",
+        f"new_c1_y = {fhex(w['new_c1_y'])}",
         f"c2_field_count = {fhex(w['c2_field_count'])}",
         f"owner_pk_x = {fhex(w['owner_pk_x'])}",
         f"owner_pk_y = {fhex(w['owner_pk_y'])}",
@@ -284,8 +286,9 @@ def write_fixture_json(w: dict, fixture_path: Path) -> None:
     pi = [
         w["shadow_id"], w["slot_idx"], w["feature_id"], w["type_idx"],
         w["origin_face_id"], w["palette_commit"], w["old_lsh"], w["new_lsh"],
-        w["new_ct_commit"], w["c2_field_count"], w["owner_pk_x"], w["owner_pk_y"],
-        w["prev_chain_tip"], w["new_chain_tip"], w["prev_mutation_count"], w["new_mutation_count"],
+        w["new_ct_commit"], w["new_c1_x"], w["new_c1_y"], w["c2_field_count"],
+        w["owner_pk_x"], w["owner_pk_y"], w["prev_chain_tip"], w["new_chain_tip"],
+        w["prev_mutation_count"], w["new_mutation_count"],
     ]
     out = {
         "circuit": "mutate_slot",

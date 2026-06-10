@@ -58,7 +58,7 @@ contract MutateBatchE2ETest is Test {
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
 
-    uint256 internal constant MUT_PI_LEN = 16;
+    uint256 internal constant MUT_PI_LEN = 18;
     uint256 internal constant T10_PI_LEN = 20;
 
     function setUp() public {
@@ -112,11 +112,11 @@ contract MutateBatchE2ETest is Test {
     }
 
     function _seedChainState() internal {
-        // Owner pk binds via PI[10..11] of each mutate proof; both proofs
+        // Owner pk binds via PI[12..13] of each mutate proof; both proofs
         // share owner since they're for the same shadow.
-        bytes32 ownerPkX = piA[10];
-        bytes32 ownerPkY = piA[11];
-        require(piB[10] == ownerPkX && piB[11] == ownerPkY, "owner pk diverges");
+        bytes32 ownerPkX = piA[12];
+        bytes32 ownerPkY = piA[13];
+        require(piB[12] == ownerPkX && piB[13] == ownerPkY, "owner pk diverges");
 
         vm.prank(alice);
         kr.register(ownerPkX, ownerPkY);
@@ -160,16 +160,16 @@ contract MutateBatchE2ETest is Test {
     {
         e.slotIdx = slotIdx;
         e.proofMutate = proof;
-        e.newC1X = uint256(0); // not used by contract on PI build (PI[10..11] are pk, not c1)
-        e.newC1Y = uint256(0);
+        e.newC1X = uint256(pi[9]);
+        e.newC1Y = uint256(pi[10]);
         e.newLiveStateHash = pi[7];
         e.newCtCommit = pi[8];
-        e.c2FieldCount = uint16(uint256(pi[9]));
+        e.c2FieldCount = uint16(uint256(pi[11]));
         e.c2 = c2;
-        e.prevChainTip = pi[12];
-        e.newChainTip = pi[13];
-        e.prevMutationCount = uint16(uint256(pi[14]));
-        e.newMutationCount = uint16(uint256(pi[15]));
+        e.prevChainTip = pi[14];
+        e.newChainTip = pi[15];
+        e.prevMutationCount = uint16(uint256(pi[16]));
+        e.newMutationCount = uint16(uint256(pi[17]));
     }
 
     function _decodeShadowSlotMutatedC2(bytes memory data) internal pure returns (bytes memory emittedC2) {
@@ -215,7 +215,9 @@ contract MutateBatchE2ETest is Test {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 sigSM = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
         bytes32 sigT10 = keccak256("ShadowT10Updated(uint256,bytes32,bytes32)");
+        bytes32 sigEnvelope = keccak256("ShadowSlotEnvelope(uint256,uint8,bytes32,bytes32)");
         uint256 sm = 0;
+        uint256 envelopes = 0;
         bool t10Seen = false;
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter != address(st)) continue;
@@ -230,11 +232,25 @@ contract MutateBatchE2ETest is Test {
                     fail("unexpected ShadowSlotMutated slot");
                 }
                 sm++;
+            } else if (logs[i].topics[0] == sigEnvelope) {
+                uint8 emittedSlot = uint8(uint256(logs[i].topics[2]));
+                (bytes32 c1X, bytes32 c1Y) = abi.decode(logs[i].data, (bytes32, bytes32));
+                if (emittedSlot == args.entries[0].slotIdx) {
+                    assertEq(c1X, bytes32(args.entries[0].newC1X), "slot A c1X event");
+                    assertEq(c1Y, bytes32(args.entries[0].newC1Y), "slot A c1Y event");
+                } else if (emittedSlot == args.entries[1].slotIdx) {
+                    assertEq(c1X, bytes32(args.entries[1].newC1X), "slot B c1X event");
+                    assertEq(c1Y, bytes32(args.entries[1].newC1Y), "slot B c1Y event");
+                } else {
+                    fail("unexpected ShadowSlotEnvelope slot");
+                }
+                envelopes++;
             } else if (logs[i].topics[0] == sigT10) {
                 t10Seen = true;
             }
         }
         assertEq(sm, 2, "2x ShadowSlotMutated emitted");
+        assertEq(envelopes, 2, "2x ShadowSlotEnvelope emitted");
         assertTrue(t10Seen, "ShadowT10Updated emitted");
     }
 

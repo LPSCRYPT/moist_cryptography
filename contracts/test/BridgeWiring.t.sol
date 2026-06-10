@@ -381,9 +381,10 @@ contract BridgeWiringTest is Test {
     }
 }
 
-/// Mock cross-domain messenger that captures the last sendMessage call
-/// AND lets tests configure xDomainMessageSender (which the real OP
-/// Stack messenger uses to relay the original sender across chains).
+/// Mock cross-domain messenger that captures local call data and lets tests
+/// configure xDomainMessageSender, matching the OP Stack messenger interface
+/// shape. This is wiring coverage only; live OP messenger behavior/finality is
+/// tracked separately in `docs/SEPOLIA_TEST_MATRIX.md`.
 contract StubMessenger {
     address public lastTarget;
     bytes public lastMessage;

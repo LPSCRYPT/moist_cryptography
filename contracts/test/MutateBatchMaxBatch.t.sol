@@ -45,7 +45,7 @@ contract MutateBatchMaxBatchTest is Test {
 
     string internal constant FIX = "./test/fixtures/atomic_mutate_batch_max/atomic_mutate_batch_max_demo";
     uint256 internal constant N_BATCH = 8;
-    uint256 internal constant MUT_PI_LEN = 16;
+    uint256 internal constant MUT_PI_LEN = 18;
     uint256 internal constant T10_PI_LEN = 20;
 
     bytes[N_BATCH] internal proofs;
@@ -105,10 +105,10 @@ contract MutateBatchMaxBatchTest is Test {
     }
 
     function _seedChainState() internal {
-        bytes32 ownerPkX = pis[0][10];
-        bytes32 ownerPkY = pis[0][11];
+        bytes32 ownerPkX = pis[0][12];
+        bytes32 ownerPkY = pis[0][13];
         for (uint256 i = 1; i < N_BATCH; i++) {
-            require(pis[i][10] == ownerPkX && pis[i][11] == ownerPkY, "owner pk diverges");
+            require(pis[i][12] == ownerPkX && pis[i][13] == ownerPkY, "owner pk diverges");
         }
 
         vm.prank(alice);
@@ -142,16 +142,16 @@ contract MutateBatchMaxBatchTest is Test {
         bytes32[] memory pi = pis[i];
         e.slotIdx = slots[i];
         e.proofMutate = proofs[i];
-        e.newC1X = uint256(0);
-        e.newC1Y = uint256(0);
+        e.newC1X = uint256(pi[9]);
+        e.newC1Y = uint256(pi[10]);
         e.newLiveStateHash = pi[7];
         e.newCtCommit = pi[8];
-        e.c2FieldCount = uint16(uint256(pi[9]));
+        e.c2FieldCount = uint16(uint256(pi[11]));
         e.c2 = c2s[i];
-        e.prevChainTip = pi[12];
-        e.newChainTip = pi[13];
-        e.prevMutationCount = uint16(uint256(pi[14]));
-        e.newMutationCount = uint16(uint256(pi[15]));
+        e.prevChainTip = pi[14];
+        e.newChainTip = pi[15];
+        e.prevMutationCount = uint16(uint256(pi[16]));
+        e.newMutationCount = uint16(uint256(pi[17]));
     }
 
     function _buildArgs() internal view returns (ShadowToken.MutateBatchArgs memory args) {

@@ -22,13 +22,16 @@
       "contract_entrypoints": ["ShadowToken.mintShadow"],
       "circuit_dir": "circuits/landmark_regions_v2",
       "verifier": "contracts/src/MintShadowVerifier.sol",
-      "external_public_inputs": 7,
+      "external_public_inputs": 9,
       "byte_outputs": [
-        {"name": "c2", "event": "ShadowSlotMutated", "kind": "bytes", "binding": "sponge_39(c2) == ctCommits[i]; sponge_16(ctCommits) == mint PI[5]"},
+        {"name": "imageCommit", "event": "ShadowMintStarted", "kind": "bytes32", "binding": "beginMintShadow requires registered imageCommit and stores a pending mint keyed by deterministic shadowId"},
+        {"name": "c2", "event": "MintCiphertextSubmitted", "kind": "bytes", "binding": "sponge_39(c2) == ctCommits[i]; sponge_8_pad16(ctCommits) == mint PI[5]"},
+        {"name": "c1X[]", "event": "ShadowSlotEnvelope", "kind": "bytes32[8]", "binding": "canonical fields; sponge_8_pad16(c1Xs) == mint PI[7]"},
+        {"name": "c1Y[]", "event": "ShadowSlotEnvelope", "kind": "bytes32[8]", "binding": "canonical fields; sponge_8_pad16(c1Ys) == mint PI[8]"},
         {"name": "originFaceId", "event": "ShadowSlotMutated", "kind": "bytes32", "binding": "hash2(imageCommit, slotIdx) checked on chain"},
-        {"name": "saltEnvelope", "event": "FeaturePaletteSaltEnvelope", "kind": "bytes32[3]", "binding": "advisory encrypted salt envelope emitted exactly; palette opening checked at reveal"}
-        ,{"name": "FeatureMinted metadata", "event": "FeatureMinted", "kind": "bytes32", "binding": "mint proof binds liveStateHash; paletteCommit is stored immutable metadata opened at solve"}
-        ,{"name": "ShadowMinted metadata", "event": "ShadowMinted", "kind": "bytes32", "binding": "mint proof PI[1] imageCommit and deterministic shadowId"}
+        {"name": "saltEnvelope", "event": "FeaturePaletteSaltEnvelope", "kind": "bytes32[3]", "binding": "advisory encrypted salt envelope emitted exactly; palette opening checked at reveal"},
+        {"name": "FeatureMinted metadata", "event": "FeatureMinted", "kind": "bytes32", "binding": "mint proof binds liveStateHash; paletteCommit is stored immutable metadata opened at solve"},
+        {"name": "ShadowMinted metadata", "event": "ShadowMinted", "kind": "bytes32", "binding": "mint proof PI[1] imageCommit and deterministic shadowId"}
       ],
       "positive_tests": ["test_mintShadow_success_creates_shadow_and_8_carriers"],
       "negative_tests": ["test_mintShadow_reverts_when_c2_tampered", "test_mintShadow_reverts_when_c2_field_noncanonical", "test_mintShadow_reverts_when_ctCommits_tampered", "test_mintShadow_reverts_when_originFaceIds_tampered"]
@@ -38,11 +41,13 @@
       "contract_entrypoints": ["ShadowToken.mutateSlot"],
       "circuit_dir": "circuits/mutate_slot",
       "verifier": "contracts/src/MutateSlotVerifier.sol",
-      "external_public_inputs": 16,
+      "external_public_inputs": 18,
       "byte_outputs": [
         {"name": "newC2", "event": "ShadowSlotMutated", "kind": "bytes", "binding": "sponge_39(newC2) == PI[8] newCtCommit"},
+        {"name": "newC1X", "event": "ShadowSlotEnvelope", "kind": "uint256", "binding": "canonical field; equals mutate PI[9]"},
+        {"name": "newC1Y", "event": "ShadowSlotEnvelope", "kind": "uint256", "binding": "canonical field; equals mutate PI[10]"},
         {"name": "newLiveStateHash", "event": "ShadowSlotMutated", "kind": "bytes32", "binding": "mutate proof PI[7]"},
-        {"name": "newChainTip", "event": "ShadowSlotMutated", "kind": "bytes32", "binding": "mutate proof PI[14]"}
+        {"name": "newChainTip", "event": "ShadowSlotMutated", "kind": "bytes32", "binding": "mutate proof PI[15]"}
       ],
       "positive_tests": ["test_mutateSlot_success_advances_state_and_T10"],
       "negative_tests": ["test_mutateSlot_reverts_when_c2_tampered", "test_mutateSlot_reverts_when_c2_field_noncanonical", "test_mutateSlot_reverts_when_newCtCommit_tampered", "test_mutateSlot_reverts_when_oldLsh_mismatch"]
@@ -52,9 +57,11 @@
       "contract_entrypoints": ["ShadowToken.mutateBatch"],
       "circuit_dir": "circuits/mutate_slot",
       "verifier": "contracts/src/MutateSlotVerifier.sol",
-      "external_public_inputs": 16,
+      "external_public_inputs": 18,
       "byte_outputs": [
-        {"name": "newC2[]", "event": "ShadowSlotMutated", "kind": "bytes[]", "binding": "each sponge_39(newC2[i]) == each mutate PI[8]"}
+        {"name": "newC2[]", "event": "ShadowSlotMutated", "kind": "bytes[]", "binding": "each sponge_39(newC2[i]) == each mutate PI[8]"},
+        {"name": "newC1X[]", "event": "ShadowSlotEnvelope", "kind": "uint256[]", "binding": "each canonical field equals each mutate PI[9]"},
+        {"name": "newC1Y[]", "event": "ShadowSlotEnvelope", "kind": "uint256[]", "binding": "each canonical field equals each mutate PI[10]"}
       ],
       "positive_tests": ["test_mutateBatch_success_advances_two_slots_and_T10"],
       "negative_tests": ["test_mutateBatch_reverts_when_entry_c2_tampered", "test_mutateBatch_reverts_when_entry_c2_field_noncanonical", "test_mutateBatch_reverts_when_first_proof_tampered", "test_mutateBatch_reverts_when_second_proof_tampered"]
@@ -92,9 +99,11 @@
       "contract_entrypoints": ["ShadowToken.insertFeature"],
       "circuit_dir": "circuits/mutate_slot",
       "verifier": "contracts/src/MutateSlotVerifier.sol",
-      "external_public_inputs": 16,
+      "external_public_inputs": 18,
       "byte_outputs": [
         {"name": "newC2", "event": "ShadowSlotMutated", "kind": "bytes", "binding": "sponge_39(newC2) == mutate PI[8]"},
+        {"name": "newC1X", "event": "ShadowSlotEnvelope", "kind": "uint256", "binding": "canonical field; equals mutate PI[9]"},
+        {"name": "newC1Y", "event": "ShadowSlotEnvelope", "kind": "uint256", "binding": "canonical field; equals mutate PI[10]"},
         {"name": "checkpointLiveStateHash", "event": "ShadowFeatureInserted", "kind": "bytes32", "binding": "old live-state checkpoint consumed by mutate proof"}
       ],
       "positive_tests": ["test_insertFeature_success_advances_state_and_T10"],

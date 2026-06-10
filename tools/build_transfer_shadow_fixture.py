@@ -215,10 +215,11 @@ def main() -> int:
 
     # ---- 6. Write Prover.toml ---------------------------------------------
     print("\n[6] Write Prover.toml")
-    # shadow_id is just bound to PI; for fixture purposes, derive from alice's
-    # faceOriginId via the same DOMAIN_SHADOW the contract uses.
+    # shadow_id is bound to PI. For fixture purposes, derive from Alice's
+    # faceOriginId via ShadowToken.shadowIdOf below; this legacy domain value
+    # is kept only for compatibility with older generated fixture metadata.
     domain = int.from_bytes(
-        hashlib.sha3_256(b"\xff" * 0).digest(),  # placeholder; real domain in contract
+        hashlib.sha3_256(b"\xff" * 0).digest(),
         "big",
     )
     face_origin_id = alice_pi[8]

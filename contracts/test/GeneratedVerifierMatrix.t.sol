@@ -48,8 +48,8 @@ contract GeneratedVerifierMatrixTest is Test {
                 verifier: IGeneratedVerifier(address(new MintShadowVerifier())),
                 proofPath: "./test/fixtures/atomic_mint/atomic_mint_demo/proof_mint.bin",
                 piPath: "./test/fixtures/atomic_mint/atomic_mint_demo/public_inputs_mint.bin",
-                piLen: 7,
-                generatedPiLen: 15
+                piLen: 9,
+                generatedPiLen: 17
             })
         );
     }
@@ -74,8 +74,8 @@ contract GeneratedVerifierMatrixTest is Test {
                 verifier: IGeneratedVerifier(address(new MutateSlotVerifier())),
                 proofPath: "./test/fixtures/mutate_slot/mutate_demo_v2/proof.bin",
                 piPath: "./test/fixtures/mutate_slot/mutate_demo_v2/public_inputs.bin",
-                piLen: 16,
-                generatedPiLen: 24
+                piLen: 18,
+                generatedPiLen: 26
             })
         );
     }

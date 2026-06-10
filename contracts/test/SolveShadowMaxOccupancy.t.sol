@@ -8,12 +8,20 @@ import {IFeatureNFT} from "../src/IFeatureNFT.sol";
 import {Poseidon2YulSponge} from "../src/Poseidon2YulSponge.sol";
 import {TestableShadowToken} from "./Testable.sol";
 
+/// @dev Gas-only verifier double. It removes cryptographic verifier cost so the
+///      max-occupancy reveal chunk overhead can be measured independently. Real
+///      proof coverage for the same verifier surface lives in
+///      `SolveShadowRealProof.t.sol`, `GeneratedVerifierMatrix.t.sol`, and
+///      `ProofFuzz.t.sol`.
 contract AlwaysOkFeatureRevealVerifier is IVerifier {
     function verify(bytes calldata, bytes32[] calldata publicInputs) external pure returns (bool) {
         return publicInputs.length == 9 || publicInputs.length == 20;
     }
 }
 
+/// @dev Minimal `IFeatureNFT` double for max-occupancy reveal gas measurement.
+///      It records reveal state only; real FeatureNFT behavior is covered by
+///      `FeatureNFT.t.sol` and the real-proof reveal integration test.
 contract MaxRevealFeatureNFT is IFeatureNFT {
     struct FeatureState {
         address owner;
@@ -49,8 +57,9 @@ contract MaxRevealFeatureNFT is IFeatureNFT {
 }
 
 /// @notice Max-occupancy gas regression for incremental feature reveal.
-/// The verifier is mocked to isolate contract overhead; real proof gas remains
-/// measured separately from generated verifier fixtures.
+/// @dev Uses verifier/feature doubles to isolate contract overhead only. Real
+///      generated-verifier gas and proof validity are measured by the real-proof
+///      fixture tests named above, not by this gas diagnostic.
 contract SolveShadowMaxOccupancyTest is Test {
     TestableShadowToken internal st;
     Poseidon2YulSponge internal sponge;

@@ -167,6 +167,8 @@ def write_mutate_prover_toml(w: dict) -> None:
         f"old_live_state_hash = {fhex(w['old_lsh'])}",
         f"new_live_state_hash = {fhex(w['new_lsh'])}",
         f"new_ct_commit = {fhex(w['new_ct_commit'])}",
+        f"new_c1_x = {fhex(w['new_c1_x'])}",
+        f"new_c1_y = {fhex(w['new_c1_y'])}",
         f"c2_field_count = {fhex(w['c2_field_count'])}",
         f"owner_pk_x = {fhex(w['owner_pk_x'])}",
         f"owner_pk_y = {fhex(w['owner_pk_y'])}",

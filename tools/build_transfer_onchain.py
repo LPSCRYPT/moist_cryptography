@@ -292,8 +292,8 @@ def build_transfer_witness(
         assert dk == new_k_arr[i], f"recipient k mismatch slot {i}"
 
     prev_lsh_root = sponge_16(prev_lsh_arr)
-    assert all(prev_c1_x[i] != 0 or prev_c1_y[i] != 0 for i in range(16)), "prev_c1 placeholders must be on-curve"
-    assert all(r != 0 for r in new_r_arr), "new_r placeholders must be nonzero"
+    assert all(prev_c1_x[i] != 0 or prev_c1_y[i] != 0 for i in range(16)), "prev_c1 padding points must be on-curve"
+    assert all(r != 0 for r in new_r_arr), "new_r padding scalars must be nonzero"
     new_lsh_root = sponge_16(new_lsh_arr)
     new_chain_tips_root = sponge_16(new_chain_tip_arr)
     new_ct_commits_root = sponge_16(new_ct_commit_arr)

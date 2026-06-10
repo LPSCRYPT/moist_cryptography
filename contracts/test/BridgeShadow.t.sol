@@ -28,15 +28,15 @@ import {TestableShadowToken, TestableFeatureNFT} from "./Testable.sol";
 ///   - bridgeShadow reverts when caller is not shadow owner
 ///   - bridgeShadow reverts when L1 mirror not set
 ///
-/// We do NOT exercise the L1 mirror's mintFromBridge on actual L1; that
-/// is OP-Stack territory + spec non-goal. We DO assert the messenger
-/// received a call with non-empty calldata so an indexer-side schema
-/// check has something to round-trip against.
+/// We do NOT exercise the L1 mirror's mintFromBridge on actual L1; that is
+/// OP-Stack territory + spec non-goal for this unit test. `BridgeWiring.t.sol`
+/// covers both bridge sides with messenger doubles, and `docs/SEPOLIA_TEST_MATRIX.md`
+/// tracks which bridge cases require live OP messenger/finality testing.
 ///
 /// Messenger stub: the L2 cross-domain messenger is a predeploy at
 /// `0x4200000000000000000000000000000000000007`. We `vm.etch` a tiny
-/// stub there that records the last sendMessage call so the test can
-/// assert against it.
+/// stub there that records the last sendMessage call so the test can assert
+/// calldata shape without pretending to prove OP's messenger implementation.
 contract BridgeShadowTest is Test {
     TestableShadowToken internal st;
     TestableFeatureNFT internal fn;
@@ -66,10 +66,9 @@ contract BridgeShadowTest is Test {
         bridge = new ShadowBridgeL2(IShadowToken(address(st)), IFeatureNFT(address(fn)));
         bridge.setL1Mirror(l1Mirror);
 
-        // Etch a messenger stub at the predeploy address. The stub
-        // implements `sendMessage(target,message,minGasLimit)` by
-        // storing the last call's blob; tests can read it back via the
-        // `lastTarget()` / `lastMessage()` view fns.
+        // Etch a messenger stub at the predeploy address. This verifies our
+        // bridge call shape only; OP messenger behavior must be verified on
+        // live testnet per docs/SEPOLIA_TEST_MATRIX.md.
         L2MessengerStub stub = new L2MessengerStub();
         vm.etch(L2_MESSENGER, address(stub).code);
 

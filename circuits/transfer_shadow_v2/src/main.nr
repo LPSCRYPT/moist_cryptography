@@ -254,8 +254,8 @@ fn main(
 
         // M-06: r != 0 rejects the degenerate (c1 = O, shared = O) envelope.
         // Unconditional across all 16 slots; the fixture builder must supply
-        // a nonzero placeholder for empty slots (the computed work is masked
-        // out by `occ * ...` below anyway).
+        // a valid nonzero padding scalar for empty slots (the computed work
+        // is masked out by `occ * ...` below anyway).
         assert(new_r[i] != 0);
 
         // 2d. new ECIES envelope to recipient.

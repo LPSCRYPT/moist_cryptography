@@ -36,7 +36,7 @@ import {IFeatureNFT} from "../src/IFeatureNFT.sol";
 contract InsertOnSepolia is Script {
     using stdJson for string;
 
-    uint256 internal constant MUT_PI_LEN = 16;
+    uint256 internal constant MUT_PI_LEN = 18;
     uint256 internal constant T10_PI_LEN = 20;
 
     struct Loaded {
@@ -122,18 +122,16 @@ contract InsertOnSepolia is Script {
         args.slotIdx = uint8(uint256(_word(L.piIns, 1)));
         args.featureId = uint256(_word(L.piIns, 2));
         args.proofInsert = L.proofIns;
-        // newC1{X,Y} are unused on chain (newLiveStateHash already binds c1
-        // via the proof's sponge_6); kept zero like MutateOnSepolia.
-        args.newC1X = 0;
-        args.newC1Y = 0;
+        args.newC1X = uint256(_word(L.piIns, 9));
+        args.newC1Y = uint256(_word(L.piIns, 10));
         args.newLiveStateHash = _word(L.piIns, 7);
         args.newCtCommit = _word(L.piIns, 8);
         args.c2FieldCount = uint16(L.newC2.length / 32);
         args.c2 = L.newC2;
-        args.prevChainTip = _word(L.piIns, 12);
-        args.newChainTip = _word(L.piIns, 13);
-        args.prevMutationCount = uint16(uint256(_word(L.piIns, 14)));
-        args.newMutationCount = uint16(uint256(_word(L.piIns, 15)));
+        args.prevChainTip = _word(L.piIns, 14);
+        args.newChainTip = _word(L.piIns, 15);
+        args.prevMutationCount = uint16(uint256(_word(L.piIns, 16)));
+        args.newMutationCount = uint16(uint256(_word(L.piIns, 17)));
         args.newT10[0] = _word(L.piT10, 2);
         args.newT10[1] = _word(L.piT10, 3);
         args.proofT10 = L.proofT10;

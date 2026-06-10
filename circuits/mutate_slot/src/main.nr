@@ -18,7 +18,7 @@
 // feature's dimensions and packed palette-index payload byte-for-byte; exactly
 // one pose class may change: rotation, scale, or x/y translation.
 //
-// Public inputs (16 Fields):
+// Public inputs (18 Fields):
 //   PI[0]   shadow_id              (chain-level binding only; transcript-only here)
 //   PI[1]   slot_idx               (0..15)
 //   PI[2]   feature_id             (must match manifest[slot].featureId on chain)
@@ -28,13 +28,15 @@
 //   PI[6]   old_live_state_hash    (== chain manifest[slot].liveStateHash)
 //   PI[7]   new_live_state_hash    (written to chain on success)
 //   PI[8]   new_ct_commit          (= sponge_39 of new c2; for chain calldata bind)
-//   PI[9]   c2_field_count         (used field count of new c2 plaintext; contract length-checks calldata)
-//   PI[10]  owner_pk_x             (== KeyRegistry pk for the caller)
-//   PI[11]  owner_pk_y
-//   PI[12]  prev_chain_tip         (= old_chain_tip; for ShadowSlotMutated event indexer chain reconstruction)
-//   PI[13]  new_chain_tip          (post-extension)
-//   PI[14]  prev_mutation_count    (uint16 in chain semantics)
-//   PI[15]  new_mutation_count     (== prev + 1)
+//   PI[9]   new_c1_x               (= fresh ECIES c1.x, emitted for browser decryptability)
+//   PI[10]  new_c1_y               (= fresh ECIES c1.y, emitted for browser decryptability)
+//   PI[11]  c2_field_count         (used field count of new c2 plaintext; contract length-checks calldata)
+//   PI[12]  owner_pk_x             (== KeyRegistry pk for the caller)
+//   PI[13]  owner_pk_y
+//   PI[14]  prev_chain_tip         (= old_chain_tip; for ShadowSlotMutated event indexer chain reconstruction)
+//   PI[15]  new_chain_tip          (post-extension)
+//   PI[16]  prev_mutation_count    (uint16 in chain semantics)
+//   PI[17]  new_mutation_count     (== prev + 1)
 //
 // Witness (private):
 //   old_plaintext, new_plaintext        : [Field; 39]    (pose | w | h | indices | zero pad)
@@ -280,6 +282,8 @@ fn main(
     old_live_state_hash: pub Field,
     new_live_state_hash: pub Field,
     new_ct_commit:       pub Field,
+    new_c1_x:            pub Field,
+    new_c1_y:            pub Field,
     c2_field_count:      pub Field,
     owner_pk_x:          pub Field,
     owner_pk_y:          pub Field,
@@ -307,7 +311,7 @@ fn main(
     h_new:               Field,
     c2_field_count_w:    Field,  // mirror of PI[c2_field_count] passed as witness for deterministic encoding
 ) {
-    // ---- 0. transcript-only PI hooks (silence unused warnings) ----
+    // ---- 0. transcript-bound PI hooks ----
     let _ = shadow_id;
     let _ = feature_id;
     let _ = type_idx;
@@ -429,7 +433,9 @@ fn main(
     assert(prev_mutation_count == old_mutation_count);
     assert(new_mutation_count_pi == new_count);
 
-    // ---- 9. new_live_state_hash binds new state ----
+    // ---- 9. new_live_state_hash binds new state and public c1 ----
+    assert(new_c1.x == new_c1_x);
+    assert(new_c1.y == new_c1_y);
     let lsh_new_recomputed = sponge_6(
         new_state_commit_local,
         new_ct_commit_local,

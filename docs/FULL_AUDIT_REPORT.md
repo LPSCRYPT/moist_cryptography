@@ -62,23 +62,18 @@ Explicitly classified non-production or superseded artifacts:
 
 ## Findings
 
-### Medium: production placeholder/stub vocabulary remains in live paths
+### Resolved: production proof-surface vocabulary scanner is clean
 
-`python3 tools/audit_placeholder_scan.py` currently fails with 24 term findings and no inventory errors. The most important production contract findings are:
+`python3 tools/audit_placeholder_scan.py` now passes with no inventory errors and
+no unresolved placeholder/mock terminology in active production proof surfaces.
+The scanner still classifies test-only mocks and historical verifier artifacts
+explicitly, so the cleanup does not weaken the distinction between real proof
+coverage and behavior/gas diagnostics.
 
-- `contracts/src/ShadowToken.sol:214` defines `error NotImplementedYet();`.
-- `contracts/src/ShadowToken.sol` live section headers still say `(STUB)` for:
-  - `mutateSlot`
-  - `extractSlot`
-  - `insertFeature`
-  - `transferShadow`
-  - `setZIndexCommit`
-- `contracts/src/ShadowToken.sol:1427` references a historical keccak placeholder in documentation.
-- Several live tooling/circuit comments use `placeholder`, `stub`, `TODO`, or `unused` vocabulary around masked empty-slot witness values or diagnostic messages.
-
-Impact: the scanner does not prove these are exploitable bugs, but the terms are unacceptable in a production assurance surface because they blur the distinction between live proof paths, historical scaffolding, and test-only mocks.
-
-Required follow-up: after approval to edit existing production/source files, remove misleading live `(STUB)` labels, remove dead `NotImplementedYet` if truly unused, and classify or reword the remaining production-path terms so the scanner can pass without weakening it.
+Impact: active contracts, circuits, and tooling no longer use ambiguous
+placeholder/stub language for live proof paths. Test-only mocks remain present
+where they isolate state-machine behavior or gas attribution, and they must not
+be cited as cryptographic proof evidence.
 
 ### Resolved: canonical Noir `Prover.toml` witnesses were absent or empty templates
 

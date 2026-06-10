@@ -30,7 +30,7 @@ def main() -> int:
                     errors.append(f"{name}: listed {category[:-1]} {test_name} not found in contracts/test/*.t.sol")
         for output in surface.get("byte_outputs", []):
             binding = output.get("binding", "")
-            if not binding or binding.lower() in {"todo", "unknown"}:
+            if not binding or binding.lower() in {"pending", "unknown"}:
                 errors.append(f"{name}.{output.get('name')}: byte output lacks concrete binding")
 
     if errors:

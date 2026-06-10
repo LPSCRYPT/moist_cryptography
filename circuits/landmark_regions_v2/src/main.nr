@@ -283,7 +283,7 @@ fn validate_plaintext_v2(plaintext: [Field; 39]) {
 // ---- main ----
 
 fn main(
-    // public inputs (7)
+    // public inputs (9)
     shadow_id:           pub Field,
     image_commit:        pub Field,
     owner_pk_x:          pub Field,
@@ -291,6 +291,8 @@ fn main(
     lsh_inits_root:      pub Field,
     ct_commits_root:     pub Field,
     chain_tips_root:     pub Field,
+    c1_x_root:           pub Field,
+    c1_y_root:           pub Field,
 
     // ---- per-slot witness (private) ----
     plaintexts:          [[Field; 39]; 8],
@@ -316,6 +318,8 @@ fn main(
     let mut lsh_inits:  [Field; 8] = [0; 8];
     let mut ct_commits: [Field; 8] = [0; 8];
     let mut chain_tips: [Field; 8] = [0; 8];
+    let mut c1_xs:      [Field; 8] = [0; 8];
+    let mut c1_ys:      [Field; 8] = [0; 8];
 
     for i in 0..N_MINT_SLOTS {
         // 2a. plaintext -> state_commit
@@ -367,10 +371,14 @@ fn main(
         lsh_inits[i]  = lsh_init_i;
         ct_commits[i] = ct_commit_i;
         chain_tips[i] = chain_tip_i;
+        c1_xs[i]      = c1.x;
+        c1_ys[i]      = c1.y;
     }
 
     // ---- 3. fold into PI roots ----
     assert(sponge_8_pad16(lsh_inits)  == lsh_inits_root);
     assert(sponge_8_pad16(ct_commits) == ct_commits_root);
     assert(sponge_8_pad16(chain_tips) == chain_tips_root);
+    assert(sponge_8_pad16(c1_xs) == c1_x_root);
+    assert(sponge_8_pad16(c1_ys) == c1_y_root);
 }

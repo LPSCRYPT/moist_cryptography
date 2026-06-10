@@ -10,12 +10,21 @@ import {Poseidon2YulSponge} from "../src/Poseidon2YulSponge.sol";
 import {Poseidon2YulSponge16} from "../src/Poseidon2YulSponge16.sol";
 import {TestableShadowToken} from "./Testable.sol";
 
+/// @dev Diagnostic verifier double only. It deliberately removes proof-verifier
+///      gas from attribution measurements; do not cite this file as proof-layer
+///      coverage. Real generated-verifier coverage lives in
+///      `GeneratedVerifierMatrix.t.sol`, with per-flow real-proof integration in
+///      files such as `SolveShadowRealProof.t.sol` and `MintShadow.t.sol`.
 contract AlwaysOkVerifier is IVerifier {
     function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
         return true;
     }
 }
 
+/// @dev Minimal `IFeatureNFT` test double for gas attribution. It lets this suite
+///      toggle feature-side storage/events independently from verifier gas. Real
+///      feature custody and palette behavior is covered by `FeatureNFT.t.sol`,
+///      `MintShadow.t.sol`, and `SolveShadowRealProof.t.sol`.
 contract AttributionFeatureNFT is IFeatureNFT {
     enum Mode {
         Noop,
@@ -73,7 +82,7 @@ contract AttributionFeatureNFT is IFeatureNFT {
     function mintAtShadowMint(uint256, uint8, uint8, bytes32, PaletteAtMint calldata, bytes32, address)
         external
         pure
-        returns (uint256 featureId)
+        returns (uint256)
     {
         revert("unused");
     }
@@ -154,6 +163,11 @@ contract AttributionFeatureNFT is IFeatureNFT {
     }
 }
 
+/// @notice Gas-attribution diagnostics with verifier/feature doubles.
+/// @dev This suite answers "where does gas go after proof cost is removed?" It is
+///      not cryptographic evidence. Use `GeneratedVerifierMatrix.t.sol` and
+///      `ProofFuzz.t.sol` for generated-verifier assurance, and flow-specific
+///      real-proof tests for integration behavior.
 contract GasAttributionTest is Test {
     uint256 internal constant N = 16;
     uint256 internal constant PLAINTEXT_FIELDS = 39;

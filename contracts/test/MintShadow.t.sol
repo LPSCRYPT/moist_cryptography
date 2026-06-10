@@ -55,7 +55,7 @@ contract MintShadowE2ETest is Test {
     bytes internal proofMint;
     bytes internal proofDisc;
     bytes internal proofT10;
-    bytes32[] internal piMint; // 7 fields
+    bytes32[] internal piMint; // 9 fields
     bytes32[] internal piDisc; // 1 field
     bytes32[] internal piT10; // 20 fields
 
@@ -67,7 +67,7 @@ contract MintShadowE2ETest is Test {
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
 
-    uint256 internal constant MINT_PI_LEN = 7;
+    uint256 internal constant MINT_PI_LEN = 9;
     uint256 internal constant DISC_PI_LEN = 1;
     uint256 internal constant T10_PI_LEN = 20;
 
@@ -77,6 +77,8 @@ contract MintShadowE2ETest is Test {
     bytes32[8] internal paletteCommits;
     bytes32[8] internal originFaceIds;
     bytes32[8] internal ctCommits; // sponge_39(c2[i]) per slot, from fixture
+    bytes32[8] internal c1Xs;
+    bytes32[8] internal c1Ys;
     bytes32[8] internal paletteSaltCts; // per-slot ECIES salt envelopes (advisory)
     bytes32[8] internal saltC1Xs;
     bytes32[8] internal saltC1Ys;
@@ -159,6 +161,8 @@ contract MintShadowE2ETest is Test {
             paletteCommits[i] = j.readBytes32(string.concat(".palette_commits[", idx, "]"));
             originFaceIds[i] = j.readBytes32(string.concat(".origin_face_ids[", idx, "]"));
             ctCommits[i] = j.readBytes32(string.concat(".ct_commits[", idx, "]"));
+            c1Xs[i] = j.readBytes32(string.concat(".c1_xs[", idx, "]"));
+            c1Ys[i] = j.readBytes32(string.concat(".c1_ys[", idx, "]"));
             paletteSaltCts[i] = j.readBytes32(string.concat(".palette_salt_cts[", idx, "]"));
             saltC1Xs[i] = j.readBytes32(string.concat(".salt_c1_xs[", idx, "]"));
             saltC1Ys[i] = j.readBytes32(string.concat(".salt_c1_ys[", idx, "]"));
@@ -170,6 +174,8 @@ contract MintShadowE2ETest is Test {
         args.imageCommit = imageCommit;
         args.liveStateHashInits = lshInits;
         args.chainTips = chainTips;
+        args.c1Xs = c1Xs;
+        args.c1Ys = c1Ys;
         args.paletteCommits = paletteCommits;
         args.paletteSaltCts = paletteSaltCts;
         args.saltC1Xs = saltC1Xs;
@@ -326,17 +332,22 @@ contract MintShadowE2ETest is Test {
         assertEq(st.shadowT10(shadowId, 0), args.newT10[0], "T10 hi");
         assertEq(st.shadowT10(shadowId, 1), args.newT10[1], "T10 lo");
 
-        Vm.Log[] memory logs = vm.getRecordedLogs();
+        _assertMintEvents(vm.getRecordedLogs());
+    }
+
+    function _assertMintEvents(Vm.Log[] memory logs) internal view {
         bool sawStarted = false;
         bool sawMinted = false;
         bool sawT10 = false;
         uint256 sawC2 = 0;
         uint256 sawSlotMutated = 0;
+        uint256 sawEnvelope = 0;
         bytes32 sigStarted = keccak256("ShadowMintStarted(uint256,address,bytes32)");
         bytes32 sigMinted = keccak256("ShadowMinted(uint256,address,uint64,bytes32)");
         bytes32 sigT10 = keccak256("ShadowT10Updated(uint256,bytes32,bytes32)");
         bytes32 sigC2 = keccak256("MintCiphertextSubmitted(uint256,uint8,bytes32,bytes)");
         bytes32 sigSM = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
+        bytes32 sigEnvelope = keccak256("ShadowSlotEnvelope(uint256,uint8,bytes32,bytes32)");
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter == address(mc)) {
                 if (logs[i].topics[0] == sigStarted) sawStarted = true;
@@ -345,6 +356,10 @@ contract MintShadowE2ETest is Test {
                 if (logs[i].topics[0] == sigMinted) sawMinted = true;
                 else if (logs[i].topics[0] == sigT10) sawT10 = true;
                 else if (logs[i].topics[0] == sigSM) sawSlotMutated++;
+                else if (logs[i].topics[0] == sigEnvelope) {
+                    _assertEnvelopeLog(logs[i]);
+                    sawEnvelope++;
+                }
             }
         }
         assertTrue(sawStarted, "ShadowMintStarted emitted");
@@ -352,7 +367,16 @@ contract MintShadowE2ETest is Test {
         assertTrue(sawT10, "ShadowT10Updated emitted");
         assertEq(sawC2, 8, "8 ciphertext events emitted");
         assertEq(sawSlotMutated, 8, "8 slot install events emitted");
+        assertEq(sawEnvelope, 8, "8 c1 envelope events emitted");
     }
+
+    function _assertEnvelopeLog(Vm.Log memory log) internal view {
+        uint8 slot = uint8(uint256(log.topics[2]));
+        (bytes32 c1X, bytes32 c1Y) = abi.decode(log.data, (bytes32, bytes32));
+        assertEq(c1X, c1Xs[slot], "ShadowSlotEnvelope c1X");
+        assertEq(c1Y, c1Ys[slot], "ShadowSlotEnvelope c1Y");
+    }
+
 
     function test_phasedMint_fixes_recipient_at_begin() public {
         _registerImage();

@@ -94,7 +94,7 @@ def build_witness(seed: bytes, n_occupied: int) -> dict:
     prev_ct_commit = [0] * 16
     # M-05/M-06: empty slots must seed prev_c1 with an on-curve point so
     # Noir's multi_scalar_mul blackbox accepts the input. G is the cheapest
-    # valid placeholder; the per-slot key-binding constraint
+    # valid inert witness value; the per-slot key-binding constraint
     # `occ * (prev_k[i] - kdf(sk*c1)) == 0` is gated by occ=0 so the
     # resulting MSM output is irrelevant in empty slots.
     prev_c1_x = [G[0]] * 16
@@ -105,7 +105,7 @@ def build_witness(seed: bytes, n_occupied: int) -> dict:
     new_k_arr = [0] * 16
     # M-06: every slot's new_r must be nonzero (the circuit asserts
     # `new_r[i] != 0` unconditionally, even for empty slots whose ECIES
-    # output is masked by occ=0). 1 is a cheap nonzero placeholder.
+    # output is masked by occ=0). 1 is a cheap nonzero padding scalar.
     new_r_arr = [1] * 16
     prev_lsh_arr = [0] * 16
 

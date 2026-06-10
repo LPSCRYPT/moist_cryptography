@@ -451,8 +451,9 @@ bytecode behavior, not heuristic.
 
 ## Local-only verification (current commit)
 
-**160/160 forge tests pass with real ZK proofs (no mocks)**, including
-the 4 new in `PaletteReveal.t.sol`.
+The Forge suite includes both real generated-verifier proof tests and separate
+mock-verifier behavior/gas diagnostics. Treat only the generated-verifier fixture
+matrix and on-chain proof receipts as cryptographic proof evidence.
 
 | Op | Local gas-pin budget | Measured local | On-chain (where measured) |
 |---|---|---|---|

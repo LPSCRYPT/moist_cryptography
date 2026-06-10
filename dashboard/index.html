@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Moist Cryptography Sepolia Dashboard</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">Base Sepolia live state</p>
+      <h1>ShadowNFT chain dashboard</h1>
+    </div>
+    <button id="loadBtn">Load live chain data</button>
+  </header>
+
+  <main>
+    <section class="panel grid two">
+      <div>
+        <h2>Network</h2>
+        <label>RPC URL <input id="rpcUrl" autocomplete="off" /></label>
+        <label>From block <input id="fromBlock" inputmode="numeric" /></label>
+      </div>
+      <div>
+        <h2>Contracts</h2>
+        <label>ShadowToken <input id="shadowToken" /></label>
+        <label>FeatureNFT <input id="featureNft" /></label>
+        <label>ShadowMintController <input id="mintController" /></label>
+        <label>KeyRegistry <input id="keyRegistry" /></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="sectionHeader">
+        <h2>User profiles</h2>
+        <button id="addProfileBtn" type="button">Add profile</button>
+      </div>
+      <p class="note">Private keys are used only in this browser tab. The dashboard never sends private keys, shared secrets, or plaintexts to RPC. A slot is decryptable only when chain events contain both ciphertext <code>c2</code> and ECIES envelope <code>c1</code>.</p>
+      <div id="profiles"></div>
+    </section>
+
+    <section class="panel statusPanel">
+      <h2>Status</h2>
+      <pre id="status">Not loaded.</pre>
+    </section>
+
+    <section class="grid two">
+      <section class="panel">
+        <h2>Discovered shadows</h2>
+        <div id="shadowList" class="list"></div>
+      </section>
+      <section class="panel">
+        <h2>Selected shadow</h2>
+        <div id="shadowDetail">Select a shadow after loading.</div>
+      </section>
+    </section>
+
+    <section class="panel">
+      <h2>Event timeline</h2>
+      <div id="timeline" class="timeline"></div>
+    </section>
+  </main>
+
+  <template id="profileTemplate">
+    <div class="profileRow">
+      <label>Label <input class="profileLabel" placeholder="Alice" /></label>
+      <label>EVM address <input class="profileAddress" placeholder="0x…" /></label>
+      <label>Grumpkin sk <input class="profileSk" type="password" placeholder="0x… optional" /></label>
+      <button class="removeProfile" type="button">Remove</button>
+    </div>
+  </template>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -65,7 +65,7 @@ contract InsertFeatureE2ETest is Test {
     uint256 internal constant SOURCE_SHADOW = 0xDEADBEEF;
     uint8 internal constant SOURCE_SLOT = 9;
 
-    uint256 internal constant MUT_PI_LEN = 16;
+    uint256 internal constant MUT_PI_LEN = 18;
     uint256 internal constant T10_PI_LEN = 20;
 
     event ShadowSlotMutated(
@@ -80,6 +80,7 @@ contract InsertFeatureE2ETest is Test {
     );
     event ShadowFeatureInserted(uint256 indexed shadowId, uint8 indexed slotIdx, uint256 indexed featureId);
     event ShadowT10Updated(uint256 indexed shadowId, bytes32 hi, bytes32 lo);
+    event ShadowSlotEnvelope(uint256 indexed shadowId, uint8 indexed slotIdx, bytes32 c1X, bytes32 c1Y);
 
     function setUp() public {
         sponge = new Poseidon2YulSponge();
@@ -106,12 +107,12 @@ contract InsertFeatureE2ETest is Test {
         oldLsh = piMut[6];
         newLsh = piMut[7];
         newCtCommit = piMut[8];
-        ownerPkX = piMut[10];
-        ownerPkY = piMut[11];
-        prevChainTip = piMut[12];
-        newChainTip = piMut[13];
-        prevMutationCount = uint16(uint256(piMut[14]));
-        newMutationCount = uint16(uint256(piMut[15]));
+        ownerPkX = piMut[12];
+        ownerPkY = piMut[13];
+        prevChainTip = piMut[14];
+        newChainTip = piMut[15];
+        prevMutationCount = uint16(uint256(piMut[16]));
+        newMutationCount = uint16(uint256(piMut[17]));
 
         // Seed: carrier was at SOURCE_SHADOW slot SOURCE_SLOT, then extracted
         // (so isInserted=false, checkpoint=oldLsh). Destination shadow has
@@ -171,8 +172,8 @@ contract InsertFeatureE2ETest is Test {
             slotIdx: slotIdx,
             featureId: featureId,
             proofInsert: proofMut,
-            newC1X: 0,
-            newC1Y: 0,
+            newC1X: uint256(piMut[9]),
+            newC1Y: uint256(piMut[10]),
             newLiveStateHash: newLsh,
             newCtCommit: newCtCommit,
             c2FieldCount: uint16(newC2.length / 32),
@@ -206,9 +207,11 @@ contract InsertFeatureE2ETest is Test {
         bool sawT10 = false;
         bool sawFeatureInserted = false;
         bool sawSlotMutated = false;
+        bool sawEnvelope = false;
         bytes32 sigT10 = keccak256("ShadowT10Updated(uint256,bytes32,bytes32)");
         bytes32 sigFI = keccak256("ShadowFeatureInserted(uint256,uint8,uint256)");
         bytes32 sigSM = keccak256("ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)");
+        bytes32 sigEnvelope = keccak256("ShadowSlotEnvelope(uint256,uint8,bytes32,bytes32)");
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter != address(st)) continue;
             if (logs[i].topics[0] == sigT10) {
@@ -219,11 +222,19 @@ contract InsertFeatureE2ETest is Test {
                 bytes memory emittedC2 = _decodeShadowSlotMutatedC2(logs[i].data);
                 assertEq(emittedC2, args.c2, "insert ShadowSlotMutated c2");
                 sawSlotMutated = true;
+            } else if (logs[i].topics[0] == sigEnvelope) {
+                uint8 emittedSlot = uint8(uint256(logs[i].topics[2]));
+                (bytes32 c1X, bytes32 c1Y) = abi.decode(logs[i].data, (bytes32, bytes32));
+                assertEq(emittedSlot, args.slotIdx, "insert envelope slot");
+                assertEq(c1X, bytes32(args.newC1X), "insert c1X event");
+                assertEq(c1Y, bytes32(args.newC1Y), "insert c1Y event");
+                sawEnvelope = true;
             }
         }
         assertTrue(sawT10, "ShadowT10Updated emitted");
         assertTrue(sawFeatureInserted, "ShadowFeatureInserted emitted");
         assertTrue(sawSlotMutated, "ShadowSlotMutated emitted");
+        assertTrue(sawEnvelope, "ShadowSlotEnvelope emitted");
 
         // Post-state.
         ShadowToken.ManifestEntry memory mPost = st.slotOf(shadowId, slotIdx);

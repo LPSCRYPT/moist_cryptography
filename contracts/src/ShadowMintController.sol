@@ -12,7 +12,7 @@ contract ShadowMintController {
     uint256 internal constant N_MINT_ATOMS = 8;
     uint256 internal constant N_SLOTS = 16;
     uint256 internal constant MAX_PLAINTEXT_FIELDS_PER_SLOT = 39;
-    uint256 internal constant MINT_SHADOW_PI_LEN = 7;
+    uint256 internal constant MINT_SHADOW_PI_LEN = 9;
     uint256 internal constant FR_MOD = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
     ShadowToken public immutable shadowToken;
@@ -30,6 +30,8 @@ contract ShadowMintController {
         bytes32[8] ctCommits;
         bytes32[8] liveStateHashInits;
         bytes32[8] chainTips;
+        bytes32[8] c1Xs;
+        bytes32[8] c1Ys;
         bytes32[8] paletteCommits;
         bytes32[8] paletteSaltCts;
         bytes32[8] saltC1Xs;
@@ -167,6 +169,8 @@ contract ShadowMintController {
         p.ctCommits = args.ctCommits;
         p.liveStateHashInits = args.liveStateHashInits;
         p.chainTips = args.chainTips;
+        p.c1Xs = args.c1Xs;
+        p.c1Ys = args.c1Ys;
         p.paletteCommits = args.paletteCommits;
         p.paletteSaltCts = args.paletteSaltCts;
         p.saltC1Xs = args.saltC1Xs;
@@ -209,6 +213,8 @@ contract ShadowMintController {
         args.ctCommits = p.ctCommits;
         args.liveStateHashInits = p.liveStateHashInits;
         args.chainTips = p.chainTips;
+        args.c1Xs = p.c1Xs;
+        args.c1Ys = p.c1Ys;
         args.paletteCommits = p.paletteCommits;
         args.paletteSaltCts = p.paletteSaltCts;
         args.saltC1Xs = p.saltC1Xs;
@@ -240,6 +246,8 @@ contract ShadowMintController {
         piMint[4] = _sponge8Pad16(args.liveStateHashInits);
         piMint[5] = _sponge8Pad16(args.ctCommits);
         piMint[6] = _sponge8Pad16(args.chainTips);
+        piMint[7] = _sponge8Pad16(args.c1Xs);
+        piMint[8] = _sponge8Pad16(args.c1Ys);
         try mintShadowVerifier.verify(args.proofMint, piMint) returns (bool ok) {
             if (!ok) revert InvalidProof();
         } catch {

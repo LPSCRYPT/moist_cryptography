@@ -22,7 +22,7 @@ contract MutateSlotVerifierTest is Test {
     string internal constant PROOF_PATH = "./test/fixtures/mutate_slot/mutate_demo_v2/proof.bin";
     string internal constant PI_PATH = "./test/fixtures/mutate_slot/mutate_demo_v2/public_inputs.bin";
 
-    uint256 internal constant EXPECTED_PI_LEN = 16;
+    uint256 internal constant EXPECTED_PI_LEN = 18;
 
     function setUp() public {
         v = new MutateSlotVerifier();
@@ -47,12 +47,12 @@ contract MutateSlotVerifierTest is Test {
     }
 
     function test_verify_rejects_corrupted_pi_owner_pk() public {
-        // Corrupting PI[10] (owner_pk_x) breaks the binding asserted in-circuit.
+        // Corrupting PI[12] (owner_pk_x) breaks the binding asserted in-circuit.
         bytes32[] memory corrupted = new bytes32[](EXPECTED_PI_LEN);
         for (uint256 i = 0; i < EXPECTED_PI_LEN; i++) {
             corrupted[i] = pi[i];
         }
-        corrupted[10] = bytes32(uint256(corrupted[10]) ^ 1);
+        corrupted[12] = bytes32(uint256(corrupted[12]) ^ 1);
 
         // Verifier may revert OR return false; either is acceptable rejection.
         try v.verify(proof, corrupted) returns (bool ok) {

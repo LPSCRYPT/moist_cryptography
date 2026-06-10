@@ -90,7 +90,7 @@ contract ProofFuzz is Test {
             IProofFuzzVerifier(address(new MintShadowVerifier())),
             "./test/fixtures/atomic_mint/atomic_mint_demo/proof_mint.bin",
             "./test/fixtures/atomic_mint/atomic_mint_demo/public_inputs_mint.bin",
-            7
+            9
         );
     }
 
@@ -110,7 +110,7 @@ contract ProofFuzz is Test {
             IProofFuzzVerifier(address(new MutateSlotVerifier())),
             "./test/fixtures/mutate_slot/mutate_demo_v2/proof.bin",
             "./test/fixtures/mutate_slot/mutate_demo_v2/public_inputs.bin",
-            16
+            18
         );
     }
 

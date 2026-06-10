@@ -10,10 +10,10 @@ import {IFeatureNFT} from "../src/IFeatureNFT.sol";
 ///         in `mintAtShadowMint` so a Forge test can pin a feature's id to
 ///         the value present in a real-proof fixture's public inputs.
 ///
-/// Live in `test/` so the production `FeatureNFT` stays clean. The exposed
-/// `seedFeature` reuses the same struct + invariant logic as the real
-/// privileged path; the only difference is that the feature id is supplied
-/// directly instead of derived from a counter.
+/// Live in `test/` so the production `FeatureNFT` stays clean. This is not a
+/// verifier mock: it is storage seeding for tests that already have real proof
+/// public inputs. Real mint/reveal integration coverage lives in
+/// `MintShadow.t.sol` and `SolveShadowRealProof.t.sol`.
 contract TestableFeatureNFT is FeatureNFT {
     constructor(address shadowTokenAddr) FeatureNFT(shadowTokenAddr) {}
 
@@ -44,20 +44,11 @@ contract TestableFeatureNFT is FeatureNFT {
         _mint(to, featureId);
     }
 
-    /// Hook the parent's private storage map. We re-declare the storage
-    /// pointer via assembly because OZ's _features mapping is `private`.
-    /// Layout: `mapping(uint256 => Feature) private _features` is the 1st
-    /// (0-indexed) declared private mapping in `FeatureNFT.sol` after the
-    /// inherited slots. The slot id can be probed via `forge inspect storageLayout`.
-    /// Instead of probing, we re-declare an identical `_features` mapping at
-    /// the same logical position by inheriting and adding a synthetic field
-    /// at the same slot via `assembly`. Simpler: expose `_features` by
-    /// reading the same key directly.
-    ///
-    /// Solidity won't let us touch a private mapping in a parent. The
-    /// simplest workaround is to make the parent's `_features` `internal`.
-    /// We do that in the parent (one-character change). For now, this stub
-    /// uses a slot reservation + sstore via assembly to match.
+    /// Hook the parent's private storage map for fixture seeding only.
+    /// Production never uses this path; real FeatureNFT writes still go through
+    /// `mintAtShadowMint`, `extractFromShadow`, `insertIntoShadow`, and
+    /// `revealInsertedFeature`. The pinned slot is checked when storage layout
+    /// changes, and real flow tests exercise the production entry points.
     function _featuresStorage(uint256 featureId) private pure returns (Feature storage f) {
         // Slot of `_features` mapping. Determined empirically via
         // `forge inspect FeatureNFT storageLayout` and pinned here. If the
@@ -79,10 +70,11 @@ contract TestableFeatureNFT is FeatureNFT {
 }
 
 /// @title  TestableShadowToken
-/// @notice Test-only subclass that exposes synthetic mint state writes so
-///         a Forge test can replicate the post-mint storage shape implied
-///         by a real-proof fixture, without yet having a real
-///         `landmark_regions` v2 proof to drive `mintShadow`.
+/// @notice Test-only subclass that exposes synthetic storage writes for fixture
+///         setup. It does not replace proof verification: real generated-verifier
+///         coverage lives in `GeneratedVerifierMatrix.t.sol` and flow-specific
+///         integration lives in `MintShadow.t.sol`, `SolveShadowRealProof.t.sol`,
+///         and transfer proof tests.
 contract TestableShadowToken is ShadowToken {
     constructor(address yulSpongeAddr) ShadowToken(yulSpongeAddr) {}
 
@@ -185,7 +177,9 @@ contract TestableShadowToken is ShadowToken {
     }
 
     /// Test-only: mark a shadow as fully revealed/solved + write shadowT10.
-    /// Used by BridgeShadow tests to simulate bridgeable state.
+    /// Used by bridge tests after solve semantics have been separately covered;
+    /// bridge messenger wiring is tested in `BridgeWiring.t.sol`, while live-chain
+    /// OP messenger caveats are tracked in `docs/SEPOLIA_TEST_MATRIX.md`.
     function setShadowSolvedForTest(uint256 shadowId, bytes32 t10Hi, bytes32 t10Lo) external {
         Shadow storage s = _shadowsStorage(shadowId);
         s.solved = true;

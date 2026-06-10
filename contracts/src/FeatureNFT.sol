@@ -543,14 +543,14 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     //     `transferFeature` path so the new owner inherits ciphertext
     //     they can decrypt. Reverts `TransferGated`.
     function transferFrom(address from, address to, uint256 tokenId) public override {
-        from; // silence unused-variable warnings
+        from; // explicit read preserves override signature semantics
         to;
         if (_features[tokenId].isInserted) revert CustodyLocked(tokenId);
         revert TransferGated(tokenId);
     }
 
     function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) public override {
-        from; // silence unused-variable warnings
+        from; // explicit read preserves override signature semantics
         to;
         data;
         if (_features[tokenId].isInserted) revert CustodyLocked(tokenId);

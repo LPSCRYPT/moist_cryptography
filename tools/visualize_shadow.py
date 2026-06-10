@@ -6,7 +6,7 @@
 # SlotExtracted, ShadowZIndexCommitSet, ShadowSolved, ShadowT10Updated)
 # with `c2[16]` per shadow. A v2 rewrite needs:
 #   - per-slot ECIES decrypt (39-Field plaintext, 4-bit palette indices)
-#   - palette table from chain (TODO: where lives?)
+#   - palette table from chain once palette provenance is finalized
 #   - z-index composition: pre-solve uses zIndexCommit (opaque), post-solve
 #     uses zIndexRevealed permutation
 #   - T10 byte-equal reproduction via sponge_18 of the post-write state
@@ -98,7 +98,7 @@ REGION_NAMES = ["forehead", "eye L", "eye R", "nose",
 TOPIC_SHADOW_CIPHERTEXT = "0x126e572da2b938847165c6f546420ac7b1ec28d8d60b379e7805f2bd32ab5566"
 TOPIC_SHADOW_MINTED     = "0xeaa746f56077785cbbb46022ad2cf9bc2f07934192fb2e7f55cd6b1f0dd0f4fa"
 TOPIC_SLOT_MUTATED      = "0x9d20bee0c4d3a4b06402d8d4e9eafa8b86bdfb3f5ec9ed0bc52ddec85b9eebd5"
-TOPIC_T10_UPDATED       = "0x126e572da2b938847165c6f546420ac7b1ec28d8d60b379e7805f2bd32ab5566"  # placeholder; resolved at runtime if needed
+TOPIC_T10_UPDATED       = "0x126e572da2b938847165c6f546420ac7b1ec28d8d60b379e7805f2bd32ab5566"  # fallback; resolved at runtime if needed
 
 
 # ============================================================================
@@ -716,7 +716,7 @@ def cmd_history(args: argparse.Namespace) -> int:
         render_history_montage(states, regions, title, out_path)
     else:
         raise SystemExit("history mode currently requires --from-run-dir; "
-                         "live event walk over RPC is TODO.")
+                         "live RPC event walk is not implemented in this v1 visualizer.")
     print(f"wrote {out_path}")
     return 0
 

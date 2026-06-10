@@ -23,7 +23,7 @@ import {ShadowToken} from "../src/ShadowToken.sol";
 contract MutateBatchOnSepolia is Script {
     using stdJson for string;
 
-    uint256 internal constant MUT_PI_LEN = 16;
+    uint256 internal constant MUT_PI_LEN = 18;
     uint256 internal constant T10_PI_LEN = 20;
 
     struct Loaded {
@@ -137,16 +137,16 @@ contract MutateBatchOnSepolia is Script {
     {
         e.slotIdx = uint8(uint256(_word(pi, 1)));
         e.proofMutate = proof;
-        e.newC1X = 0; // unused on-chain (sponge_39 binds c2)
-        e.newC1Y = 0;
+        e.newC1X = uint256(_word(pi, 9));
+        e.newC1Y = uint256(_word(pi, 10));
         e.newLiveStateHash = _word(pi, 7);
         e.newCtCommit = _word(pi, 8);
         e.c2FieldCount = uint16(c2.length / 32);
         e.c2 = c2;
-        e.prevChainTip = _word(pi, 12);
-        e.newChainTip = _word(pi, 13);
-        e.prevMutationCount = uint16(uint256(_word(pi, 14)));
-        e.newMutationCount = uint16(uint256(_word(pi, 15)));
+        e.prevChainTip = _word(pi, 14);
+        e.newChainTip = _word(pi, 15);
+        e.prevMutationCount = uint16(uint256(_word(pi, 16)));
+        e.newMutationCount = uint16(uint256(_word(pi, 17)));
     }
 
     function _word(bytes memory raw, uint256 idx) internal pure returns (bytes32 word) {

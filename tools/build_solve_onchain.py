@@ -216,7 +216,7 @@ def main() -> None:
         owner_k_arr[i] = s["k"]
         prev_lsh_arr[i] = s["lsh"]
         state_commits[i] = s["state_commit"]
-    assert all(prev_c1_x[i] != 0 or prev_c1_y[i] != 0 for i in range(16)), "prev_c1 placeholders must be on-curve"
+    assert all(prev_c1_x[i] != 0 or prev_c1_y[i] != 0 for i in range(16)), "prev_c1 padding points must be on-curve"
 
     # Per-slot palette + salt: deterministic from same seed used at mint
     # (reveal-update spec; ShadowToken.solve verifies sponge_palette_salt

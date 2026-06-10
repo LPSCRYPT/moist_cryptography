@@ -3,9 +3,9 @@
 
 Bundles a real-proof set consumed by ShadowMintController/ShadowToken Forge tests:
 
-  - landmark_regions_v2: 8 origin slots witnessed by owner; 7 PI matched
+  - landmark_regions_v2: 8 origin slots witnessed by owner; 9 PI matched
     against on-chain hash-roots (lsh_inits_root, ct_commits_root,
-    chain_tips_root) reconstructed from per-slot ciphertext submissions.
+    chain_tips_root, c1_x_root, c1_y_root) reconstructed from per-slot submissions.
   - face_disc: pre-baked from contracts/test/fixtures/face_disc/alice0
     (its imageCommit drives the mint witness so both proofs share PI[1]).
   - shadow_t10: built against the post-mint manifest array
@@ -48,6 +48,7 @@ MINT_DIR = ROOT / "circuits" / "landmark_regions_v2"
 T10_DIR = ROOT / "circuits" / "shadow_t10"
 DEFAULT_FACE_DISC_FIXTURE = ROOT / "contracts" / "test" / "fixtures" / "face_disc" / "alice0"
 FIXTURE_ROOT = ROOT / "contracts" / "test" / "fixtures" / "atomic_mint"
+VERIFIER_DST = ROOT / "contracts" / "src" / "MintShadowVerifier.sol"
 
 NARGO = Path(os.environ.get("NARGO_PATH", str(Path.home() / ".nargo" / "bin" / "nargo")))
 BB = Path(os.environ.get("BB_PATH", str(Path.home() / ".bb" / "bb")))
@@ -192,13 +193,17 @@ def build_witness(seed: bytes, image_commit: int, owner_seed: bytes | None = Non
     lsh_inits_root = sponge_8_pad16(lsh_inits)
     ct_commits_root = sponge_8_pad16(ct_commits)
     chain_tips_root = sponge_8_pad16(chain_tips)
+    c1_x_root = sponge_8_pad16(c1_xs)
+    c1_y_root = sponge_8_pad16(c1_ys)
 
     print(f"[3/9] roots: lsh={hex(lsh_inits_root)[:18]}... "
           f"ct={hex(ct_commits_root)[:18]}... "
-          f"chain={hex(chain_tips_root)[:18]}...")
+          f"chain={hex(chain_tips_root)[:18]}... "
+          f"c1x={hex(c1_x_root)[:18]}... "
+          f"c1y={hex(c1_y_root)[:18]}...")
 
     return {
-        # PI (7)
+        # PI (9)
         "shadow_id": shadow_id,
         "image_commit": image_commit,
         "owner_pk_x": owner_pk_x,
@@ -206,6 +211,8 @@ def build_witness(seed: bytes, image_commit: int, owner_seed: bytes | None = Non
         "lsh_inits_root": lsh_inits_root,
         "ct_commits_root": ct_commits_root,
         "chain_tips_root": chain_tips_root,
+        "c1_x_root": c1_x_root,
+        "c1_y_root": c1_y_root,
 
         # witness
         "plaintexts": plaintexts,
@@ -241,6 +248,8 @@ def write_mint_prover_toml(w: dict) -> None:
         f"lsh_inits_root = {fhex(w['lsh_inits_root'])}",
         f"ct_commits_root = {fhex(w['ct_commits_root'])}",
         f"chain_tips_root = {fhex(w['chain_tips_root'])}",
+        f"c1_x_root = {fhex(w['c1_x_root'])}",
+        f"c1_y_root = {fhex(w['c1_y_root'])}",
         render_2d("plaintexts", w["plaintexts"]),
         render_array("new_r", w["new_r"]),
     ]
@@ -306,6 +315,16 @@ def main() -> None:
          "-i", str(proof_dir / "public_inputs"),
          "--scheme", "ultra_honk", "--oracle_hash", "keccak"], MINT_DIR, timeout=300)
     print("[ok] mint proof verified")
+
+    print("[7b/9] bb write_solidity_verifier -> MintShadowVerifier.sol")
+    verifier_path = target_dir / "Verifier.sol"
+    run([BB, "write_solidity_verifier",
+         "-k", str(target_dir / "vk"),
+         "-o", str(verifier_path),
+         "--verifier_target", "evm"], MINT_DIR, timeout=900)
+    text = verifier_path.read_text().replace("contract HonkVerifier", "contract MintShadowVerifier")
+    VERIFIER_DST.write_text(text)
+    print(f"[wrote] {VERIFIER_DST}")
 
     proof_mint_bytes = (proof_dir / "proof").read_bytes()
     pi_mint_bytes = (proof_dir / "public_inputs").read_bytes()
@@ -381,6 +400,8 @@ def main() -> None:
         "lsh_inits_root": bx32(w["lsh_inits_root"]),
         "ct_commits_root": bx32(w["ct_commits_root"]),
         "chain_tips_root": bx32(w["chain_tips_root"]),
+        "c1_x_root": bx32(w["c1_x_root"]),
+        "c1_y_root": bx32(w["c1_y_root"]),
         "lsh_inits":       [bx32(v) for v in w["lsh_inits"]],
         "ct_commits":      [bx32(v) for v in w["ct_commits"]],
         "c1_xs":           [bx32(v) for v in w["c1_xs"]],

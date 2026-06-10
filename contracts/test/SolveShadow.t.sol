@@ -8,6 +8,12 @@ import {IFeatureNFT} from "../src/IFeatureNFT.sol";
 import {Poseidon2YulSponge} from "../src/Poseidon2YulSponge.sol";
 import {TestableShadowToken} from "./Testable.sol";
 
+/// @dev Unit-test verifier double for incremental feature reveal state-machine
+///      tests. It checks the contract-provided PI/proof hash but does not perform
+///      cryptographic verification. Real `SolveShadowVerifier` + `T10ShadowVerifier`
+///      integration coverage lives in `SolveShadowRealProof.t.sol`; broad generated
+///      verifier acceptance/rejection lives in `GeneratedVerifierMatrix.t.sol` and
+///      `ProofFuzz.t.sol`.
 contract ExpectedFeatureRevealVerifier is IVerifier {
     mapping(uint8 => bytes32[9]) internal expectedPi;
     mapping(uint8 => bytes32) internal expectedProofHash;
@@ -34,12 +40,20 @@ contract ExpectedFeatureRevealVerifier is IVerifier {
     }
 }
 
+/// @dev Unit-test T10 verifier double. It keeps reveal behavior tests focused on
+///      state transitions and PI assembly. Real T10 proof coverage lives in
+///      `GeneratedVerifierMatrix.t.sol`, `T10ShadowVerifier.t.sol`, and
+///      `SolveShadowRealProof.t.sol`.
 contract AlwaysOkT10Verifier is IVerifier {
     function verify(bytes calldata, bytes32[] calldata publicInputs) external pure returns (bool) {
         return publicInputs.length == 20;
     }
 }
 
+/// @dev Minimal `IFeatureNFT` double for reveal behavior tests. It records and
+///      emits the feature reveal effects needed by `ShadowToken` tests. Real
+///      feature implementation coverage lives in `FeatureNFT.t.sol`; real reveal
+///      integration with palette opening lives in `SolveShadowRealProof.t.sol`.
 contract RevealFeatureNFT is IFeatureNFT {
     struct FeatureState {
         address owner;

@@ -142,6 +142,17 @@ The repo uses different test categories for different evidence:
 - **Mock-verifier gas attribution tests** isolate storage/event overhead; they
   are diagnostics, not proof/security evidence.
 
+Current mock/test-double inventory and where real coverage lives:
+
+| Mock/test double | Scope | Not evidence for | Real coverage location |
+| --- | --- | --- | --- |
+| `contracts/test/GasAttribution.t.sol` `AlwaysOkVerifier` | Gas attribution only | Proof validity or verifier gas | `contracts/test/GeneratedVerifierMatrix.t.sol`, `contracts/test/ProofFuzz.t.sol`, flow-specific real-proof tests |
+| `contracts/test/GasAttribution.t.sol` `AttributionFeatureNFT` | Feature-side gas modes | Production FeatureNFT custody/palette behavior | `contracts/test/FeatureNFT.t.sol`, `contracts/test/MintShadow.t.sol`, `contracts/test/SolveShadowRealProof.t.sol` |
+| `contracts/test/SolveShadow.t.sol` verifier doubles | Reveal state-machine unit tests | `SolveShadowVerifier`/`T10ShadowVerifier` proof validity | `contracts/test/SolveShadowRealProof.t.sol`, `contracts/test/GeneratedVerifierMatrix.t.sol`, `contracts/test/ProofFuzz.t.sol` |
+| `contracts/test/SolveShadow.t.sol` / `SolveShadowMaxOccupancy.t.sol` feature doubles | Reveal behavior and gas isolation | Production FeatureNFT integration | `contracts/test/FeatureNFT.t.sol`, `contracts/test/SolveShadowRealProof.t.sol` |
+| `contracts/test/Testable.sol` storage seeders | Fixture setup for tests | Mint/solve proof verification | `contracts/test/MintShadow.t.sol`, `contracts/test/SolveShadowRealProof.t.sol`, generated-verifier tests |
+| Bridge messenger stubs in `BridgeShadow.t.sol` / `BridgeWiring.t.sol` | Local bridge call-shape wiring | Live OP messenger/finality behavior | `docs/SEPOLIA_TEST_MATRIX.md` live-chain cases |
+
 Do not summarize the whole Forge surface as "no mocks" unless referring only to
 the real-proof assurance subset.
 

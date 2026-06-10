@@ -76,7 +76,7 @@ contract ReplayMutateSlotTest is Test {
     /// PI/proof bytes, seeds chain to pre-mutate state, builds `args`.
     function _seedAndBuildArgs() internal {
         bytes memory proofMut = vm.readFileBinary(string.concat(FIX, "/proof_mut.bin"));
-        bytes32[] memory piMut = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), 16);
+        bytes32[] memory piMut = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), 18);
         bytes memory proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
         bytes32[] memory piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), 20);
         bytes memory newC2 = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
@@ -92,7 +92,7 @@ contract ReplayMutateSlotTest is Test {
             alice
         );
         st.seedShadowAndSlot(
-            uint256(piMut[0]), alice, piMut[10], piMut[11], uint8(uint256(piMut[1])), uint256(piMut[2]), piMut[6]
+            uint256(piMut[0]), alice, piMut[12], piMut[13], uint8(uint256(piMut[1])), uint256(piMut[2]), piMut[6]
         );
 
         bytes32[2] memory newT10;
@@ -102,16 +102,16 @@ contract ReplayMutateSlotTest is Test {
             shadowId: uint256(piMut[0]),
             slotIdx: uint8(uint256(piMut[1])),
             proofMutate: proofMut,
-            newC1X: 0,
-            newC1Y: 0,
+            newC1X: uint256(piMut[9]),
+            newC1Y: uint256(piMut[10]),
             newLiveStateHash: piMut[7],
             newCtCommit: piMut[8],
             c2FieldCount: uint16(newC2.length / 32),
             c2: newC2,
-            prevChainTip: piMut[12],
-            newChainTip: piMut[13],
-            prevMutationCount: uint16(uint256(piMut[14])),
-            newMutationCount: uint16(uint256(piMut[15])),
+            prevChainTip: piMut[14],
+            newChainTip: piMut[15],
+            prevMutationCount: uint16(uint256(piMut[16])),
+            newMutationCount: uint16(uint256(piMut[17])),
             newT10: newT10,
             proofT10: proofT10
         });
@@ -438,7 +438,7 @@ contract ReplayInsertFeatureTest is Test {
         st.setVerifier(3, IVerifier(address(vT10)));
 
         bytes memory proofMut = vm.readFileBinary(string.concat(FIX, "/proof_mut.bin"));
-        bytes32[] memory piMut = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), 16);
+        bytes32[] memory piMut = _loadFields(string.concat(FIX, "/public_inputs_mut.bin"), 18);
         bytes memory proofT10 = vm.readFileBinary(string.concat(FIX, "/proof_t10.bin"));
         bytes32[] memory piT10 = _loadFields(string.concat(FIX, "/public_inputs_t10.bin"), 20);
         bytes memory newC2 = vm.readFileBinary(string.concat(FIX, "/c2.bin"));
@@ -449,8 +449,8 @@ contract ReplayInsertFeatureTest is Test {
         bytes32 originFaceId = piMut[4];
         bytes32 paletteCommit = piMut[5];
         bytes32 oldLsh = piMut[6];
-        bytes32 ownerPkX = piMut[10];
-        bytes32 ownerPkY = piMut[11];
+        bytes32 ownerPkX = piMut[12];
+        bytes32 ownerPkY = piMut[13];
 
         fn.seedFeature(
             featureId, SOURCE_SHADOW, SOURCE_SLOT, uint8(uint256(piMut[3])), originFaceId, paletteCommit, oldLsh, alice
@@ -470,16 +470,16 @@ contract ReplayInsertFeatureTest is Test {
             slotIdx: slotIdx,
             featureId: featureId,
             proofInsert: proofMut,
-            newC1X: 0,
-            newC1Y: 0,
+            newC1X: uint256(piMut[9]),
+            newC1Y: uint256(piMut[10]),
             newLiveStateHash: piMut[7],
             newCtCommit: piMut[8],
             c2FieldCount: uint16(newC2.length / 32),
             c2: newC2,
-            prevChainTip: piMut[12],
-            newChainTip: piMut[13],
-            prevMutationCount: uint16(uint256(piMut[14])),
-            newMutationCount: uint16(uint256(piMut[15])),
+            prevChainTip: piMut[14],
+            newChainTip: piMut[15],
+            prevMutationCount: uint16(uint256(piMut[16])),
+            newMutationCount: uint16(uint256(piMut[17])),
             newT10: newT10,
             proofT10: proofT10
         });

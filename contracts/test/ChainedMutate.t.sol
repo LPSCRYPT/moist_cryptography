@@ -53,7 +53,7 @@ contract ChainedMutateTest is Test {
     address internal alice = makeAddr("alice");
 
     // Per-step witness fields parsed from public_inputs_*.bin.
-    // Layout matches the mutate_slot circuit's 16-field PI:
+    // Layout matches the mutate_slot circuit's 18-field PI:
     //   PI[0]  shadow_id
     //   PI[1]  slot_idx
     //   PI[2]  feature_id
@@ -63,13 +63,15 @@ contract ChainedMutateTest is Test {
     //   PI[6]  old_lsh
     //   PI[7]  new_lsh
     //   PI[8]  new_ct_commit
-    //   PI[9]  c2_field_count (always 39 in v2)
-    //   PI[10] owner_pk_x
-    //   PI[11] owner_pk_y
-    //   PI[12] prev_chain_tip
-    //   PI[13] new_chain_tip
-    //   PI[14] prev_mutation_count
-    //   PI[15] new_mutation_count
+    //   PI[9]  new_c1_x
+    //   PI[10] new_c1_y
+    //   PI[11] c2_field_count (always 39 in v2)
+    //   PI[12] owner_pk_x
+    //   PI[13] owner_pk_y
+    //   PI[14] prev_chain_tip
+    //   PI[15] new_chain_tip
+    //   PI[16] prev_mutation_count
+    //   PI[17] new_mutation_count
     struct Step {
         bytes proof;
         bytes32[] pi;
@@ -129,12 +131,12 @@ contract ChainedMutateTest is Test {
         assertEq(m2.pi[5], paletteCommit, "palette_commit stable");
         // Chain-step continuity: M2.old_lsh == M1.new_lsh, etc.
         assertEq(m2.pi[6], m1.pi[7], "M2.old_lsh == M1.new_lsh");
-        assertEq(m2.pi[12], m1.pi[13], "M2.prev_chain_tip == M1.new_chain_tip");
-        assertEq(uint16(uint256(m2.pi[14])), uint16(uint256(m1.pi[15])), "M2.prev_count == M1.new_count");
+        assertEq(m2.pi[14], m1.pi[15], "M2.prev_chain_tip == M1.new_chain_tip");
+        assertEq(uint16(uint256(m2.pi[16])), uint16(uint256(m1.pi[17])), "M2.prev_count == M1.new_count");
 
         // Seed: feature inserted, shadow + manifest with M1.old_lsh at slotIdx.
-        bytes32 ownerPkX = m1.pi[10];
-        bytes32 ownerPkY = m1.pi[11];
+        bytes32 ownerPkX = m1.pi[12];
+        bytes32 ownerPkY = m1.pi[13];
         bytes32 m1OldLsh = m1.pi[6];
 
         fn.seedFeature(
@@ -145,7 +147,7 @@ contract ChainedMutateTest is Test {
 
     function _loadStep(Step storage s, string memory mutSuffix, string memory t10Suffix) internal {
         s.proof = vm.readFileBinary(string.concat(FIX, "/proof", mutSuffix, ".bin"));
-        s.pi = _loadFields(string.concat(FIX, "/public_inputs", mutSuffix, ".bin"), 16);
+        s.pi = _loadFields(string.concat(FIX, "/public_inputs", mutSuffix, ".bin"), 18);
         s.c2 = vm.readFileBinary(string.concat(FIX, "/c2", mutSuffix, ".bin"));
         s.proofT10 = vm.readFileBinary(string.concat(FIX, "/proof", t10Suffix, ".bin"));
 
@@ -176,16 +178,16 @@ contract ChainedMutateTest is Test {
             shadowId: uint256(s.pi[0]),
             slotIdx: uint8(uint256(s.pi[1])),
             proofMutate: s.proof,
-            newC1X: 0,
-            newC1Y: 0,
+            newC1X: uint256(s.pi[9]),
+            newC1Y: uint256(s.pi[10]),
             newLiveStateHash: s.pi[7],
             newCtCommit: s.pi[8],
             c2FieldCount: uint16(s.c2.length / 32),
             c2: s.c2,
-            prevChainTip: s.pi[12],
-            newChainTip: s.pi[13],
-            prevMutationCount: uint16(uint256(s.pi[14])),
-            newMutationCount: uint16(uint256(s.pi[15])),
+            prevChainTip: s.pi[14],
+            newChainTip: s.pi[15],
+            prevMutationCount: uint16(uint256(s.pi[16])),
+            newMutationCount: uint16(uint256(s.pi[17])),
             newT10: newT10,
             proofT10: s.proofT10
         });
@@ -217,7 +219,7 @@ contract ChainedMutateTest is Test {
         assertEq(fn.paletteCommitOf(featureId), paletteCommit, "M1: paletteCommit stable");
 
         Vm.Log[] memory logs1 = vm.getRecordedLogs();
-        _assertSlotMutatedEmitted(logs1, m1.pi[15], m1.pi[12], m1.pi[13], "M1");
+        _assertSlotMutatedEmitted(logs1, m1.pi[17], m1.pi[14], m1.pi[15], "M1");
 
         // ---- M2 (chained: prev=M1.new_*) ----
         vm.recordLogs();
@@ -237,11 +239,11 @@ contract ChainedMutateTest is Test {
         assertEq(fn.hostSlotIdxOf(featureId), slotIdx, "M2: hostSlotIdx stable");
 
         Vm.Log[] memory logs2 = vm.getRecordedLogs();
-        _assertSlotMutatedEmitted(logs2, m2.pi[15], m2.pi[12], m2.pi[13], "M2");
+        _assertSlotMutatedEmitted(logs2, m2.pi[17], m2.pi[14], m2.pi[15], "M2");
 
         // Cross-step invariant: mutation count strictly monotonic (0 -> 1 -> 2).
-        assertEq(uint16(uint256(m1.pi[15])), 1, "M1.new_count == 1");
-        assertEq(uint16(uint256(m2.pi[15])), 2, "M2.new_count == 2");
+        assertEq(uint16(uint256(m1.pi[17])), 1, "M1.new_count == 1");
+        assertEq(uint16(uint256(m2.pi[17])), 2, "M2.new_count == 2");
     }
 
     /// Negative case: M2's proof is bound to M1's post-state. Replaying

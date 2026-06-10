@@ -103,6 +103,8 @@ TOPIC_T10_UPDATED = keccak(
     text="ShadowT10Updated(uint256,bytes32,bytes32)").hex()
 TOPIC_MINT_CIPHERTEXT_SUBMITTED = keccak(
     text="MintCiphertextSubmitted(uint256,uint8,bytes32,bytes)").hex()
+TOPIC_SHADOW_SLOT_ENVELOPE = keccak(
+    text="ShadowSlotEnvelope(uint256,uint8,bytes32,bytes32)").hex()
 
 
 # ============== Reporting ==============
@@ -120,6 +122,9 @@ class Report:
     def fail(self, name: str, detail: str) -> None:
         self.checks.append((name, False, detail))
         print(f"  X {name}\n     {detail}")
+
+    def warn(self, name: str, detail: str) -> None:
+        print(f"  ! {name}\n     {detail}")
 
     def section(self, name: str) -> None:
         print(f"\n=== {name} ===")
@@ -313,6 +318,16 @@ def parse_shadow_minted(log: dict) -> dict:
         "image_commit": bytes.fromhex(log["data"][2:66]),
     }
 
+def parse_shadow_slot_envelope(log: dict) -> dict:
+    data = bytes.fromhex(log["data"][2:])
+    return {
+        "shadow_id": int(log["topics"][1], 16),
+        "slot_idx": int(log["topics"][2], 16),
+        "c1_x": int.from_bytes(data[0:32], "big"),
+        "c1_y": int.from_bytes(data[32:64], "big"),
+    }
+
+
 
 # ============== Main verification ==============
 
@@ -400,6 +415,7 @@ def verify(args: argparse.Namespace) -> bool:
     minted_logs = []
     slot_logs = []
     t10_logs = []
+    envelope_logs = []
     for log in receipt["logs"]:
         if log["address"].lower() != args.st.lower():
             continue
@@ -410,6 +426,8 @@ def verify(args: argparse.Namespace) -> bool:
             slot_logs.append(parse_slot_mutated(log))
         elif topic0 == "0x" + TOPIC_T10_UPDATED.lower():
             t10_logs.append(parse_t10_updated(log))
+        elif topic0 == "0x" + TOPIC_SHADOW_SLOT_ENVELOPE.lower():
+            envelope_logs.append(parse_shadow_slot_envelope(log))
 
     c2_logs = []
     for tx in args.submit_tx:
@@ -443,8 +461,12 @@ def verify(args: argparse.Namespace) -> bool:
         rep.ok("exactly 1 ShadowT10Updated event")
     else:
         rep.fail("ShadowT10Updated event count", f"got {len(t10_logs)}")
+    if len(envelope_logs) == 8:
+        rep.ok("exactly 8 ShadowSlotEnvelope events")
+    else:
+        rep.fail("ShadowSlotEnvelope event count", f"got {len(envelope_logs)}")
 
-    if len(minted_logs) != 1 or len(slot_logs) != 8 or len(c2_logs) != 8 or len(t10_logs) != 1:
+    if len(minted_logs) != 1 or len(slot_logs) != 8 or len(c2_logs) != 8 or len(t10_logs) != 1 or len(envelope_logs) != 8:
         return rep.summary()
 
     # ---- 3. ShadowMinted event payload ----
@@ -497,15 +519,17 @@ def verify(args: argparse.Namespace) -> bool:
     rep.section("5. Per-slot integrity (events + decryption + manifest + carrier)")
     slot_logs.sort(key=lambda x: x["slot_idx"])
     c2_logs.sort(key=lambda x: x["slot_idx"])
+    envelope_logs.sort(key=lambda x: x["slot_idx"])
     distinct_plaintexts = set()
     print("    [decrypting all 8 c2s; ~10-15s per slot via nargo]")
 
     for i in range(8):
         slot_log = slot_logs[i]
         c2_log = c2_logs[i]
-        if slot_log["slot_idx"] != i or c2_log["slot_idx"] != i:
+        envelope_log = envelope_logs[i]
+        if slot_log["slot_idx"] != i or c2_log["slot_idx"] != i or envelope_log["slot_idx"] != i:
             rep.fail(f"slot {i} event ordering",
-                     f"slotLog={slot_log['slot_idx']} c2Log={c2_log['slot_idx']}")
+                     f"slotLog={slot_log['slot_idx']} c2Log={c2_log['slot_idx']} envelopeLog={envelope_log['slot_idx']}")
             continue
 
         # 5a. on-chain submitted c2 byte-equals fixture c2 (re-encoded as 39 * 32 bytes).
@@ -520,9 +544,13 @@ def verify(args: argparse.Namespace) -> bool:
                      f"len {len(slot_log['c2_bytes'])}")
             continue
 
-        # 5b. ECIES decrypt under owner_sk (uses fixture's c1).
+        # 5b. ECIES decrypt under owner_sk using c1 from chain, not fixture-only sidecars.
+        if (envelope_log["c1_x"], envelope_log["c1_y"]) != fix_c1[i]:
+            rep.fail(f"slot {i}: ShadowSlotEnvelope c1 != fixture c1",
+                     f"got=({hex(envelope_log['c1_x'])[:18]}, {hex(envelope_log['c1_y'])[:18]})")
+            continue
         recovered_plaintext, _k = ecies_decrypt_v2(
-            fix_c1[i], fix_c2_fields[i], owner_sk)
+            (envelope_log["c1_x"], envelope_log["c1_y"]), fix_c2_fields[i], owner_sk)
 
         # 5c. Re-encode (pose, w, h, indices) from seed and compare.
         pose, w_dim, h_dim, indices = seed_params[i]

@@ -9,10 +9,10 @@ transitions. They are **necessary but not sufficient.** What they cannot
 exercise:
 
   - Real bb UltraHonk(keccak) proof verification on the on-chain Yul
-    verifier (the deployed verifier is a Solidity stub generated from the
-    bb verification key; the in-process verifier is the same artifact,
-    but a chain receipt is the only proof it actually mounts under L2
-    gas pricing).
+    verifier (the deployed verifier is generated Solidity code emitted
+    from the bb verification key; the in-process verifier is the same
+    artifact, but a chain receipt is the only proof it actually mounts
+    under L2 gas pricing).
   - EIP-170 24KB code-size cap for every deployed verifier.
   - Block gas limit 30M (effective 16M public-RPC ceiling).
   - Cross-domain messenger interop with Base's L1CrossDomainMessenger

@@ -87,8 +87,8 @@ contract ShadowToken is ERC721, PausableMixin {
 
     /// PI lengths for each verifier (subject to circuit-level finalisation;
     /// kept here as named constants so call sites are self-documenting).
-    uint256 internal constant MINT_SHADOW_PI_LEN = 7; // shadowId + imageCommit + pk[2] + lsh/ct/chain roots
-    uint256 internal constant MUTATE_SLOT_PI_LEN = 16;
+    uint256 internal constant MINT_SHADOW_PI_LEN = 9; // shadowId + imageCommit + pk[2] + lsh/ct/chain/c1 roots
+    uint256 internal constant MUTATE_SLOT_PI_LEN = 18;
     uint256 internal constant T10_SHADOW_PI_LEN = 20; // shadowId + newT10[2] + 16x liveStateHash + zIndexCommit
     uint256 internal constant ZINDEX_COMMIT_PI_LEN = 2;
     uint256 internal constant TRANSFER_SHADOW_PI_LEN = 11;
@@ -300,6 +300,8 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes32[8] ctCommits;
         bytes32[8] liveStateHashInits;
         bytes32[8] chainTips;
+        bytes32[8] c1Xs;
+        bytes32[8] c1Ys;
         bytes32[8] paletteCommits;
         bytes32[8] paletteSaltCts;
         bytes32[8] saltC1Xs;
@@ -399,6 +401,7 @@ contract ShadowToken is ERC721, PausableMixin {
             args.chainTips[i],
             ""
         );
+        _emitSlotEnvelope(shadowId, uint8(i), uint256(args.c1Xs[i]), uint256(args.c1Ys[i]));
     }
 
     // ============== mutateSlot ==============
@@ -451,6 +454,8 @@ contract ShadowToken is ERC721, PausableMixin {
                 oldLsh: m.liveStateHash,
                 newLsh: args.newLiveStateHash,
                 newCtCommit: args.newCtCommit,
+                newC1X: args.newC1X,
+                newC1Y: args.newC1Y,
                 c2FieldCount: args.c2FieldCount,
                 prevChainTip: args.prevChainTip,
                 newChainTip: args.newChainTip,
@@ -470,35 +475,38 @@ contract ShadowToken is ERC721, PausableMixin {
         // mutation lands, so every emitted byte is proof-bound at the
         // byte level.
         _assertCtCommitBinding(args.c2, args.newCtCommit);
+        _assertCanonicalField(args.newC1X);
+        _assertCanonicalField(args.newC1Y);
 
         // ---- 3. apply state change ----
         bytes32 prevLSH = m.liveStateHash;
         m.liveStateHash = args.newLiveStateHash;
-        m.mutationCount = uint16(uint256(piMut[15]));
-        m.chainTip = piMut[13];
+        m.mutationCount = uint16(uint256(piMut[17]));
+        m.chainTip = piMut[15];
         // ---- 4. atomic T10 refresh ----
         _refreshT10Atomically(args.shadowId, args.newT10, args.proofT10);
 
         // ---- 5. event ----
-        // The proof binds prev_chain_tip (PI[12]), new_chain_tip (PI[13]),
-        // prev_count (PI[14]), and new_count (PI[15]) so an indexer can
+        // The proof binds prev_chain_tip (PI[14]), new_chain_tip (PI[15]),
+        // prev_count (PI[16]), and new_count (PI[17]) so an indexer can
         // reconstruct the chain history without trusting the emitter.
         emit ShadowSlotMutated(
             args.shadowId,
             args.slotIdx,
             piMut[4], // origin_face_id from PI
             uint256(piMut[2]), // feature_id from PI
-            uint16(uint256(piMut[15])), // post-bump mutation count
-            piMut[12], // prev chain tip
-            piMut[13], // new chain tip
+            uint16(uint256(piMut[17])), // post-bump mutation count
+            piMut[14], // prev chain tip
+            piMut[15], // new chain tip
             args.c2
         );
-        // silence unused-prevLSH warning while still asserting the read.
+        _emitSlotEnvelope(args.shadowId, args.slotIdx, args.newC1X, args.newC1Y);
+        // Keep the prior hash read explicit for auditability.
         prevLSH;
     }
 
-    /// Build the 16-field PI for mutate_slot from the args + chain state.
-    /// Layout matches circuits/mutate_slot/src/main.nr (16 fields):
+    /// Build the 18-field PI for mutate_slot from the args + chain state.
+    /// Layout matches circuits/mutate_slot/src/main.nr (18 fields):
     ///   PI[0]  shadow_id            (transcript)
     ///   PI[1]  slot_idx
     ///   PI[2]  feature_id           (chain)
@@ -508,13 +516,15 @@ contract ShadowToken is ERC721, PausableMixin {
     ///   PI[6]  old_live_state_hash  (chain)
     ///   PI[7]  new_live_state_hash  (args)
     ///   PI[8]  new_ct_commit        (args -- bound on-chain via sponge below)
-    ///   PI[9]  c2_field_count       (args)
-    ///   PI[10] owner_pk_x           (chain)
-    ///   PI[11] owner_pk_y           (chain)
-    ///   PI[12] prev_chain_tip       (args)
-    ///   PI[13] new_chain_tip        (args, derived in proof)
-    ///   PI[14] prev_mutation_count  (args)
-    ///   PI[15] new_mutation_count   (args, derived in proof)
+    ///   PI[9]  new_c1_x             (args -- proof-bound and emitted for decryptability)
+    ///   PI[10] new_c1_y             (args -- proof-bound and emitted for decryptability)
+    ///   PI[11] c2_field_count       (args)
+    ///   PI[12] owner_pk_x           (chain)
+    ///   PI[13] owner_pk_y           (chain)
+    ///   PI[14] prev_chain_tip       (args)
+    ///   PI[15] new_chain_tip        (args, derived in proof)
+    ///   PI[16] prev_mutation_count  (args)
+    ///   PI[17] new_mutation_count   (args, derived in proof)
     /// Inputs to `_buildSlotPI`. Wraps the 11 slot-level fields a
     /// mutate/insert PI build needs so we can pass them by struct and
     /// reuse one builder across the three call sites (mutateSlot,
@@ -527,6 +537,8 @@ contract ShadowToken is ERC721, PausableMixin {
         bytes32 oldLsh; // m.liveStateHash for mutate; fn.checkpoint for insert
         bytes32 newLsh;
         bytes32 newCtCommit;
+        uint256 newC1X;
+        uint256 newC1Y;
         uint16 c2FieldCount;
         bytes32 prevChainTip;
         bytes32 newChainTip;
@@ -534,7 +546,7 @@ contract ShadowToken is ERC721, PausableMixin {
         uint16 newCount;
     }
 
-    /// Build the 16-field mutate_slot PI from the canonical slot-level
+    /// Build the 18-field mutate_slot PI from the canonical slot-level
     /// inputs + chain state. Layout matches
     /// `circuits/mutate_slot/src/main.nr` byte-for-byte.
     function _buildSlotPI(SlotPIInputs memory inp) internal view returns (bytes32[] memory pi) {
@@ -549,13 +561,15 @@ contract ShadowToken is ERC721, PausableMixin {
         pi[6] = inp.oldLsh;
         pi[7] = inp.newLsh;
         pi[8] = inp.newCtCommit;
-        pi[9] = bytes32(uint256(inp.c2FieldCount));
-        pi[10] = _shadows[inp.shadowId].ecdhPubX;
-        pi[11] = _shadows[inp.shadowId].ecdhPubY;
-        pi[12] = inp.prevChainTip;
-        pi[13] = inp.newChainTip;
-        pi[14] = bytes32(uint256(inp.prevCount));
-        pi[15] = bytes32(uint256(inp.newCount));
+        pi[9] = bytes32(inp.newC1X);
+        pi[10] = bytes32(inp.newC1Y);
+        pi[11] = bytes32(uint256(inp.c2FieldCount));
+        pi[12] = _shadows[inp.shadowId].ecdhPubX;
+        pi[13] = _shadows[inp.shadowId].ecdhPubY;
+        pi[14] = inp.prevChainTip;
+        pi[15] = inp.newChainTip;
+        pi[16] = bytes32(uint256(inp.prevCount));
+        pi[17] = bytes32(uint256(inp.newCount));
     }
 
     /// Verify the bundled shadow_t10 proof and write `shadowT10` atomically.
@@ -573,6 +587,11 @@ contract ShadowToken is ERC721, PausableMixin {
             revert InvalidProof();
         }
     }
+    function _emitSlotEnvelope(uint256 shadowId, uint8 slotIdx, uint256 c1X, uint256 c1Y) internal {
+        emit ShadowSlotEnvelope(shadowId, slotIdx, bytes32(c1X), bytes32(c1Y));
+    }
+
+
 
     function _refreshT10Atomically(uint256 shadowId, bytes32[2] memory newT10, bytes calldata proofT10) internal {
         bytes32[] memory piT10 = new bytes32[](T10_SHADOW_PI_LEN);
@@ -681,6 +700,8 @@ contract ShadowToken is ERC721, PausableMixin {
                 oldLsh: m.liveStateHash,
                 newLsh: e.newLiveStateHash,
                 newCtCommit: e.newCtCommit,
+                newC1X: e.newC1X,
+                newC1Y: e.newC1Y,
                 c2FieldCount: e.c2FieldCount,
                 prevChainTip: e.prevChainTip,
                 newChainTip: e.newChainTip,
@@ -695,23 +716,26 @@ contract ShadowToken is ERC721, PausableMixin {
         // first mismatch (BadC2Length check above already rejected
         // length-tampered c2; this catches content-tampered c2).
         _assertCtCommitBinding(e.c2, e.newCtCommit);
+        _assertCanonicalField(e.newC1X);
+        _assertCanonicalField(e.newC1Y);
 
         // Apply state: write new LSH and proof-bound event-history metadata;
         // manifest's kind/featureId are unchanged by mutation.
         m.liveStateHash = e.newLiveStateHash;
-        m.mutationCount = uint16(uint256(piMut[15]));
-        m.chainTip = piMut[13];
+        m.mutationCount = uint16(uint256(piMut[17]));
+        m.chainTip = piMut[15];
         // Emit per-slot event so indexers can reconstruct chain history.
         emit ShadowSlotMutated(
             shadowId,
             e.slotIdx,
             piMut[4], // origin_face_id from PI
             uint256(piMut[2]), // feature_id from PI
-            uint16(uint256(piMut[15])), // post-bump mutation count
-            piMut[12], // prev chain tip
-            piMut[13], // new chain tip
+            uint16(uint256(piMut[17])), // post-bump mutation count
+            piMut[14], // prev chain tip
+            piMut[15], // new chain tip
             e.c2
         );
+        _emitSlotEnvelope(shadowId, e.slotIdx, e.newC1X, e.newC1Y);
     }
 
     // ============== extractSlot ==============
@@ -810,6 +834,8 @@ contract ShadowToken is ERC721, PausableMixin {
         // proof-bound newCtCommit before any state change. Reverts with
         // DigestMismatch if sponge_39(args.c2) != args.newCtCommit.
         _assertCtCommitBinding(args.c2, args.newCtCommit);
+        _assertCanonicalField(args.newC1X);
+        _assertCanonicalField(args.newC1Y);
 
         // ---- 3. apply: slot OCCUPIED, carrier inserted ----
         m.kind = SlotKind.OCCUPIED;
@@ -834,11 +860,12 @@ contract ShadowToken is ERC721, PausableMixin {
             args.newChainTip,
             args.c2
         );
+        _emitSlotEnvelope(args.shadowId, args.slotIdx, args.newC1X, args.newC1Y);
     }
 
     /// Build the insert PI from carrier checkpoint + verify proof.
     /// Extracted from `insertFeature` body to dodge stack-too-deep --
-    /// the entry-point body holds many calldata locals + a 16-field PI
+    /// the entry-point body holds many calldata locals + an 18-field PI
     /// array + a SlotPIInputs struct simultaneously, which exceeds the
     /// 16-stack-slot Solidity budget without via-ir.
     function _verifyInsertProof(InsertFeatureArgs calldata args, IFeatureNFT fn)
@@ -854,6 +881,8 @@ contract ShadowToken is ERC721, PausableMixin {
                 oldLsh: fn.liveStateHashCheckpointOf(args.featureId),
                 newLsh: args.newLiveStateHash,
                 newCtCommit: args.newCtCommit,
+                newC1X: args.newC1X,
+                newC1Y: args.newC1Y,
                 c2FieldCount: args.c2FieldCount,
                 prevChainTip: args.prevChainTip,
                 newChainTip: args.newChainTip,
@@ -1003,7 +1032,7 @@ contract ShadowToken is ERC721, PausableMixin {
             args.newChainTips[i],
             args.c2s[i]
         );
-        emit ShadowSlotEnvelope(args.shadowId, uint8(i), bytes32(args.newC1Xs[i]), bytes32(args.newC1Ys[i]));
+        _emitSlotEnvelope(args.shadowId, uint8(i), args.newC1Xs[i], args.newC1Ys[i]);
     }
 
     /// Hash only hidden OCCUPIED slots' liveStateHash values. EMPTY and
