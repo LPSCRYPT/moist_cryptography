@@ -7,6 +7,51 @@ on-chain operations executed against them.
 Historical pipeline #5 remains documented below because it exercised the older full
 reveal-at-solve lifecycle, but it is no longer the current branch architecture.
 
+## Latest ciphertext-envelope cutover deployment (2026-06-08)
+
+This deployment reflects the current contract code after the proof-bound ciphertext
+envelope cutover. Mint, `mutateSlot`, and `mutateBatch` were rerun on live Base
+Sepolia with real proofs. `transferShadow` was attempted with a real generated
+fixture and fresh registered recipient, but the network rejected the transaction
+as `gas limit too high` at an estimated 22,376,806 gas; it remains a live-chain
+blocker for the current surface.
+
+Latest verified Base Sepolia addresses:
+
+| Contract | Address |
+|---|---|
+| `ShadowToken` | `0x15f8D237Cc15377a7C140617E2cfEEe39F49a91C` |
+| `FeatureNFT` | `0x31ADA4c1E9837b336e7540B57F174417e04F42bA` |
+| `KeyRegistry` | `0xffDb68f22Db0f9E63F739Cdf865541E3bA8bDE18` |
+| `ShadowMintController` | `0x0fBCeb82555190011e5e0BA10D2265a852C2ED7c` |
+| `Poseidon2YulSponge` | `0x9A68796Bd6c80bdC0106D175b19c88FC36A774d9` |
+| `Poseidon2YulSponge16` | `0xF89A93BEf837Ea874A6DcBAdd9F38f1e7A399992` |
+| `Poseidon2YulHash2` | `0x87feb57DF99716E114B033adce6639998804B9c3` |
+| `MintShadowVerifier` | `0x89b7aac5dc255111b627D48279E2e72B1f8Ae750` |
+| `FaceDiscVerifier` | `0x85Cf651da336b937eBAAfB2e03B535aec5C3F044` |
+| `MutateSlotVerifier` | `0x27b4785548352054A7FEdc300386Af598F129988` |
+| `T10ShadowVerifier` | `0x86C751c4DdFfDf1BE7C7D45feb922fFD5536C461` |
+| `ZIndexCommitVerifier` | `0xa3C4A965ef00c052787387101F58e9a25658636a` |
+| `TransferShadowVerifier` | `0x3CD751E9F8DF56C96D4f4dDc3DB92541A2Aee08d` |
+| `SolveShadowVerifier` | `0x79b86342B732e88BA3455211814FCb9B8488b874` |
+| `TransferFeatureV2Verifier` | `0xF0474B877d8D7d9dd4836c42563b4cC2dFe12840` |
+| `Poseidon2YulSpongePaletteSalt` | `0xD776Aba3B4ad2257EC0ad98190734053BBD2556B` |
+
+Observed live flow summary:
+
+| Flow | Tx / result | Gas used |
+|---|---|---:|
+| deploy pipeline | `contracts/broadcast/DeployShadowPipeline.s.sol/84532/run-latest.json` | 76,333,335 total |
+| register + begin mint | `0x4295268d66ffeb11be092d78eae690dcce78537022bd62aeab8101f7e89ee092` | 12,754,556 |
+| submit ciphertext + finalize | `0xc97b2c28af4092503da8328a631766e1600cdef4a416c0965bf510227caae834` | 7,327,886 |
+| `mutateSlot` slot 0 | `0xa0d04486c62c10b23d2d1e443578e7f98b026c4836c15049b6d29ac43276cbbf` | 7,908,520 |
+| `mutateBatch` slots 1,2 | `0xa00a076eb7503332537bfc41d87e2b1634cc12a11f1b06fe4e0c4729f0962c36` | 12,361,711 |
+| `transferShadow` 8 occupied slots | rejected before inclusion: gas limit too high | 22,376,806 estimated |
+
+Full report: [`LIVE_SEPOLIA_TEST_REPORT.md`](LIVE_SEPOLIA_TEST_REPORT.md).
+
+---
+
 ## Latest modular phased-mint testnet deployment (2026-06-08)
 
 The current implementation splits the old one-shot `mintShadow` into a

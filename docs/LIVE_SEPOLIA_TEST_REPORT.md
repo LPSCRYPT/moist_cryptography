@@ -4,118 +4,147 @@ Last updated: 2026-06-08
 
 ## Deployment under test
 
-Base Sepolia modular phased-mint deployment:
+Base Sepolia deployment of the latest ciphertext-envelope cutover contracts:
 
 | Contract | Address |
 |---|---|
-| `ShadowToken` | `0x73a2bb3411B1a5D6f9df5a06d3b4bFBA95970e3d` |
-| `FeatureNFT` | `0x6CfAD30a588a57946b306136D4094ca0c07f51aC` |
-| `KeyRegistry` | `0x8c00dD1B1AA71099C9055942F22dB63Dc4361F9D` |
-| `ShadowMintController` | `0x68f777E5B1b8E6b1099F3d8D6153a7C5c9d19A9b` |
-| `Poseidon2YulSponge` | `0xbB664d9Ff720Dc8b381AdBc0422E4fe64c088E03` |
-| `Poseidon2YulSponge16` | `0xD81E987464B3c40CFF033C01aeC99C7eB7956080` |
+| `ShadowToken` | `0x15f8D237Cc15377a7C140617E2cfEEe39F49a91C` |
+| `FeatureNFT` | `0x31ADA4c1E9837b336e7540B57F174417e04F42bA` |
+| `KeyRegistry` | `0xffDb68f22Db0f9E63F739Cdf865541E3bA8bDE18` |
+| `ShadowMintController` | `0x0fBCeb82555190011e5e0BA10D2265a852C2ED7c` |
+| `Poseidon2YulSponge` | `0x9A68796Bd6c80bdC0106D175b19c88FC36A774d9` |
+| `Poseidon2YulSponge16` | `0xF89A93BEf837Ea874A6DcBAdd9F38f1e7A399992` |
+| `Poseidon2YulHash2` | `0x87feb57DF99716E114B033adce6639998804B9c3` |
+| `MintShadowVerifier` | `0x89b7aac5dc255111b627D48279E2e72B1f8Ae750` |
+| `FaceDiscVerifier` | `0x85Cf651da336b937eBAAfB2e03B535aec5C3F044` |
+| `MutateSlotVerifier` | `0x27b4785548352054A7FEdc300386Af598F129988` |
+| `T10ShadowVerifier` | `0x86C751c4DdFfDf1BE7C7D45feb922fFD5536C461` |
+| `ZIndexCommitVerifier` | `0xa3C4A965ef00c052787387101F58e9a25658636a` |
+| `TransferShadowVerifier` | `0x3CD751E9F8DF56C96D4f4dDc3DB92541A2Aee08d` |
+| `SolveShadowVerifier` | `0x79b86342B732e88BA3455211814FCb9B8488b874` |
+| `TransferFeatureV2Verifier` | `0xF0474B877d8D7d9dd4836c42563b4cC2dFe12840` |
+| `Poseidon2YulSpongePaletteSalt` | `0xD776Aba3B4ad2257EC0ad98190734053BBD2556B` |
 
-## Completed live verification
+Deployment artifact: `contracts/broadcast/DeployShadowPipeline.s.sol/84532/run-latest.json`.
+First deployment block: `42673299`.
+
+## Local preflight before redeploy
+
+Run from `contracts/`:
+
+```text
+python3 ../tools/test_chain_decryptability.py && forge test -vv
+```
+
+Observed result:
+
+```text
+255 tests passed, 0 failed, 0 skipped
+```
+
+The Python decryptability regression also completed successfully before Forge ran.
+
+## Live transactions and verification
+
+### Deploy latest pipeline
+
+`DeployShadowPipeline.s.sol` completed successfully on Base Sepolia.
+
+| Item | Tx | Gas used |
+|---|---|---:|
+| deploy/wire pipeline, first tx | `0xac8e257814c3d6de6a92c882aa3e7f63fa255ef9f9782c282441a3649ece3df0` | 1,382,391 |
+| deploy/wire pipeline, final tx | `0x5f137356b7d06707c5d6dcef61ccddfd418a00e1f60a78d89615c08ade70700c` | 45,306 |
+| total across deployment broadcast | see broadcast artifact | 76,333,335 |
 
 ### Modular phased mint
 
-Command executed from repo root:
+Fixture: `contracts/test/fixtures/atomic_mint/atomic_mint_demo`.
+Shadow id: `0x011c687ec30b886164f6506b5ad3972fbe295f2e1da1047bd782d686c645d52a`.
 
-```bash
-python3 tools/verify_onchain_mint.py \
-  --rpc "$RPC" \
-  --st 0x73a2bb3411B1a5D6f9df5a06d3b4bFBA95970e3d \
-  --fn 0x6CfAD30a588a57946b306136D4094ca0c07f51aC \
-  --kr 0x8c00dD1B1AA71099C9055942F22dB63Dc4361F9D \
-  --mc 0x68f777E5B1b8E6b1099F3d8D6153a7C5c9d19A9b \
-  --poseidon39 0xbB664d9Ff720Dc8b381AdBc0422E4fe64c088E03 \
-  --poseidon16 0xD81E987464B3c40CFF033C01aeC99C7eB7956080 \
-  --register-tx 0xbe542296be09dbd9485a0241b4a8906fd32f39daf47e45d60ed37bf43853d238 \
-  --mint-tx 0x99fbc0da74aa89f4eb525320083d52c3272d4f8aeb464a17bbfc818d5f361d39 \
-  --submit-tx 0x769307da37b3a4196c0855ff45787304001185f9a3c2501805114725d944bab5 \
-  --submit-tx 0x7098a5bf73b8234d5836c395842095515d3bda324e6b7044df93812b64528527 \
-  --submit-tx 0x08ea762c377ab11be572ed8dd0391284b9e4221b559bdc9b06c4d11afac79047 \
-  --submit-tx 0x10b8de83280c785b58cf3c9737548c8a343b49286e9279028f1c739e7f747a53 \
-  --submit-tx 0xdd000d2a44826041bc757cfda1337a078133a494dc6c7a7a57738a3eb47dd894 \
-  --submit-tx 0x763537dc78c56d8293e46575642f4d1bcc7a57bfbf674e3e6207968cdfea6a23 \
-  --submit-tx 0x3cb9806c6e2cf01147a76a89f8a485a298bfa4c1b41233ed8dbdb7e6985971ec \
-  --submit-tx 0x99fbc0da74aa89f4eb525320083d52c3272d4f8aeb464a17bbfc818d5f361d39 \
-  --deployer "$DEPLOYER_ADDRESS" \
-  --fixture contracts/test/fixtures/atomic_mint/latest_testnet_incremental \
-  --seed latest_testnet_incremental
-```
+| Step | Tx | Gas used |
+|---|---|---:|
+| `KeyRegistry.register` deployer key | `0x3d904f356aa00efc1221a697db78c165035abff9205bea7fee06e29cc5c53b53` | 68,609 |
+| register image + begin mint | `0x4295268d66ffeb11be092d78eae690dcce78537022bd62aeab8101f7e89ee092` | 12,754,556 |
+| submit ciphertext | `0xcf7091b74b66b0a5cf94ae24e9fee8022be6c4af053ccb1894b2191b4d966b26` | 818,256 |
+| submit ciphertext | `0x229ba8f5e57a2e2187f1a846ad217cbaba438364f401ff442e2025c555f3844e` | 818,196 |
+| submit ciphertext | `0xa4ac37e4b84f4ce65dc2592575bd51be21ee9eea9ce32da6de7b30c57b546bb8` | 818,184 |
+| submit ciphertext | `0x57829cad4a4346883f78fa34324b1b4a0be48f02c94688a6a94e9d073d65a40a` | 818,244 |
+| submit ciphertext | `0xc6bd56509db36c7f18dfa42a48ef54cd590265cc402efad4d1f4b49ee904aa93` | 818,232 |
+| submit ciphertext | `0xcf2caef082d4aaefceaf4017e0979cd1a823241c8cdf4c4473e7bcb7c9da4a1b` | 818,256 |
+| submit ciphertext | `0xc287363962967529144e7bf11c61c7e7a9db1ecad590a0c9f2db5b604a4f60fc` | 818,232 |
+| submit ciphertext + finalize | `0xc97b2c28af4092503da8328a631766e1600cdef4a416c0965bf510227caae834` | 7,327,886 |
 
-Result:
+Verification command used `tools/verify_onchain_mint.py` against the addresses above.
+Observed result:
 
 ```text
-44 passed, 0 failed
+45 passed, 0 failed
 ```
 
-Observed tx gas:
+Checked live postconditions include contract wiring, `KeyRegistry.pkOf(deployer)`, all tx receipt statuses, one `ShadowMinted`, eight `ShadowSlotMutated`, eight `MintCiphertextSubmitted`, one `ShadowT10Updated`, eight `ShadowSlotEnvelope` events, event/storage T10 equality, byte-equal ciphertext payloads, owner-key decryption for all eight mint ciphertexts, per-slot `liveStateHash` equality, carrier metadata, empty slots 8..15, registered/minted origin flags, owner, ECDH pubkey, unsolved state, and zero z-index commit.
 
-| Step | Tx | Gas |
+### `mutateSlot`
+
+Fixture: `contracts/test/fixtures/onchain_mutate/live_latest_slot0`.
+
+| Step | Tx | Gas used |
 |---|---|---:|
-| register + begin | `0xbe542296be09dbd9485a0241b4a8906fd32f39daf47e45d60ed37bf43853d238` | 11,654,925 |
-| submit slot 0 | `0x769307da37b3a4196c0855ff45787304001185f9a3c2501805114725d944bab5` | 816,222 |
-| submit slot 1 | `0x7098a5bf73b8234d5836c395842095515d3bda324e6b7044df93812b64528527` | 816,174 |
-| submit slot 2 | `0x08ea762c377ab11be572ed8dd0391284b9e4221b559bdc9b06c4d11afac79047` | 816,186 |
-| submit slot 3 | `0x10b8de83280c785b58cf3c9737548c8a343b49286e9279028f1c739e7f747a53` | 816,162 |
-| submit slot 4 | `0xdd000d2a44826041bc757cfda1337a078133a494dc6c7a7a57738a3eb47dd894` | 816,222 |
-| submit slot 5 | `0x763537dc78c56d8293e46575642f4d1bcc7a57bfbf674e3e6207968cdfea6a23` | 816,162 |
-| submit slot 6 | `0x3cb9806c6e2cf01147a76a89f8a485a298bfa4c1b41233ed8dbdb7e6985971ec` | 816,198 |
-| submit slot 7 + finalize | `0x99fbc0da74aa89f4eb525320083d52c3272d4f8aeb464a17bbfc818d5f361d39` | 7,300,874 |
+| mutate slot 0 | `0xa0d04486c62c10b23d2d1e443578e7f98b026c4836c15049b6d29ac43276cbbf` | 7,908,520 |
 
-Checked live postconditions:
+The broadcast script checked the current slot was `OCCUPIED` and that on-chain `liveStateHash` matched the fixture's proof-bound `old_lsh` before sending. The receipt succeeded and emitted the expected mutation/T10/envelope log surface.
 
-- contract wiring;
-- `KeyRegistry.pkOf(deployer)` equals fixture owner pubkey;
-- all tx receipts `status=0x1`;
-- exactly one `ShadowMinted`;
-- exactly eight `ShadowSlotMutated` finalization events;
-- exactly eight `MintCiphertextSubmitted` events;
-- exactly one `ShadowT10Updated`;
-- event and storage T10 equal fixture PI;
-- all eight submitted `c2` payloads byte-equal fixture ciphertext;
-- all eight ciphertexts decrypt under fixture owner secret key and decode to expected pose/dim/palette-index plaintext;
-- on-chain per-slot `liveStateHash` equals fixture `lsh_inits[i]`;
-- all eight carriers match expected type/origin/host/owner metadata;
-- slots 8..15 are empty;
-- `registeredImages[imageCommit] == true`;
-- `mintedOrigins[imageCommit] == true`;
-- `ownerOf(shadowId) == deployer`;
-- `Shadow.ecdhPub` matches fixture owner pubkey;
-- `Shadow.solved == false`;
-- `Shadow.zIndexCommit == 0`.
+### `mutateBatch`
 
-## Testing-audit finding: browser decryption data availability
+Fixture: `contracts/test/fixtures/onchain_mutate_batch/live_latest_batch`.
 
-This report was recorded against the pre-cutover live deployment. That deployment emitted mint `c2` but did not emit per-slot mint `c1X/c1Y`, so chain-only browser decryption of hidden mint slots was not possible there.
+| Step | Tx | Gas used |
+|---|---|---:|
+| mutate slots 1 and 2 | `0xa00a076eb7503332537bfc41d87e2b1634cc12a11f1b06fe4e0c4729f0962c36` | 12,361,711 |
 
-The current local contracts have since been patched so every hidden-slot ciphertext path publishes proof-bound `c1`:
+The fixture included the prior slot-0 mutation in its T10 manifest. The broadcast script checked both target slots' current `liveStateHash` values against the fixture before sending. The receipt succeeded and emitted the expected two mutation entries plus T10/envelope log surface.
 
-| Operation | Chain emits `c2` | Chain emits proof-bound `c1` | Browser chain-only decryption on patched deployments |
-|---|---:|---:|---:|
-| phased mint | yes | yes, `ShadowSlotEnvelope` at finalization | possible |
-| `mutateSlot` / `mutateBatch` | yes | yes, `ShadowSlotEnvelope` | possible |
-| `insertFeature` | yes | yes, `ShadowSlotEnvelope` | possible |
-| `transferShadow` | yes | yes, `ShadowSlotEnvelope` | possible |
-| `transferFeature` | yes | yes, `FeatureTransferred.newC1X/newC1Y` | possible |
-| `revealSlots` | plaintext public | not needed | public |
+### `transferShadow` blocker found on latest contract surface
 
-A new live report must be generated after redeploying the patched verifier/contracts; the old deployment remains historical evidence only. The dashboard refuses to fake decryption from fixtures or server helpers.
+A real transfer fixture was generated for the post-mint/post-mutation shadow and a fresh recipient was funded and registered in `KeyRegistry`.
 
-## Still outstanding for exhaustive live coverage
+Preparation transactions:
 
-The following live Base Sepolia operations still need to be run and recorded against the latest deployment or a redeployed patched deployment:
+| Step | Tx |
+|---|---|
+| fund fresh recipient EOA | `0xf58770a27c7e17e235151b8ffabd5c5bf0175944b52e4f924e11ab96bafd281c` |
+| recipient `KeyRegistry.register` | `0xb10c45ce4921d0659960c7bcef97f50048767bb1dbff7c8e8107b807d664ccbf` |
 
-1. `mutateSlot` real proof tx and postcondition verification.
-2. `mutateBatch` real proof tx and postcondition verification.
-3. `revealSlots` real proof tx and postcondition verification.
-4. `transferShadow` real proof tx and recipient decryption verification.
-5. `transferFeatureV2` real proof tx and recipient decryption verification.
-6. `extractSlot` / `insertFeature` live txs if still supported in the latest branch state.
-7. `setZIndexCommit` live tx if still supported in the latest branch state.
-8. Bridge L2 leg and, if in scope, OP finalization after the challenge window.
-9. Browser dashboard live-load test over the latest deployment after serving from HTTP.
+Attempted command:
 
-Do not claim full end-to-end live coverage until every item above has tx hashes, gas, and RPC-checked postconditions.
+```text
+forge script script/TransferOnSepolia.s.sol:TransferOnSepolia \
+  --rpc-url https://base-sepolia.gateway.tenderly.co \
+  --broadcast --gas-estimate-multiplier 150
+```
+
+Observed failure:
+
+```text
+Estimated total gas used for script: 22376806
+Error: Failed to send transaction after 4 attempts Err(server returned an error response: error code -32099: gas limit too high)
+```
+
+No `transferShadow` live transaction was included. This is a current live-chain blocker for an 8 occupied-slot `transferShadow` after the envelope cutover: the proof/event payload now exceeds the public-RPC gas envelope. The generated fixture and simulation were real; the network rejected the gas limit before inclusion.
+
+## Current live coverage status
+
+| Flow | Live status |
+|---|---|
+| deploy latest contracts | passed |
+| phased mint with real proofs | passed |
+| chain-only mint ciphertext decryptability | passed via `verify_onchain_mint.py` (`c2` + emitted `ShadowSlotEnvelope` `c1`) |
+| `mutateSlot` real proof | passed |
+| `mutateBatch` real proofs | passed |
+| `transferShadow` real proof | blocked: estimated 22.38M gas, RPC rejected as gas limit too high |
+| `transferFeatureV2` | not rerun in this pass |
+| extract / insert | not rerun in this pass |
+| reveal / solve | not rerun in this pass |
+| bridge | not rerun in this pass |
+| browser dashboard live-load | dashboard defaults now point at this deployment; manual browser verification still outstanding |
+
+Do not claim full end-to-end live coverage until the `transferShadow` gas regression is fixed or the protocol gains a chunked transfer path, and the remaining feature-transfer/extract/insert/reveal/bridge paths are rerun against this deployment.

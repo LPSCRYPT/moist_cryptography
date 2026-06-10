@@ -1,0 +1,19 @@
+{
+  "shadow_id": "0x011c687ec30b886164f6506b5ad3972fbe295f2e1da1047bd782d686c645d52a",
+  "mint_fixture": "contracts/test/fixtures/atomic_mint/atomic_mint_demo",
+  "fixture_seed": "atomic_mint_demo",
+  "owner_seed": "atomic_mint_demo",
+  "mint_counter_base": 0,
+  "chain_id": 84532,
+  "z_index_commit": "0x0",
+  "slots": [
+    {"slot": 0, "kind": "post-mutate-single", "fixture": "contracts/test/fixtures/onchain_mutate/live_latest_slot0"},
+    {"slot": 1, "kind": "post-mutate-batch", "fixture": "contracts/test/fixtures/onchain_mutate_batch/live_latest_batch", "position": "slot_a"},
+    {"slot": 2, "kind": "post-mutate-batch", "fixture": "contracts/test/fixtures/onchain_mutate_batch/live_latest_batch", "position": "slot_b"},
+    {"slot": 3, "kind": "mint"},
+    {"slot": 4, "kind": "mint"},
+    {"slot": 5, "kind": "mint"},
+    {"slot": 6, "kind": "mint"},
+    {"slot": 7, "kind": "mint"}
+  ]
+}

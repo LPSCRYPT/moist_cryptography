@@ -12,11 +12,11 @@ import { bytesHexToFields, decryptSlot, decodePlaintext } from "./crypto.js";
 
 const DEFAULTS = {
   rpcUrl: "https://sepolia.base.org",
-  fromBlock: "0",
-  shadowToken: "0x73a2bb3411B1a5D6f9df5a06d3b4bFBA95970e3d",
-  featureNft: "0x6CfAD30a588a57946b306136D4094ca0c07f51aC",
-  mintController: "0x68f777E5B1b8E6b1099F3d8D6153a7C5c9d19A9b",
-  keyRegistry: "0x8c00dD1B1AA71099C9055942F22dB63Dc4361F9D",
+  fromBlock: "42673299",
+  shadowToken: "0x15f8D237Cc15377a7C140617E2cfEEe39F49a91C",
+  featureNft: "0x31ADA4c1E9837b336e7540B57F174417e04F42bA",
+  mintController: "0x0fBCeb82555190011e5e0BA10D2265a852C2ED7c",
+  keyRegistry: "0xffDb68f22Db0f9E63F739Cdf865541E3bA8bDE18",
 };
 
 const shadowAbi = parseAbi([
