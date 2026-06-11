@@ -49,6 +49,59 @@ const NAMED_PALETTES_23 = [
   ["void", [[5,5,15],[255,0,80],[80,255,80],[0,180,255],[40,5,40],[255,255,80],[20,20,30],[255,80,255],[140,140,160],[255,255,255]]],
 ].map(([name, rgb]) => ({ name, colors: rgb.map(([r, g, b]) => `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`) }));
 
+const DEFAULT_PALETTE_DEBUG_FACES = [
+  "../examples/faces/alice0.png",
+  "../examples/faces/synthetic/grid_48/s100_smile_+3.png",
+  "../examples/faces/synthetic/grid_48/s101_neutral.png",
+  "../examples/faces/synthetic/grid_48/s102_neutral.png",
+  "../examples/faces/synthetic/grid_48/s103_neutral.png",
+  "../examples/faces/synthetic/grid_48/s104_neutral.png",
+  "../examples/faces/synthetic/grid_48/s105_neutral.png",
+  "../examples/faces/synthetic/grid_48/s106_neutral.png",
+  "../examples/faces/synthetic/grid_48/s107_neutral.png",
+  "../examples/faces/synthetic/grid_48/s108_neutral.png",
+  "../examples/faces/synthetic/grid_48/s109_neutral.png",
+  "../examples/faces/synthetic/grid_48/s110_neutral.png",
+  "../examples/faces/synthetic/grid_48/s111_neutral.png",
+  "../examples/faces/synthetic/grid_48/s112_neutral.png",
+  "../examples/faces/synthetic/grid_48/s113_neutral.png",
+  "../examples/faces/synthetic/grid_48/s114_neutral.png",
+  "../examples/faces/synthetic/grid_48/s115_neutral.png",
+  "../examples/faces/synthetic/grid_48/s116_neutral.png",
+  "../examples/faces/synthetic/grid_48/s117_neutral.png",
+  "../examples/faces/synthetic/grid_48/s118_neutral.png",
+  "../examples/faces/synthetic/grid_48/s119_neutral.png",
+  "../examples/faces/synthetic/random_48/rand_0000.png",
+  "../examples/faces/synthetic/random_48/rand_0001.png",
+  "../examples/faces/synthetic/random_48/rand_0002.png",
+  "../examples/faces/synthetic/random_48/rand_0003.png",
+  "../examples/faces/synthetic/random_48/rand_0004.png",
+  "../examples/faces/synthetic/random_48/rand_0005.png",
+  "../examples/faces/synthetic/random_48/rand_0006.png",
+  "../examples/faces/synthetic/random_48/rand_0007.png",
+  "../examples/faces/synthetic/random_48/rand_0008.png",
+  "../examples/faces/synthetic/random_48/rand_0009.png",
+  "../examples/faces/synthetic/random_48/rand_0010.png",
+  "../examples/faces/synthetic/random_48/rand_0011.png",
+  "../examples/faces/synthetic/random_48/rand_0012.png",
+  "../examples/faces/synthetic/random_48/rand_0013.png",
+  "../examples/faces/synthetic/random_48/rand_0014.png",
+  "../examples/faces/synthetic/random_48/rand_0015.png",
+  "../examples/faces/synthetic/random_48/rand_0016.png",
+  "../examples/faces/synthetic/random_48/rand_0017.png",
+  "../examples/faces/synthetic/random_48/rand_0018.png",
+  "../examples/faces/synthetic/random_48/rand_0019.png",
+  "../examples/faces/synthetic/random_48/rand_0020.png",
+  "../examples/faces/synthetic/random_48/rand_0021.png",
+  "../examples/faces/synthetic/random_48/rand_0022.png",
+  "../examples/faces/synthetic/random_48/rand_0023.png",
+  "../examples/faces/synthetic/random_48/rand_0024.png",
+  "../examples/faces/alice0.png",
+  "../examples/faces/synthetic/grid_48/s101_neutral.png",
+  "../examples/faces/synthetic/random_48/rand_0000.png",
+  "../examples/faces/synthetic/grid_48/s119_neutral.png",
+];
+
 const DEFAULT_CALL_ABI = "function ownerOf(uint256 tokenId) view returns (address)";
 
 const shadowAbi = parseAbi([
@@ -87,7 +140,7 @@ const mintControllerAbi = parseAbi([
 ]);
 
 const $ = (id) => document.getElementById(id);
-const state = { client: null, events: [], shadows: new Map(), selected: null, profiles: [], localConfig: null, localFixtureMeta: null, featurePalettes: new Map(), activeProfileIdx: 0 };
+const state = { client: null, events: [], shadows: new Map(), selected: null, profiles: [], localConfig: null, localFixtureMeta: null, paletteDebugReference: null, featurePalettes: new Map(), activeProfileIdx: 0 };
 
 init();
 
@@ -102,7 +155,7 @@ async function init() {
   renderProfiles();
   wireCallerControls();
   updateSummary();
-  $("addProfileBtn").onclick = () => { state.profiles.push({ label: "", address: "", sk: "", evmPk: "" }); state.activeProfileIdx = state.profiles.length - 1; saveProfiles(); renderProfiles(); refreshSelectedShadow(); };
+  $("addProfileBtn").onclick = () => { state.profiles.push({ label: "", address: "", sk: "", evmPk: "" }); state.activeProfileIdx = state.profiles.length - 1; saveProfiles(); renderProfiles(); refreshSelectedShadow(); renderPaletteDebugGrid().catch((err) => setStatus(`ERROR: ${err.stack || err.message || err}`)); };
   $("loadBtn").onclick = () => load().catch((err) => setStatus(`ERROR: ${err.stack || err.message || err}`));
   $("loadBtnSecondary").onclick = () => load().catch((err) => setStatus(`ERROR: ${err.stack || err.message || err}`));
   $("applyLocalBtn").onclick = () => applyLocalConfig().catch((err) => setStatus(`ERROR: ${err.stack || err.message || err}`));
@@ -161,6 +214,7 @@ function renderActiveViewer() {
     saveProfiles();
     renderCallerProfiles();
     refreshSelectedShadow();
+    renderPaletteDebugGrid().catch((err) => setStatus(`ERROR: ${err.stack || err.message || err}`));
   };
 }
 
@@ -174,6 +228,7 @@ function profileLabel(profile, idx) {
 
 function refreshSelectedShadow() {
   if (state.selected != null && state.client) selectShadow(state.selected).catch((err) => setStatus(`ERROR: ${err.stack || err.message || err}`));
+  if (state.client) renderPaletteDebugGrid().catch((err) => setStatus(`ERROR: ${err.stack || err.message || err}`));
 }
 
 async function load() {
@@ -201,6 +256,7 @@ async function load() {
   updateSummary(latest);
   renderShadowList();
   renderTimeline();
+  await renderPaletteDebugGrid();
 }
 
 function dashboardChain() {
@@ -438,6 +494,18 @@ function slotHtml(i, chainSlot, eventSlot, viewer) {
 
 function activeViewerShadowHtml(s, live, viewer) {
   if (!viewer) return `<div class="emptyState">No active viewer selected.</div>`;
+  const summary = collectViewerSlots(s, live, viewer);
+  return `
+    <div class="viewerSummary">
+      <span class="pill okPill">${summary.decrypted} decrypted hidden slots</span>
+      <span class="pill ${summary.paletteReady ? "okPill" : ""}">${summary.paletteReady} palette-backed visual slots</span>
+      <span class="pill">viewer ${escapeHtml(profileLabel(viewer, state.activeProfileIdx))}</span>
+    </div>
+    ${viewerVisualHtml(summary.visualSlots)}
+    <div class="viewerSlotGrid">${summary.cards.join("")}</div>`;
+}
+
+function collectViewerSlots(s, live, viewer) {
   const cards = [];
   const visualSlots = [];
   let decrypted = 0;
@@ -451,7 +519,14 @@ function activeViewerShadowHtml(s, live, viewer) {
     if (result.ok && result.decoded && kind !== 2) decrypted++;
     if (result.decoded && paletteInfo?.colors) {
       paletteReady++;
-      visualSlots.push({ slotIdx: i, kind, decoded: result.decoded, palette: paletteInfo.colors });
+      visualSlots.push({
+        slotIdx: i,
+        kind,
+        decoded: result.decoded,
+        palette: paletteInfo.colors,
+        paletteLabel: paletteInfo.label,
+        paletteSource: paletteInfo.source,
+      });
     }
     cards.push(`
       <div class="viewerSlot ${result.ok ? "viewerSlotOk" : "viewerSlotLocked"}">
@@ -462,14 +537,7 @@ function activeViewerShadowHtml(s, live, viewer) {
         ${result.decoded ? `<div class="small">palette: ${escapeHtml(paletteInfo ? `${paletteInfo.label} · ${paletteInfo.source}` : "unavailable; showing no fake colors")}</div>` : ""}
       </div>`);
   }
-  return `
-    <div class="viewerSummary">
-      <span class="pill okPill">${decrypted} decrypted hidden slots</span>
-      <span class="pill ${paletteReady ? "okPill" : ""}">${paletteReady} palette-backed visual slots</span>
-      <span class="pill">viewer ${escapeHtml(profileLabel(viewer, state.activeProfileIdx))}</span>
-    </div>
-    ${viewerVisualHtml(visualSlots)}
-    <div class="viewerSlotGrid">${cards.join("")}</div>`;
+  return { cards, visualSlots, decrypted, paletteReady };
 }
 
 function slotDecodeResult(kind, viewer, eventSlot) {
@@ -510,19 +578,23 @@ function featurePreviewSvg(decoded, paletteInfo) {
   if (!paletteInfo?.colors) {
     return `<div class="warn small">Palette RGB unavailable. Decrypted indices are hidden correctly, but the dashboard will not invent colors.</div>${featureIndexMapSvg(decoded)}`;
   }
+  const colors = paletteInfo.colors;
+  const invalid = decoded.indices.slice(0, decoded.w * decoded.h).filter((idx) => idx < 0 || idx >= colors.length).length;
   const rects = decoded.indices.slice(0, decoded.w * decoded.h).map((idx, p) => {
     const x = p % decoded.w;
     const y = Math.floor(p / decoded.w);
-    return `<rect x="${x}" y="${y}" width="1" height="1" fill="${paletteInfo.colors[idx & 0xf]}" />`;
+    const fill = colors[idx];
+    return fill ? `<rect x="${x}" y="${y}" width="1" height="1" fill="${fill}" />` : "";
   }).join("");
-  return `<svg class="featurePreview" viewBox="0 0 ${decoded.w} ${decoded.h}" role="img" aria-label="palette-correct decrypted feature preview">${rects}</svg>`;
+  return `${invalid ? `<div class="bad small">${invalid} palette indices are outside the ${colors.length}-color palette and were not rendered.</div>` : ""}<svg class="featurePreview" viewBox="0 0 ${decoded.w} ${decoded.h}" role="img" aria-label="palette-correct decrypted feature preview">${rects}</svg>`;
 }
 
 function featureIndexMapSvg(decoded) {
   const rects = decoded.indices.slice(0, decoded.w * decoded.h).map((idx, p) => {
     const x = p % decoded.w;
     const y = Math.floor(p / decoded.w);
-    const level = Math.round(((idx & 0xf) / 15) * 255).toString(16).padStart(2, "0");
+    const normalized = Math.max(0, Math.min(9, Number(idx)));
+    const level = Math.round((normalized / 9) * 255).toString(16).padStart(2, "0");
     return `<rect x="${x}" y="${y}" width="1" height="1" fill="#${level}${level}${level}" />`;
   }).join("");
   return `<svg class="featurePreview indexPreview" viewBox="0 0 ${decoded.w} ${decoded.h}" role="img" aria-label="palette index map, not final colors">${rects}</svg>`;
@@ -592,6 +664,85 @@ function viewerVisualHtml(visualSlots) {
     </div>`;
 }
 
+async function renderPaletteDebugGrid() {
+  const root = $("paletteDebugGrid");
+  if (!root) return;
+  if (!state.client || state.shadows.size === 0) {
+    root.classList.add("emptyState");
+    root.textContent = "Load localhost chain data to render palette debug cases.";
+    return;
+  }
+  const viewer = activeProfile();
+  if (!viewer?.sk) {
+    root.classList.add("emptyState");
+    root.textContent = "Select a viewer with a decrypt key; the debug grid renders feature geometry decrypted from localhost chain ciphertext events.";
+    return;
+  }
+  const shadow = state.selected != null ? state.shadows.get(state.selected.toString()) : state.shadows.values().next().value;
+  if (!shadow) return;
+  const live = await fetchShadowState(shadow.shadowId);
+  const summary = collectViewerSlots(shadow, live, viewer);
+  if (!summary.visualSlots.length) {
+    root.classList.add("emptyState");
+    root.textContent = "No decryptable chain-derived feature geometry with palette metadata is available yet.";
+    return;
+  }
+  const reference = await loadPaletteDebugReference();
+  const faces = paletteDebugFaces();
+  root.classList.remove("emptyState");
+  root.innerHTML = `
+    <p class="note">Geometry is decrypted from localhost chain events for Shadow ${short(hexId(shadow.shadowId))}. Each card shows source input, browser output, and an independently generated pure-Python expected output. Palette variants intentionally override slot palettes to expose palette/index discrepancies.</p>
+    ${reference ? "" : `<div class="warn small">Pure-Python reference file not loaded. Run <code>python3 tools/build_palette_debug_reference.py</code> or restart <code>tools/start_local_dashboard.py</code>.</div>`}
+    <div class="paletteDebugCards">${faces.map((src, idx) => paletteDebugCardHtml(src, idx, summary.visualSlots, reference?.cases?.[idx])).join("")}</div>`;
+}
+
+function paletteDebugFaces() {
+  const configured = state.localConfig?.paletteDebugFaces || state.localConfig?.minterFaceImages?.map((face) => face.src).filter(Boolean) || [];
+  const base = configured.length >= 50 ? configured : DEFAULT_PALETTE_DEBUG_FACES;
+  return Array.from({ length: 50 }, (_unused, i) => base[i % base.length]);
+}
+
+function paletteDebugCardHtml(src, caseIdx, visualSlots, referenceCase) {
+  const variedSlots = visualSlots.map((slot) => {
+    const pal = NAMED_PALETTES_23[(caseIdx + slot.slotIdx) % NAMED_PALETTES_23.length];
+    return { ...slot, palette: pal.colors, paletteLabel: pal.name };
+  });
+  const canvas = composeSlotsToCanvas(variedSlots);
+  const names = [...new Set(variedSlots.map((slot) => slot.paletteLabel))].slice(0, 8).join(", ");
+  return `
+    <div class="paletteDebugCard">
+      <div class="metricLabel">case ${caseIdx + 1}</div>
+      <div class="debugTriplet">
+        <div>
+          <div class="small">48px input</div>
+          <img class="debugFaceInput" src="${escapeHtml(src)}" alt="debug input face ${caseIdx + 1}" />
+        </div>
+        <div>
+          <div class="small">browser output</div>
+          ${canvasSvg(canvas, 48, "debugFeatureOutput", `browser feature output ${caseIdx + 1}`)}
+        </div>
+        <div>
+          <div class="small">pure Python expected</div>
+          ${referenceCase?.svg || `<div class="emptyState small">No Python reference for this case.</div>`}
+        </div>
+      </div>
+      <div class="small">palette offset ${caseIdx % NAMED_PALETTES_23.length}: ${escapeHtml(names)}</div>
+    </div>`;
+}
+
+async function loadPaletteDebugReference() {
+  if (state.paletteDebugReference) return state.paletteDebugReference;
+  try {
+    const res = await fetch("../.local/palette_debug_reference.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    state.paletteDebugReference = await res.json();
+    return state.paletteDebugReference;
+  } catch (err) {
+    console.warn(`Could not load pure-Python palette reference: ${err.message}`);
+    return null;
+  }
+}
+
 function composeSlotsToCanvas(slots) {
   const canvas = Array.from({ length: 48 * 48 }, () => null);
   for (const slot of [...slots].sort((a, b) => (a.kind === 2) - (b.kind === 2) || a.slotIdx - b.slotIdx)) drawSlot(canvas, slot.decoded, slot.palette);
@@ -613,10 +764,10 @@ function drawSlot(canvas, decoded, palette) {
       const [sxScaled, syScaled] = unrotatePoint(rx, ry, scaledW, scaledH, turns);
       const sx = Math.min(decoded.w - 1, Math.floor((sxScaled * 256) / scale));
       const sy = Math.min(decoded.h - 1, Math.floor((syScaled * 256) / scale));
-      const idx = decoded.indices[sy * decoded.w + sx] & 0xf;
+      const idx = decoded.indices[sy * decoded.w + sx];
       const dx = x0 + rx;
       const dy = y0 + ry;
-      if (dx >= 0 && dx < 48 && dy >= 0 && dy < 48) canvas[dy * 48 + dx] = hexToRgb(palette[idx]);
+      if (dx >= 0 && dx < 48 && dy >= 0 && dy < 48 && idx >= 0 && idx < palette.length) canvas[dy * 48 + dx] = hexToRgb(palette[idx]);
     }
   }
 }
