@@ -131,7 +131,7 @@ def build_witness(seed: bytes, n_occupied: int) -> dict:
         pose = pack_pose(x=2 + i, y=4 + (i % 8))
         w_dim = 6 + (i % 4)
         h_dim = 6 + ((i + 1) % 4)
-        indices = [(j * 7 + i + 3) & 0xF for j in range(w_dim * h_dim)]
+        indices = [(j * 7 + i + 3) % 10 for j in range(w_dim * h_dim)]
         plaintext = encode_plaintext_v2(pose, w_dim, h_dim, indices)
         plaintexts[i] = plaintext
 

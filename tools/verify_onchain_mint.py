@@ -14,8 +14,8 @@ heuristic):
     3.  ImageRegistered event emitted with the right imageCommit.
     4.  ShadowMinted event emitted with the right (shadowId, minter,
         mintIdx, imageCommit).
-    5.  ShadowT10Updated event emitted with (hi, lo) matching the
-        fixture's bundled T10 PI.
+    5.  ShadowDownscaleUpdated event emitted with revision=1 and (hi, lo)
+        matching the fixture's bundled T10 PI.
     6.  All 8 ShadowSlotMutated finalization events emitted in slot order,
         with empty c2 payloads by design.
     7.  All 8 ShadowMintController.MintCiphertextSubmitted events emitted,
@@ -100,7 +100,7 @@ TOPIC_SLOT_MUTATED = keccak(
     text="ShadowSlotMutated(uint256,uint8,bytes32,uint256,uint16,bytes32,bytes32,bytes)"
 ).hex()
 TOPIC_T10_UPDATED = keccak(
-    text="ShadowT10Updated(uint256,bytes32,bytes32)").hex()
+    text="ShadowDownscaleUpdated(uint256,uint64,bytes32,bytes32)").hex()
 TOPIC_MINT_CIPHERTEXT_SUBMITTED = keccak(
     text="MintCiphertextSubmitted(uint256,uint8,bytes32,bytes)").hex()
 TOPIC_SHADOW_SLOT_ENVELOPE = keccak(
@@ -254,7 +254,7 @@ def reconstruct_plaintext_params(seed_str: str
         pose = pack_pose(x=2 + i * 2, y=4 + (i % 8))
         w_dim = 6 + (i % 4)
         h_dim = 6 + ((i + 1) % 4)
-        indices = [(j * 7 + i + 3) & 0xF for j in range(w_dim * h_dim)]
+        indices = [(j * 7 + i + 3) % 10 for j in range(w_dim * h_dim)]
         out.append((pose, w_dim, h_dim, indices))
     return out
 
@@ -305,6 +305,7 @@ def parse_t10_updated(log: dict) -> dict:
     data = bytes.fromhex(log["data"][2:])
     return {
         "shadow_id": int(log["topics"][1], 16),
+        "revision": int(log["topics"][2], 16),
         "hi": data[0:32],
         "lo": data[32:64],
     }
@@ -458,9 +459,9 @@ def verify(args: argparse.Namespace) -> bool:
     else:
         rep.fail("MintCiphertextSubmitted event count", f"got {len(c2_logs)}")
     if len(t10_logs) == 1:
-        rep.ok("exactly 1 ShadowT10Updated event")
+        rep.ok("exactly 1 ShadowDownscaleUpdated event")
     else:
-        rep.fail("ShadowT10Updated event count", f"got {len(t10_logs)}")
+        rep.fail("ShadowDownscaleUpdated event count", f"got {len(t10_logs)}")
     if len(envelope_logs) == 8:
         rep.ok("exactly 8 ShadowSlotEnvelope events")
     else:
@@ -495,14 +496,18 @@ def verify(args: argparse.Namespace) -> bool:
         rep.fail("ShadowMinted.minter", f"got {m['minter']}")
 
     # ---- 4. T10 event payload + storage ----
-    rep.section("4. ShadowT10Updated event + storage")
+    rep.section("4. ShadowDownscaleUpdated event + storage")
     t = t10_logs[0]
     fix_t10_hi = bytes.fromhex(meta["t10_hi"][2:])
     fix_t10_lo = bytes.fromhex(meta["t10_lo"][2:])
+    if t["revision"] == 1:
+        rep.ok("downscale revision = 1")
+    else:
+        rep.fail("ShadowDownscaleUpdated.revision", f"got {t['revision']}")
     if t["hi"] == fix_t10_hi and t["lo"] == fix_t10_lo:
         rep.ok("T10 (hi, lo) in event byte-equals fixture PI")
     else:
-        rep.fail("ShadowT10Updated payload",
+        rep.fail("ShadowDownscaleUpdated payload",
                  f"got hi={t['hi'].hex()[:18]} lo={t['lo'].hex()[:18]}")
 
     (st_t10_hi,) = call_view(rpc, args.st, "shadowT10(uint256,uint256)",
@@ -514,6 +519,12 @@ def verify(args: argparse.Namespace) -> bool:
     else:
         rep.fail("shadowT10 storage",
                  f"hi={st_t10_hi.hex()[:18]} lo={st_t10_lo.hex()[:18]}")
+    (st_downscale_revision,) = call_view(rpc, args.st, "shadowDownscaleRevision(uint256)",
+                                         [expected_shadow_id], ["uint64"])
+    if st_downscale_revision == 1:
+        rep.ok("on-chain shadowDownscaleRevision = 1")
+    else:
+        rep.fail("shadowDownscaleRevision storage", f"got {st_downscale_revision}")
 
     # ---- 5. Per-slot integrity ----
     rep.section("5. Per-slot integrity (events + decryption + manifest + carrier)")

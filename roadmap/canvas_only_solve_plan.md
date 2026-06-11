@@ -83,9 +83,9 @@ This does not make the solved artwork private. It only prevents the solve proces
 Prefer a compact globally indexed canvas:
 
 ```text
-canvasPalette: 16 RGB colors = 48 bytes
+canvasPalette: canonical 10 RGB colors = 30 bytes
 canvasIndices: 48 * 48 4-bit indices = 1152 bytes
-canvasBytes: canvasPalette || canvasIndices = 1200 bytes
+canvasBytes: canvasPalette || canvasIndices = 1182 bytes
 ```
 
 Benefits:
@@ -95,7 +95,7 @@ Benefits:
 - directly renderable by indexers,
 - aligns with the project's existing palette-indexed representation.
 
-If exact RGB output is required and global 16-color quantization is unacceptable, use full RGB instead:
+If exact RGB output is required and canonical 10-color quantization is unacceptable, use full RGB instead:
 
 ```text
 48 * 48 * 3 = 6912 bytes
@@ -277,7 +277,7 @@ That path should release custody without revealing feature plaintext. It can be 
 
 ### Preferred: single transaction
 
-For global 16-color canvas encoding, `canvas` is about 1200 bytes. This should be feasible in one tx if the verifier remains within normal UltraHonk verifier cost.
+For canonical 10-color canvas encoding, `canvas` is about 1182 bytes. This should be feasible in one tx if the verifier remains within normal UltraHonk verifier cost.
 
 Single-tx solve is best because the final image appears atomically.
 
@@ -417,7 +417,7 @@ Avoid shipping both per-feature solve and canvas-only solve as public production
 ## Open decisions
 
 1. **Canvas encoding**
-   - Recommended: global 16-color palette + 4-bit indices.
+   - Recommended: canonical 10-color palette + 4-bit indices.
    - Alternative: full RGB bytes.
 
 2. **Carrier lifecycle after solve**

@@ -127,7 +127,7 @@ def build_witness(
         print("[3/9] old plaintext (mint-time)")
         old_pose = pack_pose(x=4, y=8)             # identity rot/scale, anchor (4, 8)
         old_w, old_h = 12, 10
-        old_indices = [(i * 7 + 3) & 0xF for i in range(old_w * old_h)]
+        old_indices = [(i * 7 + 3) % 10 for i in range(old_w * old_h)]
         old_plaintext = encode_plaintext_v2(old_pose, old_w, old_h, old_indices)
         assert len(old_plaintext) == PLAINTEXT_FIELDS
 

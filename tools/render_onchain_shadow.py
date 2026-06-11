@@ -60,6 +60,7 @@ from typing import Optional
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
+sys.path.insert(0, str(REPO / "tools" / "landmark"))
 
 from secret_inbox import ec_mul  # type: ignore  # noqa: E402
 from v2_circuit_helpers import (  # type: ignore  # noqa: E402
@@ -67,27 +68,12 @@ from v2_circuit_helpers import (  # type: ignore  # noqa: E402
     sponge_39, poseidon2_hash_2, keystream_39,
     pack_pose, decode_plaintext_v2,
 )
+from palette_quantizer import PALETTES  # type: ignore  # noqa: E402
 
 
-# 16-color palette. Picked so adjacent indices contrast.
-PALETTE: list[tuple[int, int, int]] = [
-    (0, 0, 0),         # 0
-    (255, 255, 255),   # 1
-    (220, 60, 60),     # 2
-    (60, 220, 60),     # 3
-    (60, 60, 220),     # 4
-    (220, 220, 60),    # 5
-    (220, 60, 220),    # 6
-    (60, 220, 220),    # 7
-    (180, 100, 60),    # 8
-    (255, 180, 0),     # 9
-    (140, 80, 200),    # 10
-    (80, 200, 140),    # 11
-    (200, 200, 200),   # 12
-    (80, 80, 80),      # 13
-    (255, 130, 180),   # 14
-    (40, 80, 30),      # 15
-]
+# Default fallback uses one canonical named palette. Real revealed renders use
+# FeaturePaletteRevealed event data instead.
+PALETTE: list[tuple[int, int, int]] = PALETTES["amber"]
 CANVAS_SIZE = 48
 
 
@@ -185,7 +171,7 @@ def fetch_latest_c2_per_slot(rpc: str, st_addr: str, shadow_id: int,
 
 def fetch_revealed_palettes(rpc: str, fn_addr: str, from_block: int = 0
                             ) -> dict[int, list[tuple[int, int, int]]]:
-    """Return {feature_id_int: [16 (R, G, B)]} from FeaturePaletteRevealed
+    """Return {feature_id_int: [10 (R, G, B)]} from FeaturePaletteRevealed
     events on FeatureNFT. Latest event per featureId wins (single-shot in
     practice -- the contract reverts on second reveal -- but be defensive).
     """
@@ -203,15 +189,15 @@ def fetch_revealed_palettes(rpc: str, fn_addr: str, from_block: int = 0
         fid = int(ev["topics"][1], 16)
         bn = int(ev["blockNumber"], 16)
         li = int(ev["logIndex"], 16)
-        # Data layout: paletteCommit(32) | offset(32, =0x40) | len(32, =0x30) | rgb_bytes(48)
+        # Data layout: paletteCommit(32) | offset(32, =0x40) | len(32, =0x1e) | rgb_bytes(30)
         data = bytes.fromhex(ev["data"][2:])
         rgb_len = int.from_bytes(data[64:96], "big")
-        if rgb_len != 48:
+        if rgb_len != 30:
             print(f"  fid {hex(fid)[:18]}: unexpected paletteRGB length {rgb_len}; skipping")
             continue
-        rgb_bytes = data[96:96 + 48]
+        rgb_bytes = data[96:96 + 30]
         palette = []
-        for i in range(16):
+        for i in range(10):
             r = rgb_bytes[3 * i + 0]
             g = rgb_bytes[3 * i + 1]
             b = rgb_bytes[3 * i + 2]
@@ -345,9 +331,9 @@ def unpack_pose_xy(pose: int) -> tuple[int, int]:
 def render_sprite(w: int, h: int, indices: list[int],
                   palette: Optional[list[tuple[int, int, int]]] = None
                   ) -> list[list[tuple[int, int, int]]]:
-    """Render a sprite. If `palette` is supplied (16 entries from a
+    """Render a sprite. If `palette` is supplied (10 entries from a
     PaletteRevealed event), use it; otherwise fall back to the module's
-    default PALETTE. Indices outside the 16-entry palette range raise."""
+    default named PALETTE. Indices outside the 10-entry palette range raise."""
     pal = palette if palette is not None else PALETTE
     grid = [[(0, 0, 0)] * w for _ in range(h)]
     for j, idx in enumerate(indices):
@@ -446,7 +432,7 @@ def reconstruct_seed_params(seed_str: str
         pose = pack_pose(x=2 + i * 2, y=4 + (i % 8))
         w_dim = 6 + (i % 4)
         h_dim = 6 + ((i + 1) % 4)
-        indices = [(j * 7 + i + 3) & 0xF for j in range(w_dim * h_dim)]
+        indices = [(j * 7 + i + 3) % 10 for j in range(w_dim * h_dim)]
         out[i] = (pose, w_dim, h_dim, indices)
     return out
 

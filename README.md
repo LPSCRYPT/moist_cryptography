@@ -121,8 +121,8 @@ shadow eventually mints a mirror NFT on L1.
   │ Poseidon2YulSponge16              sponge_16(field[16])                       │
   │                                     → manifest LSH root                      │
   │                                     → zIndexCommit (perm of [0..15])         │
-  │ Poseidon2YulSpongePaletteSalt     sponge_palette_salt(palette[16], salt)     │
-  │                                     → 17-input opener for paletteCommit      │
+  │ Poseidon2YulSpongePaletteSalt     sponge_palette_salt(palette[10], salt)     │
+  │                                     → 11-input opener for paletteCommit      │
   ├──────────────────────────────────────────────────────────────────────────────┤
   │ ShadowBridgeL2 #5b    0x49A8d60114C4869D2f0422c8e5b1f9442f5e4529             │
   ├──────────────────────────────────────────────────────────────────────────────┤
@@ -211,7 +211,7 @@ shadow eventually mints a mirror NFT on L1.
   │ POST-SOLVE  (canonical, anyone can render)                                   │
   │   eth_getLogs → 8× FeaturePaletteRevealed   palette + salt                   │
   │               + 8× FeatureSlotRevealed     39-field plaintext                │
-  │   → palette[16] + plaintext per occupied slot, no decryption needed          │
+  │   → canonical 10-color palette + plaintext per occupied slot                 │
   │                                                                              │
   │ PRE-SOLVE   (owner-only)                                                     │
   │   eth_getLogs → ShadowSlotMutated*          per-slot ECIES c2 history        │

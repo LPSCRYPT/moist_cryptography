@@ -246,7 +246,7 @@ fn validate_plaintext_v2(plaintext: [Field; 39]) {
     //   bytes 0..7   pose (8 B, uint64 packed)
     //   byte 8       w
     //   byte 9       h
-    //   bytes 10..30 first 21 of (w * h) palette indices (4-bit packed)
+    //   bytes 10..30 first 21 of (w * h) palette indices (4-bit packed, each < 10)
     let f0_bytes: [u8; 31] = plaintext[0].to_le_bytes();
     // Reconstruct pose's low 8 bytes.
     let mut pose_acc: Field = 0;
@@ -278,6 +278,26 @@ fn validate_plaintext_v2(plaintext: [Field; 39]) {
     assert(center2_y >= extent_h);
     assert((center2_x + extent_w + 1) / 2 <= CANVAS_W);
     assert((center2_y + extent_h + 1) / 2 <= CANVAS_H);
+
+    // (3) canonical palette membership: every used 4-bit palette index must
+    // reference one of the 10 colors in the committed named palette. Padding
+    // nibbles after w*h are ignored.
+    let pixel_count = (w_byte as u32) * (h_byte as u32);
+    for f in 0..PLAINTEXT_FIELDS {
+        let bytes: [u8; 31] = plaintext[f].to_le_bytes();
+        for j in 0..31 {
+            let offset = f * 31 + j;
+            if (offset >= 10) & (offset < 1162) {
+                let pixel0 = (offset - 10) * 2;
+                if pixel0 < pixel_count {
+                    assert((bytes[j] & 0x0f) <= 9);
+                }
+                if (pixel0 + 1) < pixel_count {
+                    assert(((bytes[j] >> 4) & 0x0f) <= 9);
+                }
+            }
+        }
+    }
 }
 
 // ---- main ----

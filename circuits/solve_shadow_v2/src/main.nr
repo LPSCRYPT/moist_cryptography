@@ -61,6 +61,34 @@ fn sponge_6(a: Field, b: Field, c: Field, d: Field, e: Field, f: Field) -> Field
     s[0]
 }
 
+fn assert_plaintext_palette_indices_10(plaintext: [Field; 39]) {
+    let f0_bytes: [u8; 31] = plaintext[0].to_le_bytes();
+    let w_byte = f0_bytes[8];
+    let h_byte = f0_bytes[9];
+    assert(w_byte != 0);
+    assert(h_byte != 0);
+    assert(w_byte as u32 <= 48);
+    assert(h_byte as u32 <= 48);
+
+    // Canonical palette membership. Padding nibbles after w*h are ignored.
+    let pixel_count = (w_byte as u32) * (h_byte as u32);
+    for f in 0..PLAINTEXT_FIELDS {
+        let bytes: [u8; 31] = plaintext[f].to_le_bytes();
+        for j in 0..31 {
+            let offset = f * 31 + j;
+            if (offset >= 10) & (offset < 1162) {
+                let pixel0 = (offset - 10) * 2;
+                if pixel0 < pixel_count {
+                    assert((bytes[j] & 0x0f) <= 9);
+                }
+                if (pixel0 + 1) < pixel_count {
+                    assert(((bytes[j] >> 4) & 0x0f) <= 9);
+                }
+            }
+        }
+    }
+}
+
 fn main(
     // public inputs (9), matched by ShadowToken._verifyRevealSlotProof
     shadow_id:           pub Field,
@@ -101,6 +129,7 @@ fn main(
     // The emitted plaintext must be the exact state commitment in PI[4].
     let sc = sponge_39(plaintext);
     assert(sc == state_commit);
+    assert_plaintext_palette_indices_10(plaintext);
 
     // Verify ciphertext commitment under the owner-derived keystream.
     let ks = keystream_39(owner_k);

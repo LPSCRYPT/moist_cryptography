@@ -220,7 +220,7 @@ def _post_insert(spec_root: dict, slot_idx: int, fixture: Path) -> dict:
     owner_pk = (src_state["owner_pk_x"], src_state["owner_pk_y"])
     new_pose = pack_pose(x=4, y=4)
     new_w, new_h = 10, 10
-    new_indices = [(j * 13 + slot_idx + 1) & 0xF for j in range(new_w * new_h)]
+    new_indices = [(j * 13 + slot_idx + 1) % 10 for j in range(new_w * new_h)]
     new_plaintext = encode_plaintext_v2(new_pose, new_w, new_h, new_indices)
 
     host_shadow_id = _h(fmeta["host_shadow_id"])

@@ -128,7 +128,7 @@ Deployed 2026-04-28.
 |---|---|
 | `Poseidon2YulSponge` (sponge_39) | [`0xe57AB0963Aa9eD22193910Ed24CeE188003126fA`](https://sepolia.basescan.org/address/0xe57AB0963Aa9eD22193910Ed24CeE188003126fA) |
 | `Poseidon2YulSponge16` (sponge_16) | [`0x43a58e82c7D2C3464299780512Ac9fB96971Ec68`](https://sepolia.basescan.org/address/0x43a58e82c7D2C3464299780512Ac9fB96971Ec68) |
-| **`Poseidon2YulSpongePaletteSalt`** (sponge_17, NEW) | [`0x3515BD5118d92513B4751051ed5bD9ed274330b8`](https://sepolia.basescan.org/address/0x3515BD5118d92513B4751051ed5bD9ed274330b8) |
+| **`Poseidon2YulSpongePaletteSalt`** (11-field palette sponge, legacy deployment) | [`0x3515BD5118d92513B4751051ed5bD9ed274330b8`](https://sepolia.basescan.org/address/0x3515BD5118d92513B4751051ed5bD9ed274330b8) |
 | `KeyRegistry` | [`0xA71143F4E5bB5a11C98e9A1eE8D02b4344f3a2eE`](https://sepolia.basescan.org/address/0xA71143F4E5bB5a11C98e9A1eE8D02b4344f3a2eE) |
 | `ShadowToken` | [`0xbf9f3FC142f497774986345F027d3eaCa7Eba810`](https://sepolia.basescan.org/address/0xbf9f3FC142f497774986345F027d3eaCa7Eba810) |
 | `FeatureNFT` | [`0x414606aBa41297a4Dc71F2603453177885499f16`](https://sepolia.basescan.org/address/0x414606aBa41297a4Dc71F2603453177885499f16) |
@@ -145,7 +145,7 @@ Deployed 2026-04-28.
 | `ShadowMirrorL1` (Eth Sepolia, paired with #5b) | [`0xe9B8b1DddaEC95C165B0c4aE55Ea13FeAAC79042`](https://sepolia.etherscan.io/address/0xe9B8b1DddaEC95C165B0c4aE55Ea13FeAAC79042) |
 
 **No** `PaletteRevealV2Verifier` -- replaced by the on-chain
-`Poseidon2YulSpongePaletteSalt` (sponge_17). Soundness flows from the
+`Poseidon2YulSpongePaletteSalt` (11-field palette sponge). Soundness flows from the
 chain-stored `paletteCommit` storage check + Poseidon2 collision-
 resistance, not from a per-carrier ZK proof.
 
@@ -272,7 +272,7 @@ points.
 ### Solve event signature
 
 Solve emits per occupied slot:
-  * `FeaturePaletteRevealed(featureId, paletteCommit, bytes paletteRGB_48)`
+  * `FeaturePaletteRevealed(featureId, paletteCommit, bytes paletteRGB_30)`
   * `FeatureSlotRevealed(featureId, shadowId, slotIdx, bytes plaintext_1248)`
 
 8 occupied carriers -> 8 of each event in one tx. Auto-extracts all
@@ -302,7 +302,7 @@ python3 tools/render_onchain_shadow.py \
 ```
 
 Output: 8 sprite PNGs + composite + strip per shadow, all rendered with
-the actual 16-color palettes from `FeaturePaletteRevealed` events and
+the actual canonical 10-color palettes from `FeaturePaletteRevealed` events and
 the actual plaintexts from `FeatureSlotRevealed` events. Confirms the
 canonical NFT image is fully derivable from chain state alone -- no
 owner cooperation, no off-chain decrypt key required.

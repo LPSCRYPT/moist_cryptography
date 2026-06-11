@@ -173,7 +173,7 @@ def reconstruct_mint_slot_state(seed: bytes, image_commit: int, slot_idx: int,
     pose = pack_pose(x=2 + slot_idx * 2, y=4 + (slot_idx % 8))
     w_dim = 6 + (slot_idx % 4)
     h_dim = 6 + ((slot_idx + 1) % 4)
-    indices = [(j * 7 + slot_idx + 3) & 0xF for j in range(w_dim * h_dim)]
+    indices = [(j * 7 + slot_idx + 3) % 10 for j in range(w_dim * h_dim)]
     plaintext = encode_plaintext_v2(pose, w_dim, h_dim, indices)
     assert len(plaintext) == PLAINTEXT_FIELDS
 

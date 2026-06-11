@@ -111,7 +111,7 @@ struct RevealSlotArgs {
     uint8 slotIdx;
     bytes proof;
     bytes plaintext;          // 39 field elements: pose, dimensions, palette indices
-    bytes32[16] palette;      // 16 RGB colors as field elements
+    bytes32[10] palette;      // canonical 10-color named palette as field elements
     bytes32 paletteSalt;
     uint8 revealedRank;       // public ordering among revealed slots
     bytes32[2] newT10;        // updated BW shadow commitment after excluding this slot

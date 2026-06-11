@@ -49,9 +49,9 @@
 //   new_r                               : Field          (new ECIES ephemeral scalar)
 //   owner_sk                            : Field          (owner secret key)
 //
-// Out-of-scope (consumed elsewhere):
-//   - palette membership: 4-bit indices are by construction in [0, 16); the
-//     paletteCommit is asserted unchanged via PI binding only.
+// In-scope palette membership: used 4-bit indices must reference one of the
+// canonical 10 committed palette colors. The paletteCommit itself is asserted
+// unchanged via PI binding.
 //   - per-slot c2 calldata sponge binding: contract checks
 //     sponge(c2_calldata) == PI[new_ct_commit].
 //   - replay resistance: PI[6] (old_live_state_hash) must equal the chain's
@@ -213,7 +213,7 @@ fn assert_pose_byte_dims(plaintext: [Field; 39], w_pub: u32, h_pub: u32) {
     //   bytes 0..7   pose (8 B, uint64 packed)
     //   byte 8       w
     //   byte 9       h
-    //   bytes 10..30 first 21 indices
+    //   bytes 10..30 first 21 indices (4-bit packed, each < 10)
     let f0_bytes: [u8; 31] = plaintext[0].to_le_bytes();
     let (x, y, scale_q88, quarter_turns) = decode_pose(pose_low64_from_field0(plaintext[0]));
     let w_byte = f0_bytes[8];
@@ -242,6 +242,24 @@ fn assert_pose_byte_dims(plaintext: [Field; 39], w_pub: u32, h_pub: u32) {
     assert(center2_y >= extent_h);
     assert((center2_x + extent_w + 1) / 2 <= CANVAS_W);
     assert((center2_y + extent_h + 1) / 2 <= CANVAS_H);
+
+    // Canonical palette membership. Padding nibbles after w*h are ignored.
+    let pixel_count = (w_byte as u32) * (h_byte as u32);
+    for f in 0..PLAINTEXT_FIELDS {
+        let bytes: [u8; 31] = plaintext[f].to_le_bytes();
+        for j in 0..31 {
+            let offset = f * 31 + j;
+            if (offset >= 10) & (offset < 1162) {
+                let pixel0 = (offset - 10) * 2;
+                if pixel0 < pixel_count {
+                    assert((bytes[j] & 0x0f) <= 9);
+                }
+                if (pixel0 + 1) < pixel_count {
+                    assert(((bytes[j] >> 4) & 0x0f) <= 9);
+                }
+            }
+        }
+    }
 }
 
 fn assert_pose_only_single_mutation(old_plaintext: [Field; 39], new_plaintext: [Field; 39]) {

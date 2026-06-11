@@ -9,7 +9,7 @@
 
 `solve` is the single canonical reveal moment. One tx that simultaneously:
 
-1. opens the per-carrier `paletteCommit` (16 RGB colors + salt → public)
+1. opens the per-carrier `paletteCommit` (canonical 10 RGB colors + salt → public)
 2. opens the per-slot `liveStateHash`'s `stateCommit` (39-field plaintext
    → public; gives pose, w, h, palette indices)
 3. opens the `zIndexCommit` (16-element z-permutation; this already
@@ -27,7 +27,7 @@ palettes in the event-emitted z-order.
 
 | Commitment | Storage | Hides | Mutability | Opened by |
 |---|---|---|---|---|
-| `paletteCommit` | `FeatureNFT._features[fid]` | 16 RGB colors + salt | immutable from mint | new on-chain `sponge_palette_salt` check at solve |
+| `paletteCommit` | `FeatureNFT._features[fid]` | canonical 10 RGB colors + salt | immutable from mint | new on-chain `sponge_palette_salt` check at solve |
 | `liveStateHash` (lsh) | `ShadowToken._manifests[shadowId][slot]` | 39-field plaintext (pose, w, h, palette indices) via `stateCommit`, plus ECIES envelope (`ctCommit`, `c1.x`, `c1.y`), plus `count`, plus `chainTip` | updated every mutate / extract / insert / transferFeature | proof binds `stateCommit` via PI[1] root; new on-chain `sponge_39(plaintext) == stateCommit` check binds the calldata plaintext to what the proof actually witnessed |
 | `zIndexCommit` | `ShadowToken._shadows[shadowId]` | z-permutation + salt | immutable from `setZIndexCommit` | proof binds `zPermPacked` via PI[2] vs `zIndexCommit` (existing) |
 
@@ -52,7 +52,7 @@ struct SolveArgs {
     uint256 shadowId;
     bytes   proof;                   // solve_shadow_v2 proof (unchanged)
     bytes[16]            plaintexts; // per-slot 39 fields = 1248 B; empty for EMPTY slots
-    bytes32[16][16]      palettes;   // [slot][color]: 16 RGB-as-Field per slot; zero rows for EMPTY
+    bytes32[10][16]      palettes;   // [slot][color]: 10 RGB-as-Field per slot; zero rows for EMPTY
     bytes32[16]          paletteSalts; // per-slot salt; 0 for EMPTY
     bytes32              zPermPacked;
     uint8[16]            zPerm;
@@ -84,7 +84,7 @@ now derives it on chain via `sponge_39(plaintexts[i])`.
          - asserts sponge_palette_salt(palette, salt) == f.paletteCommit  (NEW Yul)
          - asserts !f.paletteRevealed                              (NEW)
          - f.paletteRevealed = true                                (NEW)
-         - emits FeaturePaletteRevealed(featureId, paletteCommit, rgb_48b)
+        - emits FeaturePaletteRevealed(featureId, paletteCommit, rgb_30b)
      emit FeatureSlotRevealed(featureId, shadowId, slotIdx, plaintexts[i])    (NEW)
 9. _autoExtractAllSlots                                            (existing)
 10. emit ShadowSolved                                              (existing)
@@ -140,24 +140,22 @@ is per-shadow, not per-carrier.
 |---|---|---|
 | `Poseidon2YulSponge.sponge_39` | yes | new on-chain plaintext binding |
 | `Poseidon2YulSponge16.sponge_8_pad16` | yes | existing PI[1] root |
-| `Poseidon2YulSpongePaletteSalt` (new, sponge_17) | NEW | per-slot palette commitment check |
+| `Poseidon2YulSpongePaletteSalt` (new, 11-field sponge) | NEW | per-slot palette commitment check |
 
-The sponge_17 contract: 5 full rate-3 absorbs over `palette[0..14]`
-(15 elements) + 1 partial absorb of `(palette[15], salt)` + sentinel
-pad. 7 permutations, byte-equivalent to
-`circuits/palette_reveal_v2/src/main.nr::sponge_palette_salt` — which
-becomes the spec for the Yul implementation, then is deleted.
+The 11-field palette sponge contract: 3 full rate-3 absorbs over
+`palette[0..8]` + 1 partial absorb of `(palette[9], salt)` + sentinel
+pad. It is byte-equivalent to `tools/v2_circuit_helpers.py::sponge_palette_salt`.
 
 ## Gas budget
 
 | Component | Per-slot | 16 slots |
 |---|---|---|
 | sponge_39 over plaintext (Yul, 14 perms) | ~120-150k | ~2.0-2.4M |
-| sponge_palette_salt (Yul, 7 perms) | ~60-80k | ~1.0-1.3M |
+| sponge_palette_salt (Yul, 5 perms) | ~45-65k | ~0.7-1.0M |
 | paletteRevealed flag SSTORE | ~5k | ~80k |
-| FeaturePaletteRevealed emit (48 B + 2 topics) | ~7k | ~112k |
+| FeaturePaletteRevealed emit (30 B + 2 topics) | ~7k | ~112k |
 | FeatureSlotRevealed emit (1248 B + 3 topics) | ~25k | ~400k |
-| Calldata overhead per slot (palette 512 B + salt 32 B + plaintext 1248 B) | ~28k | ~448k |
+| Calldata overhead per slot (palette 320 B + salt 32 B + plaintext 1248 B) | ~26k | ~416k |
 | **Per-slot reveal overhead** | **~245-290k** | |
 | **16-slot reveal overhead** | | **~3.9-4.7M** |
 
@@ -195,7 +193,7 @@ implemented and tested:
 8. Delete build_palette_reveal_fixture.py.
 9. Update build_solve_*_fixture.py to emit palette + plaintext args.
 10. Update render_onchain_shadow.py to read FeatureSlotRevealed events.
-11. Update DeployShadowPipeline (drop palette verifier; add Yul sponge17).
+11. Update DeployShadowPipeline (drop palette verifier; add Yul 11-field palette sponge).
 12. forge test all green; pipeline #5 deploy + lifecycle.
 
 ## Open questions resolved

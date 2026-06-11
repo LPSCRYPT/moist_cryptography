@@ -204,7 +204,7 @@ def build_insert_witness(seed: bytes, src_state: dict, host_shadow_id: int,
     # mutation builder's c2 even at slot 0.
     new_pose = pack_pose(x=4, y=4)
     new_w, new_h = 10, 10  # under 48x48 canvas
-    new_indices = [(j * 13 + host_target_slot + 1) & 0xF for j in range(new_w * new_h)]
+    new_indices = [(j * 13 + host_target_slot + 1) % 10 for j in range(new_w * new_h)]
     new_plaintext = encode_plaintext_v2(new_pose, new_w, new_h, new_indices)
     assert len(new_plaintext) == PLAINTEXT_FIELDS
 

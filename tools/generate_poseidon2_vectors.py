@@ -53,8 +53,8 @@ def build() -> dict[str, list[dict]]:
             for name, vals in cases(39)
         ],
         "palette_salt": [
-            {"name": name, "palette": [raw_hex32(v) for v in vals[:16]], "salt": raw_hex32(vals[16]), "expected": hex32(sponge_palette_salt(vals[:16], vals[16]))}
-            for name, vals in cases(17)
+            {"name": name, "palette": [raw_hex32(v) for v in vals[:10]], "salt": raw_hex32(vals[10]), "expected": hex32(sponge_palette_salt(vals[:10], vals[10]))}
+            for name, vals in cases(11)
         ],
     }
 

@@ -180,8 +180,8 @@ Live palette-reveal demo on pipeline #4:
 3. owner calls `revealPalette(featureId, proof, pi)`. Proof binds:
    - `sponge_palette_salt(palette, salt) == paletteCommit (PI[1])` -> chain checks vs storage,
    - `palette_packed[i] == palette[2i] + palette[2i+1] * 2^24`.
-4. `FeaturePaletteRevealed(featureId, paletteCommit, bytes paletteRGB)` emits
-   the 48 raw RGB bytes; `f.paletteRevealed = true` (anti-replay).
+4. `FeaturePaletteRevealed(featureId, paletteCommit, bytes paletteRGB)` emitted
+   the legacy 16-color RGB byte table; `f.paletteRevealed = true` (anti-replay).
 5. `tools/render_onchain_shadow.py --fn 0x578eda36...` reads the event and
    renders the slot with the actual color table; off-chain palette colors
    match on-chain RGB byte-for-byte.

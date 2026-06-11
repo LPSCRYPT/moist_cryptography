@@ -7,10 +7,9 @@ The v2 visual pipeline:
      directly from a solve fixture's `plaintexts.json`).
   2. Decode plaintext via `decode_plaintext_v2` into
      (pose, w, h, palette_indices[w*h]).
-  3. Map each 4-bit palette index to RGB via a palette table. v2 does
-     not store palettes on chain (only `paletteCommit`); we use a
-     default 16-color palette so the output is reproducible from
-     fixtures alone.
+  3. Map each 4-bit palette index to RGB via a canonical 10-color
+     named palette. Fixture-only renders use the `amber` palette unless
+     fixture metadata supplies a revealed palette.
   4. Compose 16 slots into a 48x48 RGB canvas using the revealed
      z-permutation (post-solve; pre-solve the z-order is opaque).
   5. Compute T10 byte-equal via sponge_18 over (shadowId, zCommit,
@@ -49,6 +48,7 @@ from typing import Optional
 
 REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "landmark"))
 
 from v2_circuit_helpers import (  # noqa: E402
     P, PLAINTEXT_FIELDS, CANVAS_W, CANVAS_H,
@@ -57,6 +57,7 @@ from v2_circuit_helpers import (  # noqa: E402
 
 # sponge_18 + split_128 live in tools/build_atomic_*_fixture.py modules; reuse.
 from build_atomic_mutate_fixture import sponge_18, split_128  # noqa: E402
+from palette_quantizer import PALETTES  # noqa: E402
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -66,30 +67,12 @@ except ImportError:
 
 
 # --------------------------------------------------------------------------
-# Default 16-color palette. v2 paletteCommits commit to per-carrier
-# palettes which are owner-private; for fixture-driven visualization we
-# use a deterministic default so renders are reproducible.
-# Selected for visual diversity + decent contrast on white background.
+# Default canonical 10-color palette. v2 paletteCommits commit to per-carrier
+# palettes; fixture-driven visualization uses a deterministic named palette
+# when no fixture metadata provides the actual revealed palette.
 # --------------------------------------------------------------------------
-DEFAULT_PALETTE: list[tuple[int, int, int]] = [
-    (255, 255, 255),  # 0  white
-    (  0,   0,   0),  # 1  black
-    (220,  20,  60),  # 2  crimson
-    (255, 140,   0),  # 3  dark orange
-    (255, 215,   0),  # 4  gold
-    ( 50, 205,  50),  # 5  lime green
-    (  0, 191, 255),  # 6  deep sky blue
-    ( 75,   0, 130),  # 7  indigo
-    (199,  21, 133),  # 8  medium violet red
-    (139,  69,  19),  # 9  saddle brown
-    (255, 192, 203),  # 10 pink
-    (128, 128, 128),  # 11 grey
-    ( 64, 224, 208),  # 12 turquoise
-    (255, 105, 180),  # 13 hot pink
-    (124, 252,   0),  # 14 lawn green
-    (188, 143, 143),  # 15 rosy brown
-]
-assert len(DEFAULT_PALETTE) == 16
+DEFAULT_PALETTE: list[tuple[int, int, int]] = PALETTES["amber"]
+assert len(DEFAULT_PALETTE) == 10
 
 
 def decode_pose(pose_packed: int) -> tuple[int, int, int, int]:
@@ -122,7 +105,9 @@ def render_slot_sprite(
     pixels = sprite.load()
     for j in range(h):
         for i in range(w):
-            idx = indices[j * w + i] & 0xF
+            idx = indices[j * w + i]
+            if idx >= len(palette):
+                raise ValueError(f"palette index {idx} outside palette length {len(palette)}")
             pixels[i, j] = palette[idx]
     return sprite, {
         "empty": False,
