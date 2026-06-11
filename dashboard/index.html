@@ -3,41 +3,79 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Moist Cryptography Sepolia Dashboard</title>
+  <title>Moist Cryptography Local Dashboard</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <header>
     <div>
-      <p class="eyebrow">Base Sepolia live state</p>
-      <h1>ShadowNFT chain dashboard</h1>
+      <p class="eyebrow">Localhost + Base Sepolia</p>
+      <h1>ShadowNFT test dashboard</h1>
+      <p class="lede">Load a chain, inspect every Shadow NFT, decrypt hidden slots with a selected profile, and send test calls from local accounts.</p>
     </div>
-    <button id="loadBtn">Load live chain data</button>
+    <div class="headerActions">
+      <button id="applyLocalBtn" class="secondary" type="button">Use localhost run</button>
+      <button id="loadBtn">Load / refresh</button>
+    </div>
   </header>
 
   <main>
-    <section class="panel grid two">
-      <div>
-        <h2>Network</h2>
-        <label>RPC URL <input id="rpcUrl" autocomplete="off" /></label>
-        <label>From block <input id="fromBlock" inputmode="numeric" /></label>
+    <section class="panel setupPanel">
+      <div class="sectionHeader">
+        <div>
+          <h2>1. Connect</h2>
+          <p class="note">For local testing, start the harness and click <strong>Use localhost run</strong>. Advanced network and contract fields are below if you need to point at Sepolia or a custom deployment.</p>
+        </div>
+        <div class="buttonRow">
+          <button id="reloadLocalConfigBtn" class="secondary" type="button">Reload local config</button>
+          <button id="loadBtnSecondary" type="button">Load / refresh</button>
+        </div>
       </div>
-      <div>
-        <h2>Contracts</h2>
-        <label>ShadowToken <input id="shadowToken" /></label>
-        <label>FeatureNFT <input id="featureNft" /></label>
-        <label>ShadowMintController <input id="mintController" /></label>
-        <label>KeyRegistry <input id="keyRegistry" /></label>
+      <div id="connectionSummary" class="summaryGrid">
+        <div class="metricCard"><div class="metricLabel">RPC</div><div id="summaryRpc" class="hash">Not connected</div></div>
+        <div class="metricCard"><div class="metricLabel">Chain</div><div id="summaryChain">-</div></div>
+        <div class="metricCard"><div class="metricLabel">Shadows loaded</div><div id="summaryShadows">0</div></div>
+        <div class="metricCard"><div class="metricLabel">Events loaded</div><div id="summaryEvents">0</div></div>
       </div>
+      <details class="advancedBox">
+        <summary>Advanced connection settings</summary>
+        <div class="grid two">
+          <div>
+            <h3>Network</h3>
+            <label>RPC URL <input id="rpcUrl" autocomplete="off" /></label>
+            <label>Chain ID <input id="chainId" inputmode="numeric" /></label>
+            <label>From block <input id="fromBlock" inputmode="numeric" /></label>
+          </div>
+          <div>
+            <h3>Contracts</h3>
+            <label>ShadowToken <input id="shadowToken" /></label>
+            <label>FeatureNFT <input id="featureNft" /></label>
+            <label>ShadowMintController <input id="mintController" /></label>
+            <label>KeyRegistry <input id="keyRegistry" /></label>
+          </div>
+        </div>
+      </details>
     </section>
 
-    <section class="panel">
-      <div class="sectionHeader">
-        <h2>User profiles</h2>
-        <button id="addProfileBtn" type="button">Add profile</button>
-      </div>
-      <p class="note">Private keys are used only in this browser tab. The dashboard never sends private keys, shared secrets, or plaintexts to RPC. A slot is decryptable only when chain events contain both ciphertext <code>c2</code> and ECIES envelope <code>c1</code>.</p>
-      <div id="profiles"></div>
+    <section class="grid two">
+      <section class="panel">
+        <div class="sectionHeader">
+        <div>
+          <h2>2. Test users</h2>
+          <p class="note">Choose the active viewer below. The selected user controls slot decryption and transaction signing.</p>
+        </div>
+        <div class="buttonRow">
+          <label class="inlineSelect">Viewing as <select id="activeViewer"></select></label>
+          <button id="addProfileBtn" type="button">Add user</button>
+        </div>
+        <div id="profiles"></div>
+      </section>
+
+      <section class="panel">
+        <h2>3. Available face images</h2>
+        <p class="note">These are source images available to the local minter. They are not all minted automatically. The local harness currently mints the fixture image marked with an imageCommit, so seeing one Shadow NFT from three face previews is expected.</p>
+        <div id="minterFixtures" class="faceGallery">No local fixture config loaded.</div>
+      </section>
     </section>
 
     <section class="panel statusPanel">
@@ -45,29 +83,68 @@
       <pre id="status">Not loaded.</pre>
     </section>
 
-    <section class="grid two">
+    <section class="grid browserGrid">
       <section class="panel">
-        <h2>Discovered shadows</h2>
-        <div id="shadowList" class="list"></div>
+        <h2>4. Shadows</h2>
+        <p class="note">Click a Shadow NFT to see ownership, T10 state-hash history, slot state, and what the active viewer can decrypt/render from available palettes.</p>
+        <div id="shadowList" class="list emptyState">Load chain data to discover shadows.</div>
       </section>
       <section class="panel">
-        <h2>Selected shadow</h2>
-        <div id="shadowDetail">Select a shadow after loading.</div>
+        <h2>Selected shadow / active user view</h2>
+        <div id="shadowDetail" class="emptyState">Select a shadow after loading.</div>
       </section>
     </section>
 
-    <section class="panel">
-      <h2>Event timeline</h2>
+    <details class="panel advancedBox">
+      <summary>Advanced: send/read arbitrary contract calls</summary>
+      <p class="note">Use this for local testing and debugging. Pick a user, target a known or custom contract, choose a preset or paste one ABI function item, then run a read call or send a transaction.</p>
+      <div class="grid two">
+        <label>Active user <select id="callerProfile"></select></label>
+        <label>Known contract
+          <select id="knownContract">
+            <option value="shadowToken">ShadowToken</option>
+            <option value="featureNft">FeatureNFT</option>
+            <option value="mintController">ShadowMintController</option>
+            <option value="keyRegistry">KeyRegistry</option>
+            <option value="custom">Custom address</option>
+          </select>
+        </label>
+      </div>
+      <label>Call preset
+        <select id="callPreset">
+          <option value="ownerOf">Shadow ownerOf(shadowId)</option>
+          <option value="downscaleRevision">Shadow T10 revision</option>
+          <option value="shadowHeader">Shadow header</option>
+          <option value="slotOf">Shadow slotOf(shadowId, slot)</option>
+          <option value="custom">Custom ABI + args</option>
+        </select>
+      </label>
+      <label>Target address <input id="callerTarget" placeholder="0x…" /></label>
+      <label>ABI function item <textarea id="callerAbi" rows="2" spellcheck="false" placeholder="function ownerOf(uint256 tokenId) view returns (address)"></textarea></label>
+      <label>Args JSON <textarea id="callerArgs" rows="3" spellcheck="false" placeholder='["1"]'></textarea></label>
+      <label>Value wei <input id="callerValue" inputmode="numeric" placeholder="0" /></label>
+      <div class="buttonRow">
+        <button id="callReadBtn" type="button" class="secondary">Read / simulate</button>
+        <button id="callWriteBtn" type="button">Send transaction</button>
+      </div>
+      <pre id="callerOutput">No calls yet.</pre>
+    </details>
+
+    <details class="panel advancedBox">
+      <summary>Event timeline</summary>
+      <p class="note">Raw recent event log for debugging. The shadow browser above is the friendlier view.</p>
       <div id="timeline" class="timeline"></div>
-    </section>
+    </details>
+
   </main>
 
   <template id="profileTemplate">
     <div class="profileRow">
-      <label>Label <input class="profileLabel" placeholder="Alice" /></label>
+      <label>Name <input class="profileLabel" placeholder="Alice" /></label>
       <label>EVM address <input class="profileAddress" placeholder="0x…" /></label>
-      <label>Grumpkin sk <input class="profileSk" type="password" placeholder="0x… optional" /></label>
-      <button class="removeProfile" type="button">Remove</button>
+      <label>Decrypt key <input class="profileSk" type="password" placeholder="Grumpkin sk, optional" /></label>
+      <label>Signing key <input class="profileEvmPk" type="password" placeholder="EVM pk, local/test only" /></label>
+      <button class="removeProfile secondary" type="button">Remove</button>
     </div>
   </template>
 

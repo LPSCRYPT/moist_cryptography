@@ -43,7 +43,7 @@ contract SolveShadowRealProofTest is Test {
     bytes internal proofT10;
     bytes32[] internal piT10;
     bytes internal plaintext;
-    bytes32[16] internal palette;
+    bytes32[10] internal palette;
     bytes32 internal paletteSalt;
 
     uint256 internal shadowId;
@@ -78,7 +78,7 @@ contract SolveShadowRealProofTest is Test {
         plaintext = vm.readFileBinary(string.concat(FIX, "/plaintext.bin"));
 
         string memory meta = vm.readFile(string.concat(FIX, "/meta.json"));
-        for (uint256 i = 0; i < 16; i++) {
+        for (uint256 i = 0; i < 10; i++) {
             palette[i] = bytes32(meta.readUint(string.concat(".palette[", vm.toString(i), "]")));
         }
         paletteSalt = bytes32(meta.readUint(".palette_salt"));

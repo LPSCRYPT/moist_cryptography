@@ -44,7 +44,7 @@ contract MaxRevealFeatureNFT is IFeatureNFT {
     function extractFromShadow(uint256 featureId, uint256, uint8, bytes32 finalLiveStateHash) external { features[featureId].liveStateHash = finalLiveStateHash; features[featureId].inserted = false; }
     function insertIntoShadow(uint256, uint256, uint8) external pure { revert("unused"); }
     function rotateInsertedOwner(uint256 featureId, uint256, address to) external { features[featureId].owner = to; }
-    function revealInsertedFeature(uint256 featureId, uint256, uint8, bytes32[16] calldata, bytes32, bytes calldata) external { features[featureId].revealed = true; }
+    function revealInsertedFeature(uint256 featureId, uint256, uint8, bytes32[10] calldata, bytes32, bytes calldata) external { features[featureId].revealed = true; }
     function ownerOfFeature(uint256 featureId) external view returns (address) { return features[featureId].owner; }
     function typeIdxOf(uint256) external pure returns (uint8) { return 0; }
     function originFaceIdOf(uint256 featureId) external view returns (bytes32) { return features[featureId].originFaceId; }

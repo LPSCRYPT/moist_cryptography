@@ -30,6 +30,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "landmark"))
 
 from secret_inbox import G, GRUMPKIN_ORDER, ec_mul  # noqa: E402
 from v2_circuit_helpers import (  # noqa: E402
@@ -42,6 +43,7 @@ from v2_circuit_helpers import (  # noqa: E402
     fhex, bx32,
 )
 from build_atomic_mutate_fixture import sponge_18, split_128  # noqa: E402
+from palette_quantizer import PALETTES, PALETTE_RANK  # noqa: E402
 
 ROOT = REPO.parent
 MINT_DIR = ROOT / "circuits" / "landmark_regions_v2"
@@ -126,7 +128,7 @@ def build_witness(seed: bytes, image_commit: int, owner_seed: bytes | None = Non
         pose = pack_pose(x=2 + i * 2, y=4 + (i % 8))
         w_dim = 6 + (i % 4)
         h_dim = 6 + ((i + 1) % 4)
-        indices = [(j * 7 + i + 3) & 0xF for j in range(w_dim * h_dim)]
+        indices = [(j * 7 + i + 3) % 10 for j in range(w_dim * h_dim)]
         plaintext = encode_plaintext_v2(pose, w_dim, h_dim, indices)
         plaintexts.append(plaintext)
 
@@ -153,14 +155,12 @@ def build_witness(seed: bytes, image_commit: int, owner_seed: bytes | None = Non
         lsh = sponge_6(sc, cc, c1[0], c1[1], 0, ct)
         lsh_inits.append(lsh)
 
-        # Per-slot 16-color palette + secret salt; commit binds them.
-        # Colors are 24-bit; salt is a Field. The owner ECIES-decrypts the
-        # salt envelope at reveal time to drive `palette_reveal_v2`.
-        import hashlib  # local import keeps top-level minimal
-        palette = []
-        for j in range(16):
-            d = hashlib.sha256(seed + f":palette:{i}:{j}".encode()).digest()
-            palette.append(int.from_bytes(d[:3], "big") & 0xFFFFFF)
+        # Per-slot named 10-color palette + secret salt; commit binds them.
+        # Palette order is the canonical 23-palette PALETTE_RANK used by the
+        # landmark circuit. The slot deterministically chooses one palette and
+        # plaintext indices are restricted to 0..9.
+        palette_name = PALETTE_RANK[i % len(PALETTE_RANK)]
+        palette = [(r << 16) | (g << 8) | b for (r, g, b) in PALETTES[palette_name]]
         palette_salt = deterministic_int(seed, f"palette_salt_{i}".encode(), P)
         commit = sponge_palette_salt(palette, palette_salt)
         # Fresh r_salt per slot for the salt envelope. Reusing the slot's

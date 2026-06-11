@@ -40,6 +40,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "landmark"))
 
 from secret_inbox import G, GRUMPKIN_ORDER, ec_mul  # noqa: E402
 from v2_circuit_helpers import (  # noqa: E402
@@ -52,6 +53,7 @@ from v2_circuit_helpers import (  # noqa: E402
     fhex, bx32,
 )
 
+from palette_quantizer import PALETTES, PALETTE_RANK  # noqa: E402
 ROOT = REPO.parent
 CIRCUIT_DIR = ROOT / "circuits" / "solve_shadow_v2"
 PROVER_TOML = CIRCUIT_DIR / "Prover.toml"
@@ -218,17 +220,15 @@ def main() -> None:
         state_commits[i] = s["state_commit"]
     assert all(prev_c1_x[i] != 0 or prev_c1_y[i] != 0 for i in range(16)), "prev_c1 padding points must be on-curve"
 
-    # Per-slot palette + salt: deterministic from same seed used at mint
+    # Per-slot named 10-color palette + salt: deterministic from same seed used at mint
     # (reveal-update spec; ShadowToken.solve verifies sponge_palette_salt
-    # over (palette[16], salt) opens the chain-stored paletteCommit).
-    palettes: list[list[int]] = [[0] * 16 for _ in range(16)]
+    # over (palette[10], salt) opens the chain-stored paletteCommit).
+    palettes: list[list[int]] = [[0] * 10 for _ in range(16)]
     palette_salts = [0] * 16
     palette_commits = [0] * 16
     for i in occupied_slots:
-        pal = []
-        for j in range(16):
-            d = hashlib.sha256(seed + f":palette:{i}:{j}".encode()).digest()
-            pal.append(int.from_bytes(d[:3], "big") & 0xFFFFFF)
+        palette_name = PALETTE_RANK[i % len(PALETTE_RANK)]
+        pal = [(r << 16) | (g << 8) | b for (r, g, b) in PALETTES[palette_name]]
         salt = deterministic_int_mint(seed, f"palette_salt_{i}".encode(), P)
         palettes[i] = pal
         palette_salts[i] = salt

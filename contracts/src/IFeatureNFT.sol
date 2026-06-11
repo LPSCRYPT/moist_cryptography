@@ -85,7 +85,7 @@ interface IFeatureNFT {
         uint256 featureId,
         uint256 shadowId,
         uint8 slotIdx,
-        bytes32[16] calldata palette,
+        bytes32[10] calldata palette,
         bytes32 salt,
         bytes calldata plaintext
     ) external;

@@ -19,7 +19,7 @@ import {IShadowToken} from "./IShadowToken.sol";
  *             - typeIdx        landmark type 0..7
  *             - originFaceId   lineage anchor (the face this atom's
  *                              pixels first originated from)
- *             - paletteCommit  poseidon2 of the 16 palette colors
+ *             - paletteCommit  poseidon2 of the 10-color named palette
  *             - mintedAt       block.number at mint, audit trail
  *           Mutable:
  *             - liveStateHashCheckpoint  authoritative when held;
@@ -95,7 +95,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     IVerifier public transferFeatureVerifier;
     bool private _transferFeatureVerifierLocked;
 
-    /// Yul Poseidon2 sponge over (palette[16], salt) -> 17 fields. Used by
+    /// Yul Poseidon2 sponge over (palette[10], salt) -> 11 fields. Used by
     /// `revealInsertedFeature` to verify the palette + salt witness opens
     /// the stored `paletteCommit` byte-for-byte. Set once via
     /// `setPaletteSponge`; address(0) until then (revealInsertedFeature will
@@ -121,7 +121,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     event FeaturePaletteRevealed(
         uint256 indexed featureId,
         bytes32 paletteCommit,
-        bytes paletteRGB // 16 colors x 3 bytes = 48 bytes
+        bytes paletteRGB // 10 colors x 3 bytes = 30 bytes
     );
     /// Per-slot plaintext reveal. Emitted by
     /// `revealInsertedFeature` after the palette commitment opens, so
@@ -409,8 +409,8 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
 
     // ============== revealInsertedFeature (privileged: ShadowToken-only) ==============
 
-    /// @notice Open an inserted carrier's `paletteCommit` to the actual 16
-    ///         RGB colors during incremental slot reveal. Called only by
+    /// @notice Open an inserted carrier's `paletteCommit` to the actual
+    ///         10-color named RGB palette during incremental slot reveal. Called only by
     ///         ShadowToken after it has verified the slot plaintext proof.
     ///         Single-shot: `paletteRevealed` is set on success and a second
     ///         call reverts.
@@ -423,7 +423,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
     ///                                in `FeatureSlotRevealed` for cross-event linkage
     /// @param  slotIdx                host slot index at reveal time; emitted
     ///                                in `FeatureSlotRevealed`
-    /// @param  palette                16 colors, each Field's low 24 bits
+    /// @param  palette                10 colors, each Field's low 24 bits
     ///                                interpreted as 0xRRGGBB
     /// @param  salt                   the per-carrier salt mixed into
     ///                                paletteCommit at mint
@@ -435,7 +435,7 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         uint256 featureId,
         uint256 shadowId,
         uint8 slotIdx,
-        bytes32[16] calldata palette,
+        bytes32[10] calldata palette,
         bytes32 salt,
         bytes calldata plaintext
     ) external {
@@ -446,16 +446,16 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
         address yul = paletteSpongeYul;
         if (yul == address(0)) revert PaletteSpongeNotSet();
 
-        // Pack 17 fields = 544 bytes calldata for the Yul sponge. Palette
+        // Pack 11 fields = 352 bytes calldata for the Yul sponge. Palette
         // colors are exactly 24-bit RGB values; salt is a canonical Fr field.
-        bytes memory buf = new bytes(17 * 32);
-        for (uint256 i = 0; i < 16; i++) {
+        bytes memory buf = new bytes(11 * 32);
+        for (uint256 i = 0; i < 10; i++) {
             uint256 color = uint256(palette[i]);
             if (color > 0xFFFFFF) revert PaletteColorOutOfRange(i, color);
             assembly { mstore(add(add(buf, 32), mul(i, 32)), color) }
         }
-        _assertCanonicalField(uint256(salt), 16);
-        assembly { mstore(add(add(buf, 32), mul(16, 32)), salt) }
+        _assertCanonicalField(uint256(salt), 10);
+        assembly { mstore(add(add(buf, 32), mul(10, 32)), salt) }
 
         (bool ok, bytes memory ret) = yul.staticcall(buf);
         if (!ok || ret.length != 32) revert PaletteSpongeCallFailed();
@@ -465,10 +465,10 @@ contract FeatureNFT is ERC721, PausableMixin, IFeatureNFT {
 
         f.paletteRevealed = true;
 
-        // Unpack the 16-color palette into 48 raw RGB bytes. Canonicality
+        // Unpack the 10-color palette into 30 raw RGB bytes. Canonicality
         // above guarantees these bytes are exactly the committed color values.
-        bytes memory rgb = new bytes(48);
-        for (uint256 i = 0; i < 16; i++) {
+        bytes memory rgb = new bytes(30);
+        for (uint256 i = 0; i < 10; i++) {
             uint256 c = uint256(palette[i]);
             rgb[i * 3 + 0] = bytes1(uint8(c >> 16));
             rgb[i * 3 + 1] = bytes1(uint8(c >> 8));

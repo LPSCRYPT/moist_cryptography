@@ -108,7 +108,7 @@ contract RevealFeatureNFT is IFeatureNFT {
         uint256 featureId,
         uint256 shadowId,
         uint8 slotIdx,
-        bytes32[16] calldata,
+        bytes32[10] calldata,
         bytes32,
         bytes calldata plaintext
     ) external {
@@ -116,7 +116,7 @@ contract RevealFeatureNFT is IFeatureNFT {
         require(f.inserted, "not inserted");
         require(!f.paletteRevealed, "already revealed");
         f.paletteRevealed = true;
-        emit FeaturePaletteRevealed(featureId, f.paletteCommit, new bytes(48));
+        emit FeaturePaletteRevealed(featureId, f.paletteCommit, new bytes(30));
         emit FeatureSlotRevealed(featureId, shadowId, slotIdx, plaintext);
     }
 

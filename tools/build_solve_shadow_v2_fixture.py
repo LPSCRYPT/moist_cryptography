@@ -22,6 +22,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "landmark"))
 
 from secret_inbox import G, GRUMPKIN_ORDER, ec_mul  # noqa: E402
 from v2_circuit_helpers import (  # noqa: E402
@@ -36,6 +37,7 @@ from v2_circuit_helpers import (  # noqa: E402
     fhex,
 )
 from build_shadow_t10_fixture import sponge_18, split_128  # noqa: E402
+from palette_quantizer import PALETTES, PALETTE_RANK  # noqa: E402
 
 ROOT = REPO.parent
 CIRCUIT_DIR = ROOT / "circuits" / "solve_shadow_v2"
@@ -77,14 +79,15 @@ def build_witness(seed: bytes) -> dict:
     shadow_id = deterministic_int(seed, b"shadow_id", P)
     slot_idx = deterministic_int(seed, b"slot_idx", 16)
     feature_id = 10_000 + deterministic_int(seed, b"feature_id", 1_000_000)
-    palette = [deterministic_int(seed, f"palette_{j}".encode(), 0x1000000) for j in range(16)]
+    palette_name = PALETTE_RANK[slot_idx % len(PALETTE_RANK)]
+    palette = [(r << 16) | (g << 8) | b for (r, g, b) in PALETTES[palette_name]]
     palette_salt = deterministic_int(seed, b"palette_salt", P)
     palette_commit = sponge_palette_salt(palette, palette_salt)
     revealed_rank = deterministic_int(seed, b"revealed_rank", 16)
     pose = pack_pose(x=2 + slot_idx, y=4 + (slot_idx % 8))
     w_dim = 6 + (slot_idx % 4)
     h_dim = 6 + ((slot_idx + 1) % 4)
-    indices = [(j * 7 + slot_idx + 3) & 0xF for j in range(w_dim * h_dim)]
+    indices = [(j * 7 + slot_idx + 3) % 10 for j in range(w_dim * h_dim)]
     plaintext = encode_plaintext_v2(pose, w_dim, h_dim, indices)
     state_commit = sponge_39(plaintext)
 
@@ -108,6 +111,7 @@ def build_witness(seed: bytes) -> dict:
         "revealed_rank": revealed_rank,
         "palette": palette,
         "palette_salt": palette_salt,
+        "palette_name": palette_name,
         "plaintext": plaintext,
         "prev_ct_commit": prev_ct_commit,
         "prev_c1_x": c1[0],
@@ -158,7 +162,16 @@ def save_fixture(seed: str, w: dict) -> None:
     (out / "proof.bin").write_bytes((target / "proof").read_bytes())
     (out / "public_inputs.bin").write_bytes((target / "public_inputs").read_bytes())
     (out / "plaintext.bin").write_bytes(b"".join(int(x).to_bytes(32, "big") for x in w["plaintext"]))
-    meta = {k: (hex(v) if isinstance(v, int) else [hex(x) for x in v]) for k, v in w.items() if k != "owner_sk"}
+    meta = {}
+    for k, v in w.items():
+        if k == "owner_sk":
+            continue
+        if isinstance(v, int):
+            meta[k] = hex(v)
+        elif isinstance(v, list):
+            meta[k] = [hex(x) for x in v]
+        else:
+            meta[k] = v
     (out / "meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
     print(f"[wrote fixture] {out}")
 

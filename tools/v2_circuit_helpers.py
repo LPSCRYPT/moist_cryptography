@@ -168,8 +168,8 @@ def encode_plaintext_v2(pose: int, w: int, h: int, indices: list[int]) -> list[i
     expected = w * h
     if len(indices) != expected:
         raise ValueError(f"indices length {len(indices)} != w*h {expected}")
-    if any(i < 0 or i > 15 for i in indices):
-        raise ValueError("palette indices must be in [0, 16)")
+    if any(i < 0 or i > 9 for i in indices):
+        raise ValueError("palette indices must be in [0, 10)")
     # Pack 4-bit indices, two per byte (low nibble = first index).
     nbytes = (expected + 1) // 2
     pixel_bytes = bytearray(nbytes)
@@ -283,24 +283,24 @@ def ecies_decrypt_v2(c1: tuple[int, int], c2: list[int], owner_sk: int) -> tuple
 # build_atomic_mint_fixture (to compute paletteCommit + salt envelope at
 # mint) and build_palette_reveal_fixture (to drive the reveal proof).
 
-PALETTE_LEN = 16
-PACKED_LEN = 8
+PALETTE_LEN = 10
+PACKED_LEN = 5
 
 
 def sponge_palette_salt(palette: list[int], salt: int) -> int:
-    """Mirrors circuit's `sponge_palette_salt`: 5 full rate-3 absorbs
-    over palette[0..15] (15 elements) + 1 partial absorb of (palette[15],
-    salt, 0) + sentinel pad. Total 7 permutations.
+    """Mirrors contract `Poseidon2YulSpongePaletteSalt`: 3 full rate-3
+    absorbs over palette[0..8], one partial absorb of (palette[9], salt, 0),
+    then sentinel pad/finalize. Total 5 permutations.
     """
     if len(palette) != PALETTE_LEN:
         raise ValueError(f"palette must be {PALETTE_LEN} fields, got {len(palette)}")
     s0, s1, s2, s3 = 0, 0, 0, 0
-    for b in range(5):
+    for b in range(3):
         s0 = (s0 + palette[b * 3]) % P
         s1 = (s1 + palette[b * 3 + 1]) % P
         s2 = (s2 + palette[b * 3 + 2]) % P
         s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
-    s0 = (s0 + palette[15]) % P
+    s0 = (s0 + palette[9]) % P
     s1 = (s1 + salt) % P
     s0, s1, s2, s3 = poseidon2_perm(s0, s1, s2, s3)
     s0 = (s0 + 1) % P
@@ -309,10 +309,9 @@ def sponge_palette_salt(palette: list[int], salt: int) -> int:
 
 
 def encode_palette_packed(palette: list[int]) -> list[int]:
-    """Pack 16 24-bit colors into 8 Fields:
+    """Pack 10 24-bit colors into 5 Fields:
        packed[i] = palette[2i] + palette[2i+1] * 2^24.
     Each color must fit in 24 bits; higher bits are silently truncated
-    by the contract's RGB unpack but are still part of the proof's binding,
     so callers MUST pass clean 24-bit values.
     """
     if len(palette) != PALETTE_LEN:

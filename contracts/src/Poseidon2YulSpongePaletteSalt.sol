@@ -1,41 +1,37 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.8;
 
-/// @notice Poseidon2 sponge over BN254 Fr for **exactly 17 field inputs**.
-/// Layout matches `sponge_palette_salt` in
-/// `circuits/palette_reveal_v2/src/main.nr` (the Noir circuit becomes
-/// obsolete on chain; soundness for palette reveal flows through this
-/// contract instead):
+/// @notice Poseidon2 sponge over BN254 Fr for **exactly 11 field inputs**.
+/// Layout matches `tools/v2_circuit_helpers.py::sponge_palette_salt`:
 ///
 ///   state = [0, 0, 0, 0]
-///   for b in 0..5: absorb(palette[3b], palette[3b+1], palette[3b+2]); permute()
-///                                                              // 5 full rate-3 blocks (palette[0..14])
-///   absorb(palette[15], salt, 0); permute()                    // partial 6th block: 2-element rate
+///   for b in 0..3: absorb(palette[3b], palette[3b+1], palette[3b+2]); permute()
+///                                                              // 3 full rate-3 blocks (palette[0..8])
+///   absorb(palette[9], salt, 0); permute()                     // partial 4th block: 2-element rate
 ///   state[0] += 1; permute()                                   // sentinel
 ///   return state[0]
 ///
-/// Calldata: exactly 17 fields = 544 bytes, big-endian; first 16 are
-/// the palette (24-bit RGB packed as full Fields, high bits ignored
-/// by the FeatureNFT.revealInsertedFeature unpacker), 17th is the salt.
+/// Calldata: exactly 11 fields = 352 bytes, big-endian; first 10 are
+/// the named 24-bit RGB palette colors, 11th is the salt.
 /// Returns: 32 bytes = state[0] reduced mod PRIME.
 ///
 /// @dev Permutation body identical to Poseidon2YulSponge16 (verbatim copy).
 contract Poseidon2YulSpongePaletteSalt {
-    /// @dev Stateless. Call via STATICCALL with 512 bytes of input.
+    /// @dev Stateless. Call via STATICCALL with 352 bytes of input.
     fallback() external {
         assembly {
             let PRIME := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
             let cs := calldatasize()
-            // Reject anything except exactly 17 fields (544 bytes).
-            if iszero(eq(cs, 544)) { revert(0, 0) }
+            // Reject anything except exactly 11 fields (352 bytes).
+            if iszero(eq(cs, 352)) { revert(0, 0) }
 
             let s0 := 0
             let s1 := 0
             let s2 := 0
             let s3 := 0
 
-            // 5 full rate-3 absorb blocks (e[0..15]).
-            for { let i := 0 } lt(i, 5) { i := add(i, 1) } {
+            // 3 full rate-3 absorb blocks (e[0..8]).
+            for { let i := 0 } lt(i, 3) { i := add(i, 1) } {
                 let off := mul(i, 96)
                 s0 := addmod(s0, calldataload(off), PRIME)
                 s1 := addmod(s1, calldataload(add(off, 32)), PRIME)
@@ -43,9 +39,9 @@ contract Poseidon2YulSpongePaletteSalt {
                 s0, s1, s2, s3 := permute(s0, s1, s2, s3)
             }
 
-            // Partial 6th block: absorb palette[15] into state[0] and salt into state[1].
-            s0 := addmod(s0, calldataload(480), PRIME)
-            s1 := addmod(s1, calldataload(512), PRIME)
+            // Partial 4th block: absorb palette[9] into state[0] and salt into state[1].
+            s0 := addmod(s0, calldataload(288), PRIME)
+            s1 := addmod(s1, calldataload(320), PRIME)
             s0, s1, s2, s3 := permute(s0, s1, s2, s3)
 
             // Sentinel padding + finalize.

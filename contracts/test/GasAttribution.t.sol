@@ -115,13 +115,13 @@ contract AttributionFeatureNFT is IFeatureNFT {
     function revealInsertedFeature(uint256 featureId,
     uint256 shadowId,
     uint8 slotIdx,
-    bytes32[16] calldata,
+    bytes32[10] calldata,
     bytes32,
     bytes calldata plaintext) external { if (mode == Mode.Noop) return;
     FeatureState storage f = features[featureId];
     f.paletteRevealed = true;
     if (mode == Mode.StorageAndEvents) {
-        bytes memory rgb = new bytes(48);
+        bytes memory rgb = new bytes(30);
         emit FeaturePaletteRevealed(featureId, f.paletteCommit, rgb);
         emit FeatureSlotRevealed(featureId, shadowId, slotIdx, plaintext);
     } }

@@ -138,6 +138,11 @@ contract ShadowToken is ERC721, PausableMixin {
     /// "no public lie" rule. Empty for shadows that haven't completed
     /// mint or any subsequent atomic refresh.
     mapping(uint256 => bytes32[2]) public shadowT10;
+    /// Monotonic per-shadow BW/downscale history cursor. Incremented exactly
+    /// once per successful atomic T10 refresh, so indexers can replay a
+    /// shadow's public visual history by filtering ShadowDownscaleUpdated
+    /// for the shadowId and ordering by revision.
+    mapping(uint256 => uint64) public shadowDownscaleRevision;
 
     // Feature plaintext/palette bytes are event-published by FeatureNFT during incremental reveal.
 
@@ -171,7 +176,7 @@ contract ShadowToken is ERC721, PausableMixin {
     event ShadowFeatureInserted(uint256 indexed shadowId, uint8 indexed slotIdx, uint256 indexed featureId);
     event ShadowTransferred(uint256 indexed shadowId, address indexed to, bytes32 newEcdhPubX, bytes32 newEcdhPubY);
     event ShadowZIndexCommitSet(uint256 indexed shadowId, bytes32 newCommit);
-    event ShadowT10Updated(uint256 indexed shadowId, bytes32 hi, bytes32 lo);
+    event ShadowDownscaleUpdated(uint256 indexed shadowId, uint64 indexed revision, bytes32 hi, bytes32 lo);
     event ShadowSlotRevealed(uint256 indexed shadowId, uint8 indexed slotIdx, uint256 indexed featureId, uint8 revealedRank);
     event ImageRegistered(bytes32 indexed imageCommit);
 
@@ -612,7 +617,9 @@ contract ShadowToken is ERC721, PausableMixin {
 
         shadowT10[shadowId][0] = newT10[0];
         shadowT10[shadowId][1] = newT10[1];
-        emit ShadowT10Updated(shadowId, newT10[0], newT10[1]);
+        uint64 revision = shadowDownscaleRevision[shadowId] + 1;
+        shadowDownscaleRevision[shadowId] = revision;
+        emit ShadowDownscaleUpdated(shadowId, revision, newT10[0], newT10[1]);
     }
 
     /// One per-slot mutation entry inside a `mutateBatch` call. Mirrors
@@ -1118,7 +1125,7 @@ contract ShadowToken is ERC721, PausableMixin {
         uint8 slotIdx;
         bytes proof;
         bytes plaintext; // 39 field elements: pose, dimensions, palette indices
-        bytes32[16] palette;
+        bytes32[10] palette;
         bytes32 paletteSalt;
         uint8 revealedRank;
         bytes32[2] newT10;
